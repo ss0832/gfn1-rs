@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! DFT-D3(BJ) dispersion and experimental non-PBC DFT-D4 dispersion for GFN1-xTB.
 //!
-//! The large D3 C6 reference table is deliberately not bundled. It is read
-//! from the `s-dftd3/src/dftd3/reference.f90` source used by tblite.
+//! The large D3 C6 reference table is bundled under `third_party/simple-dftd3`
+//! and embedded at build time (`s-dftd3/src/dftd3/reference.f90`), so it is used
+//! by default; an explicit path or the `GFN1_D3_REFERENCE` environment variable
+//! can override it.
 //! D4 reference data are stored with upstream provenance under `third_party/dftd4`;
 //! the GFN1 damping constants `a1`, `a2`, and `s8` are read from the
 //! user-supplied `param_gfn1-xtb.txt` through [`Gfn1Parameters`].  The experimental
@@ -21,7 +23,7 @@ use crate::params::{Gfn1Parameters, GFN1_D3_REFERENCE_ENV};
 use crate::system::PeriodicSystem;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const WF: f64 = 4.0;
@@ -1238,8 +1240,7 @@ pub fn dispersion_energy_gradient(
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
 
-    let reference_path = resolve_d3_reference_path(params, explicit_reference_path)?;
-    let reference = load_d3_reference(&reference_path)?;
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let cn = coordination_with_derivatives(
         system,
         CoordinationOptions {
@@ -1374,8 +1375,7 @@ pub fn dispersion_energy_gradient_hessian(
     }
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
-    let reference_path = resolve_d3_reference_path(params, explicit_reference_path)?;
-    let reference = load_d3_reference(&reference_path)?;
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     let coords = jet_coordinates(system, ndof);
@@ -1474,8 +1474,7 @@ fn dispersion_strain_energy_jet(
     let atm_active = s9.abs() > 1.0e-15;
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
-    let reference_path = resolve_d3_reference_path(params, explicit_reference_path)?;
-    let reference = load_d3_reference(&reference_path)?;
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let cn = d3_strain_coordination_jets(system, ndof)?;
     let weights = reference_weight_jets(system, &reference, &cn, ndof)?;
     let c6 = atomic_c6_jets(system, &reference, &weights, ndof)?;
@@ -1642,65 +1641,37 @@ fn d3_atm_triple_energy_strain_jet(
     pref.mul(&angular).mul(&fdmp)
 }
 
-fn resolve_d3_reference_path(
-    params: &Gfn1Parameters,
+/// Resolve and load the D3 C6 reference data. An explicit path (the
+/// `--d3-reference` API argument) or the `GFN1_D3_REFERENCE` environment variable
+/// overrides the default; when neither is set, the reference bundled with the
+/// library and embedded at build time is used.
+fn resolve_and_load_d3_reference(
     explicit_reference_path: Option<&str>,
-) -> Result<PathBuf> {
+) -> Result<Arc<D3Reference>> {
     if let Some(path) = explicit_reference_path {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
+            return load_d3_reference(Path::new(trimmed));
         }
     }
     if let Ok(path) = std::env::var(GFN1_D3_REFERENCE_ENV) {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
+            return load_d3_reference(Path::new(trimmed));
         }
     }
+    bundled_d3_reference()
+}
 
-    if let Some(param_path) = &params.source_path {
-        let param = Path::new(param_path);
-        if let Some(param_dir) = param.parent() {
-            if let Some(root) = param_dir.parent() {
-                let candidate = root
-                    .join("tblite")
-                    .join("subprojects")
-                    .join("s-dftd3")
-                    .join("src")
-                    .join("dftd3")
-                    .join("reference.f90");
-                if candidate.exists() {
-                    return Ok(candidate);
-                }
-            }
-            let candidate = param_dir
-                .join("..")
-                .join("tblite")
-                .join("subprojects")
-                .join("s-dftd3")
-                .join("src")
-                .join("dftd3")
-                .join("reference.f90");
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-        }
+/// Parse and cache the D3 reference embedded in the library.
+fn bundled_d3_reference() -> Result<Arc<D3Reference>> {
+    static CACHE: OnceLock<Arc<D3Reference>> = OnceLock::new();
+    if let Some(found) = CACHE.get() {
+        return Ok(found.clone());
     }
-
-    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("third_party")
-        .join("simple-dftd3")
-        .join("src")
-        .join("dftd3")
-        .join("reference.f90");
-    if bundled.exists() {
-        return Ok(bundled);
-    }
-
-    Err(Gfn1Error::InvalidInput(format!(
-        "missing D3 reference data; pass --d3-reference FILE or set {GFN1_D3_REFERENCE_ENV}"
-    )))
+    let loaded = Arc::new(D3Reference::bundled()?);
+    let _ = CACHE.set(loaded.clone());
+    Ok(loaded)
 }
 
 #[derive(Clone, Debug)]
@@ -2777,8 +2748,7 @@ pub fn dispersion_third_derivative(
     }
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
-    let reference_path = resolve_d3_reference_path(params, explicit_reference_path)?;
-    let reference = load_d3_reference(&reference_path)?;
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     let coords = jet3_coordinates(system, ndof);
@@ -2827,10 +2797,18 @@ struct D3Reference {
     r4r2: Vec<f64>,
 }
 
+/// D3 C6 reference table and `r4/r2` data, bundled under `third_party/simple-dftd3`
+/// and embedded at build time so the default dispersion path needs no external
+/// file. Overridable through the `--d3-reference` API argument or the
+/// `GFN1_D3_REFERENCE` environment variable.
+const BUNDLED_D3_REFERENCE_F90: &str =
+    include_str!("../third_party/simple-dftd3/src/dftd3/reference.f90");
+const BUNDLED_D3_R4R2_F90: &str =
+    include_str!("../third_party/simple-dftd3/src/dftd3/data/r4r2.f90");
+
 impl D3Reference {
-    fn from_reference_file(path: &Path) -> Result<Self> {
-        let text = fs::read_to_string(path)?;
-        let clean = strip_fortran_comments(&text);
+    fn from_reference_text(reference_text: &str, r4r2_text: &str) -> Result<Self> {
+        let clean = strip_fortran_comments(reference_text);
         let max_elem = parse_parameter_usize(&clean, "max_elem")?;
         let max_ref = parse_parameter_usize(&clean, "max_ref")?;
         let number_of_references = parse_int_array_after(&clean, "number_of_references")?
@@ -2859,14 +2837,7 @@ impl D3Reference {
                 c6.len()
             )));
         }
-        let r4r2_path = path
-            .parent()
-            .ok_or_else(|| {
-                Gfn1Error::InvalidInput("D3 reference path has no parent directory".to_string())
-            })?
-            .join("data")
-            .join("r4r2.f90");
-        let r4r2 = parse_r4r2_file(&r4r2_path)?;
+        let r4r2 = parse_r4r2_text(r4r2_text)?;
         Ok(Self {
             max_elem,
             max_ref,
@@ -2875,6 +2846,27 @@ impl D3Reference {
             c6,
             r4r2,
         })
+    }
+
+    /// Parse the D3 reference from a `reference.f90` file, reading the companion
+    /// `data/r4r2.f90` next to it. Used only when an explicit path or the
+    /// `GFN1_D3_REFERENCE` environment variable overrides the bundled default.
+    fn from_reference_file(path: &Path) -> Result<Self> {
+        let reference_text = fs::read_to_string(path)?;
+        let r4r2_path = path
+            .parent()
+            .ok_or_else(|| {
+                Gfn1Error::InvalidInput("D3 reference path has no parent directory".to_string())
+            })?
+            .join("data")
+            .join("r4r2.f90");
+        let r4r2_text = fs::read_to_string(&r4r2_path)?;
+        Self::from_reference_text(&reference_text, &r4r2_text)
+    }
+
+    /// The D3 reference bundled with the library and embedded at build time.
+    fn bundled() -> Result<Self> {
+        Self::from_reference_text(BUNDLED_D3_REFERENCE_F90, BUNDLED_D3_R4R2_F90)
     }
 
     fn number_of_references(&self, z: u8) -> Result<usize> {
@@ -2944,9 +2936,8 @@ fn load_d3_reference(path: &Path) -> Result<Arc<D3Reference>> {
     Ok(loaded)
 }
 
-fn parse_r4r2_file(path: &Path) -> Result<Vec<f64>> {
-    let text = fs::read_to_string(path)?;
-    let clean = strip_fortran_comments(&text);
+fn parse_r4r2_text(text: &str) -> Result<Vec<f64>> {
+    let clean = strip_fortran_comments(text);
     let raw = parse_float_array_after(&clean, "r4_over_r2")?;
     Ok(raw
         .into_iter()
@@ -3082,8 +3073,8 @@ fn push_float_token(out: &mut Vec<f64>, token: &str) -> Result<()> {
 mod tests {
     use super::{
         dispersion_energy, dispersion_energy_gradient, dispersion_energy_gradient_hessian,
-        dispersion_third_derivative, load_d3_reference, reference_weight_cn_derivatives,
-        resolve_d3_reference_path,
+        dispersion_third_derivative, reference_weight_cn_derivatives,
+        resolve_and_load_d3_reference,
     };
     use crate::lattice::Lattice;
     use crate::math::{Mat3, Vec3};
@@ -3152,9 +3143,7 @@ mod tests {
 
     #[test]
     fn bundled_d3_reference_is_available() {
-        let params = Gfn1Parameters::default();
-        let path = resolve_d3_reference_path(&params, None).unwrap();
-        let reference = load_d3_reference(&path).unwrap();
+        let reference = resolve_and_load_d3_reference(None).unwrap();
         assert!(reference.number_of_references(6).unwrap() > 0);
         assert!(reference.r4r2(8).unwrap() > 0.0);
     }

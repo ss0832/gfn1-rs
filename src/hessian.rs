@@ -257,6 +257,10 @@ pub fn analytic_hessian_from_result(
     } else {
         None
     };
+    // The assembled Hessian is symmetric in exact arithmetic; average it with its
+    // transpose to remove the small asymmetry left by finite-precision accumulation
+    // across the per-term contributions.
+    symmetrize_in_place(&mut hessian);
     Ok(AnalyticHessianResult {
         hessian,
         repulsion,
@@ -501,6 +505,7 @@ pub fn fixed_density_pulay_hessian(
 /// geometric channels — `part_c_sab` = the `C·S_ab` (overlap-coeff × overlap-2nd-deriv) channel, and
 /// `part_h0` = the `2p·(h0_c·S_r + h0_r·S_c + S·h0_rc)` (h0-derivative) channel. Same loop/weights as
 /// [`fixed_density_pulay_hessian`]; used to FD-attribute the reconverged density-path residual `miss[c]`.
+#[cfg(test)]
 pub(crate) fn fixed_density_pulay_hessian_parts(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -578,6 +583,7 @@ pub(crate) fn fixed_density_pulay_hessian_parts(
 /// Their sum is exactly `part_c_sab` from [`fixed_density_pulay_hessian_parts`]. Used to attribute the
 /// reconverged density-path residual `miss_csab` to the P·2h0 / −P·V / −2W sub-channels (the −2W block is
 /// the EWD/W channel; its analytic linearized density-path is `−2·W^(c)·d²S_ab`).
+#[cfg(test)]
 pub(crate) fn fixed_density_pulay_hessian_csab_subparts(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -2308,6 +2314,20 @@ fn add_matrix(lhs: &mut Matrix, rhs: &Matrix) -> Result<()> {
     Ok(())
 }
 
+/// Replace a square matrix with `½(H + Hᵀ)`, enforcing exact symmetry on the
+/// final Hessian.
+fn symmetrize_in_place(hessian: &mut Matrix) {
+    let n = hessian.rows();
+    debug_assert_eq!(n, hessian.cols(), "Hessian must be square to symmetrize");
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let avg = 0.5 * (hessian[(i, j)] + hessian[(j, i)]);
+            hessian[(i, j)] = avg;
+            hessian[(j, i)] = avg;
+        }
+    }
+}
+
 type Ten3 = [[[f64; 3]; 3]; 3];
 
 /// `H0` (or bare `poly`) value plus its bra/ket Cartesian derivative tensors up to **third**
@@ -2677,6 +2697,7 @@ pub fn fixed_density_pulay_third_derivative(
 ///
 /// `response_density`=P^(c), `response_ew_density`=W^(c), `response_scalar_potential`=V^(c). Returned
 /// ordered slabs `tensor[c][(a,b)]`. `only_channel`: Some(0)=C:S_ab only, Some(1)=h0 only, None=both.
+#[cfg(test)]
 pub(crate) fn pulay_density_path_geom_cross_ordered(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -2807,120 +2828,6 @@ pub(crate) fn pulay_density_path_geom_cross_ordered(
                         }
                         if v != 0.0 {
                             tensor[dof(ic)][(dof(ia), dof(ib))] += v;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(tensor)
-}
-
-/// PULAY density-path GEOMETRY×RESPONSE cross term (the missing 3rd-derivative piece). The linearized
-/// density-path `pulay(P^(c),W^(c),V) + [pulay(V+V^(c))−pulay(V)]` reproduces the pulay Hessian with the
-/// RESPONSE coefficient `C^(c) = P^(c)(2h0−V) + P(−V^(c)) − 2W^(c)` and `two_p^(c) = 2P^(c)`, but at FIXED
-/// geometry — it omits the ONE geometry derivative (slab `c`) acting on that already-response coefficient's
-/// overlap / h0 factors. This function supplies exactly that: the geometric slab-`c` derivative of the
-/// pulay Hessian body with the coefficient held at the linear response `(C^(c), two_p^(c))`. Same overlap /
-/// h0 third-derivative machinery and weights as [`fixed_density_pulay_third_derivative`]; the coefficient
-/// is the response, the geometry derivatives are the base geometry. First-order-response only.
-///
-/// `response_density` = P^(c), `response_ew_density` = W^(c), `response_scalar_potential` = V^(c) (the shell
-/// SCC-potential response). Returned ordered slabs `tensor[c][(a,b)]`.
-pub(crate) fn pulay_density_path_geom_cross(
-    system: &PeriodicSystem,
-    params: &Gfn1Parameters,
-    electronic: &ElectronicResult,
-    response_density: &Matrix,
-    response_ew_density: &Matrix,
-    response_scalar_potential: &[f64],
-) -> Result<Vec<Matrix>> {
-    ensure_non_pbc(system)?;
-    let nat = system.atoms.len();
-    let ndof = 3 * nat;
-    let basis = &electronic.basis;
-    let mut tensor = vec![Matrix::zeros(ndof, ndof); ndof];
-    // Base and response AO scalar potentials.
-    let ao_v = ao_scalar_potentials(basis, &electronic.shell_scc_potential);
-    let ao_vc = ao_scalar_potentials(basis, response_scalar_potential);
-
-    for mu in 0..basis.len() {
-        let atom_mu = basis.aos[mu].atom_index;
-        let shell_mu_index = basis.aos[mu].shell_index;
-        let rmu = system.atoms[atom_mu].position;
-        for nu in 0..mu {
-            let atom_nu = basis.aos[nu].atom_index;
-            if atom_mu == atom_nu {
-                continue;
-            }
-            let shell_nu_index = basis.aos[nu].shell_index;
-            let rnu = system.atoms[atom_nu].position;
-            let p = electronic.density[(mu, nu)];
-            let pc = response_density[(mu, nu)];
-            let wc = response_ew_density[(mu, nu)];
-            if p.abs().max(pc.abs()).max(wc.abs()) <= 1.0e-18 {
-                continue;
-            }
-            let pair =
-                contracted_pair_with_third_derivatives(&basis.aos[mu], &basis.aos[nu], rmu, rnu);
-            let overlap = pair.moments[0];
-            let h0 =
-                h0_prefactor_third(system, params, electronic, shell_mu_index, shell_nu_index)?;
-            let scalar_shift = ao_v[mu] + ao_v[nu];
-            let scalar_shift_c = ao_vc[mu] + ao_vc[nu];
-            // Response coefficient: C^(c) = P^(c)(2h0−V) + P(−V^(c)) − 2W^(c); two_p^(c) = 2 P^(c).
-            let overlap_coeff = pc * (2.0 * h0.value - scalar_shift) - p * scalar_shift_c - 2.0 * wc;
-            let two_p = 2.0 * pc;
-
-            let atom_of = |c: Center| match c {
-                Center::Bra => atom_mu,
-                Center::Ket => atom_nu,
-            };
-            let s1 = |c: Center, ax: usize| first(&pair.d_bra[0], &pair.d_ket[0], c, ax);
-            let s2 = |ca: Center, cb: Center, axa: usize, axb: usize| {
-                second(&pair.h_bra_bra[0], &pair.h_bra_ket[0], &pair.h_ket_ket[0], ca, cb, axa, axb)
-            };
-            let h1 = |c: Center, ax: usize| first_vec(h0.d_bra, h0.d_ket, c, ax);
-            let h2 = |ca: Center, cb: Center, axa: usize, axb: usize| {
-                second(&h0.h_bra_bra, &h0.h_bra_ket, &h0.h_ket_ket, ca, cb, axa, axb)
-            };
-            let slot_center = |s: usize| if s < 3 { Center::Bra } else { Center::Ket };
-            let value_of = |i: usize, j: usize, k: usize| -> f64 {
-                let (ca, axa) = (slot_center(i), i % 3);
-                let (cb, axb) = (slot_center(j), j % 3);
-                let (cc, axc) = (slot_center(k), k % 3);
-                let s_abc = third_select(
-                    &pair.t_bra_bra_bra[0], &pair.t_bra_bra_ket[0], &pair.t_bra_ket_ket[0],
-                    &pair.t_ket_ket_ket[0], [ca, cb, cc], [axa, axb, axc],
-                );
-                let h_abc = third_select(
-                    &h0.t_bra_bra_bra, &h0.t_bra_bra_ket, &h0.t_bra_ket_ket,
-                    &h0.t_ket_ket_ket, [ca, cb, cc], [axa, axb, axc],
-                );
-                let (s_a, s_b, s_c) = (s1(ca, axa), s1(cb, axb), s1(cc, axc));
-                let s_ab = s2(ca, cb, axa, axb);
-                let s_ac = s2(ca, cc, axa, axc);
-                let s_bc = s2(cb, cc, axb, axc);
-                let (h_a, h_b, h_c) = (h1(ca, axa), h1(cb, axb), h1(cc, axc));
-                let h_ab = h2(ca, cb, axa, axb);
-                let h_ac = h2(ca, cc, axa, axc);
-                let h_bc = h2(cb, cc, axb, axc);
-                overlap_coeff * s_abc
-                    + two_p
-                        * (overlap * h_abc
-                            + (h_ab * s_c + h_ac * s_b + h_bc * s_a)
-                            + (h_a * s_bc + h_b * s_ac + h_c * s_ab))
-            };
-            let dof = |s: usize| 3 * atom_of(slot_center(s)) + s % 3;
-            for i in 0..6 {
-                for j in i..6 {
-                    for k in j..6 {
-                        let v = value_of(i, j, k);
-                        if v == 0.0 {
-                            continue;
-                        }
-                        for &(pp, qq, rr) in &distinct_perms(i, j, k) {
-                            tensor[dof(rr)][(dof(pp), dof(qq))] += v;
                         }
                     }
                 }
