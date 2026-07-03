@@ -1,0 +1,39 @@
+[package]
+name = "gfn1-rs"
+version = "0.4.5"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["ss0832"]
+description = "Rust-native GFN1-xTB prototype: energies/gradients/stress/Hessian, periodic (Gamma + k-point) electrostatics, external electric and magnetic (GFN1-xTB-M0/M1) fields with magnetizability and an analytic magnetic gradient, TD-GFN1 (incl. k-point), IR/Raman, and parameter tooling."
+autobins = false
+
+[lib]
+name = "gfn1_rs"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "gfn1_rs_cli"
+path = "src/bin/gfn1_rs.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[lints.clippy]
+correctness = "deny"
+suspicious = "deny"
+perf = "warn"
+complexity = "allow"
+style = "allow"
+
+[dependencies]
+faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
+libm = "0.2"
+rayon = "1.10"
+pyo3 = { version = "0.23.5", optional = true, features = ["extension-module", "abi3-py39"] }
+
+[features]
+default = []
+python = ["pyo3"]
