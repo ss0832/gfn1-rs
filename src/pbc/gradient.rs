@@ -125,7 +125,7 @@ pub fn pbc_gradient_from_scc(
     }
     {
         let _p = crate::profile::scope("pbc.gradient.halogen");
-        let xb = halogen_energy_gradient(system)?;
+        let xb = halogen_energy_gradient(system, params)?;
         for atom in 0..nat {
             gradient[atom] += xb.gradient[atom];
         }
@@ -807,8 +807,7 @@ mod tests {
     use crate::pbc::PbcOptions;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     /// Tightly-converged SCC so the analytic gradient and the finite-difference

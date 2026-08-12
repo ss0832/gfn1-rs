@@ -10,8 +10,17 @@
 //! - `ewald`: generalized Ewald for the Klopman-Ohno second-order electrostatics.
 //! - `scf`: k-point self-consistent charge driver and energy assembly.
 //! - `gradient`: analytic Cartesian gradients (band + Pulay + electrostatics).
+//! - `polarization`: Berry-phase bulk polarization (King-Smith-Vanderbilt
+//!   k-strings and the Resta single-point form), built on boosted AO overlaps.
 //! - `hessian`: Gamma-point Cartesian Hessian assembly, including periodic
 //!   repulsion, D3(BJ), and halogen-bond classical blocks.
+//! - `third_derivative`: seminumerical (central FD of the analytic Gamma-point
+//!   *or* k-point Hessian) periodic cubic force constants, and the strain-mixed
+//!   `dH/d(ln V)`.
+//! - `gruneisen`: mode and thermodynamic Grueneisen parameters from analytic
+//!   Hessians at `V(1 +/- delta)` under isotropic frozen-ion strain, including
+//!   the second-order (curvature) parameters `d^2 ln omega / d(ln V)^2`, over
+//!   either the Gamma-point or the k-point Hessian.
 //!
 //! Reference: Buccheri, Li, Deustua, Moosavi, Bygrave, Manby,
 //! "Periodic GFN1-xTB Tight-Binding: A Generalised Ewald Partitioning Scheme for
@@ -23,11 +32,17 @@ pub mod bloch;
 pub mod complex;
 pub mod ewald;
 pub mod ewald_multipole;
+pub(crate) mod gamma_response;
+pub(crate) mod gamma_third;
 pub mod gradient;
+pub mod gruneisen;
 pub mod hessian;
+pub(crate) mod kpoint_third;
 pub mod kpoints;
+pub mod polarization;
 pub mod scf;
 pub mod stress;
+pub mod third_derivative;
 
 use crate::electronic::{ElectronicOptions, ElectronicResult};
 use crate::error::Result;
@@ -35,12 +50,31 @@ use crate::model::BoundaryCondition;
 use crate::params::Gfn1Parameters;
 use crate::system::PeriodicSystem;
 
+pub use gamma_response::{
+    pbc_gamma_third_analytic_block, pbc_gamma_third_analytic_dense,
+    pbc_gamma_third_analytic_vector, pbc_gamma_third_with_reference, GammaThirdReference,
+};
 pub use gradient::{pbc_analytic_gradient, pbc_gradient_from_scc, PbcGradientResult};
+pub use kpoint_third::{
+    pbc_kpoint_third_analytic_block, pbc_kpoint_third_analytic_dense,
+    pbc_kpoint_third_analytic_vector, pbc_kpoint_third_with_reference, KpointThirdReference,
+};
+pub use gruneisen::{pbc_gruneisen, GruneisenOptions, GruneisenResult, SecondOrderStencil};
 pub use hessian::{pbc_gamma_hessian, pbc_kpoint_hessian, PbcHessianResult};
+pub use polarization::{
+    pbc_berry_polarization, BerryMethodSelector, BerryPolarizationMethod, BerryPolarizationOptions,
+    BerryPolarizationResult, POLARIZATION_AU_TO_C_PER_M2,
+};
 pub use scf::{
     pbc_electronic_result, run_pbc_scc, run_pbc_scc_with_guess, PbcSccGuess, PbcSccResult,
 };
 pub use stress::{pbc_stress, pbc_stress_from_scc, PbcStressResult};
+pub use third_derivative::{
+    pbc_kpoint_strain_hessian_derivative, pbc_kpoint_third_derivative_seminumerical_dense,
+    pbc_kpoint_third_derivative_seminumerical_vector, pbc_strain_hessian_derivative,
+    pbc_third_derivative_seminumerical_dense, pbc_third_derivative_seminumerical_vector,
+    scale_lattice_isotropic,
+};
 
 /// Run a periodic GFN1-xTB single point and project it into the molecular-shaped
 /// [`ElectronicResult`]. The k-mesh follows the boundary condition: Gamma-only

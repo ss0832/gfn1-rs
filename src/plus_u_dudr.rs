@@ -1409,6 +1409,7 @@ mod tests {
     /// `dU/dR` for the single correlated Sc `d` subspace. This pins the oracle the
     /// analytic stages are gated against.
     #[test]
+    #[allow(non_snake_case)]
     fn fd_dudr_oracle_scH_nontrivial() {
         let Some(params) = load_params() else {
             return;
@@ -1439,15 +1440,10 @@ mod tests {
     }
 
     fn load_params() -> Option<Gfn1Parameters> {
-        if let Ok(path) = std::env::var(crate::params::GFN1_PARAM_ENV) {
-            if let Ok(p) = Gfn1Parameters::from_file(path) {
-                return Some(p);
-            }
-        }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("param_gfn1-xtb.txt");
-        Gfn1Parameters::from_file(root).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
+    #[allow(non_snake_case)]
     fn scH_options() -> ElectronicOptions {
         let mut opt = ElectronicOptions::default();
         opt.electronic_temperature = 300.0;
@@ -1461,6 +1457,7 @@ mod tests {
         opt
     }
 
+    #[allow(non_snake_case)]
     fn scH_system() -> PeriodicSystem {
         PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false).unwrap()
     }

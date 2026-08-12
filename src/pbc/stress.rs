@@ -49,6 +49,10 @@ pub struct PbcStressResult {
     pub halogen_stress: Matrix,
     /// Periodic multipole correction stress (0 unless `options.multipole`).
     pub multipole_stress: Matrix,
+    /// Explicit strain derivative of the reference-cell external electric-field
+    /// energy, `−(1/V) E_a Σ_A q_A R_A,b` (0 when no field is applied). Generally
+    /// asymmetric; see `pbc_stress_from_scc` for the model caveat.
+    pub external_field_stress: Matrix,
 }
 
 pub fn pbc_stress(
@@ -95,11 +99,38 @@ pub fn pbc_stress_from_scc(
     };
     let halogen_stress = {
         let _p = crate::profile::scope("pbc.stress.halogen");
-        halogen_stress(system)?.unwrap_or_else(|| Matrix::zeros(3, 3))
+        halogen_stress(system, params)?.unwrap_or_else(|| Matrix::zeros(3, 3))
     };
     let multipole_stress = if options.multipole {
         let _p = crate::profile::scope("pbc.stress.multipole");
         multipole_stress_terms(system, params, &scf, pbc, lattice)?
+    } else {
+        Matrix::zeros(3, 3)
+    };
+    // Explicit strain derivative of the reference-cell (sawtooth / dipole-coupling)
+    // external-field energy `E_field = Σ_A q_A (−E·(R_A − origin))` at the
+    // SCC-stationary charges. Under strain the atomic positions scale while the
+    // field and its origin stay lab-fixed, so `∂E_field/∂ε_ab = −E_a Σ_A q_A R_A,b`
+    // (generally an asymmetric tensor — the antisymmetric part is the field torque
+    // on the cell dipole). The field–overlap (Pulay) strain coupling is already
+    // inside `band_and_cn_stress` because `shell_scc_potential` folds the external
+    // site potential in. NOTE the field model itself remains the reference-cell
+    // approximation (true bulk polarization needs a Berry phase); this term makes
+    // the stress the EXACT strain derivative of the implemented free energy.
+    let external_field_stress = if let Some(e_field) = options.external_field.electric_field {
+        let mut m = Matrix::zeros(3, 3);
+        let volume = lattice.volume();
+        let e = [e_field.x, e_field.y, e_field.z];
+        for (atom, &q) in scf.atomic_charges.iter().enumerate() {
+            let r = system.atoms[atom].position;
+            let rv = [r.x, r.y, r.z];
+            for a in 0..3 {
+                for b in 0..3 {
+                    m[(a, b)] -= q * e[a] * rv[b] / volume;
+                }
+            }
+        }
+        m
     } else {
         Matrix::zeros(3, 3)
     };
@@ -111,6 +142,7 @@ pub fn pbc_stress_from_scc(
     add_matrix_in_place(&mut stress, &dispersion_stress);
     add_matrix_in_place(&mut stress, &halogen_stress);
     add_matrix_in_place(&mut stress, &multipole_stress);
+    add_matrix_in_place(&mut stress, &external_field_stress);
 
     Ok(PbcStressResult {
         total_energy: scf.total_free,
@@ -122,6 +154,7 @@ pub fn pbc_stress_from_scc(
         dispersion_stress,
         halogen_stress,
         multipole_stress,
+        external_field_stress,
     })
 }
 
@@ -797,8 +830,70 @@ mod tests {
     use crate::pbc::KMesh;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
+    }
+
+    /// v0.5.0: the stress now carries the explicit external-field strain term
+    /// `−(1/V) E_a Σ q_A R_A,b` (before, the field contribution present in
+    /// total_free was silently missing from the stress). Gate: every component
+    /// of the analytic stress matches the strain FD of the field-inclusive free
+    /// energy, on a polar cell with an oblique field (all 9 components probed).
+    #[test]
+    fn field_stress_matches_strain_finite_difference() {
+        let Some(params) = load_params() else {
+            return;
+        };
+        let system = PeriodicSystem::from_xyz_str(
+            "3\nLattice=\"9 0 0 0 9 0 0 0 9\" pbc=\"T T T\"\n\
+             O 0.000000 0.000000 0.117300\n\
+             H 0.000000 0.757200 -0.469200\n\
+             H 0.000000 -0.757200 -0.469200\n",
+            0.0,
+            false,
+        )
+        .unwrap();
+        let mut options = ElectronicOptions::default();
+        options.enable_dispersion = false;
+        options.energy_tolerance = 1.0e-10;
+        options.charge_tolerance = 1.0e-8;
+        options.external_field = crate::field::ExternalFieldOptions::electric(
+            crate::math::Vec3::new(8.0e-4, -5.0e-4, 1.2e-3),
+        );
+        let pbc = PbcOptions::default();
+        let result = pbc_stress(&system, &params, &options, &pbc).unwrap();
+        let volume = system.lattice.as_ref().unwrap().volume();
+        let h = 1.0e-5;
+        let mut max_delta = 0.0_f64;
+        for row in 0..3 {
+            for col in 0..3 {
+                let plus = strained_system(&system, row, col, h);
+                let minus = strained_system(&system, row, col, -h);
+                let ep = run_pbc_scc(&plus, &params, &options, &pbc)
+                    .unwrap()
+                    .total_free;
+                let em = run_pbc_scc(&minus, &params, &options, &pbc)
+                    .unwrap()
+                    .total_free;
+                let fd = (ep - em) / (2.0 * h * volume);
+                max_delta = max_delta.max((result.stress[(row, col)] - fd).abs());
+            }
+        }
+        assert!(
+            max_delta < 5.0e-6,
+            "field-inclusive PBC stress vs strain FD max delta {max_delta:.3e}"
+        );
+        // The field term itself must be nonzero for this polar cell + field.
+        let field_norm: f64 = result
+            .external_field_stress
+            .as_slice()
+            .iter()
+            .map(|v| v * v)
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            field_norm > 1.0e-12,
+            "external-field stress unexpectedly zero"
+        );
     }
 
     #[test]

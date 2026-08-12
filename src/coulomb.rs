@@ -192,21 +192,35 @@ pub fn coulomb_energy_potential_from_matrix(
     })
 }
 
-/// On-site charge **anharmonicity** derivatives `(∂E/∂q, ∂²E/∂q², ∂³E/∂q³)` beyond the harmonic
-/// `½γΔq²` — i.e. the DFTB3 `(1/3)Γq³` and the Linear Breathing-Radius orders `4..=charge_order`
-/// (`E_n = (1/n)X_n q^n`, `X_n = (γ/(n−1))(2Γ/γ)^{n−2}`). The second/third derivatives are the
-/// on-site charge kernels the 2n+1 `L_axx`/`L_xxx` terms contract with the charge responses; the
-/// harmonic part contributes nothing to the third. `∂³E/∂q³ = 2Γ + Σ_{n≥4}(n−1)(n−2)X_n q^{n−3}`.
-#[cfg(test)]
+/// On-site charge **anharmonicity** derivatives `(∂E/∂q, ∂²E/∂q², ∂³E/∂q³, ∂⁴E/∂q⁴)` beyond the
+/// harmonic `½γΔq²` — i.e. the DFTB3 `(1/3)Γq³` and the Linear Breathing-Radius orders
+/// `4..=charge_order` (`E_n = (1/n)X_n q^n`, `X_n = (γ/(n−1))(2Γ/γ)^{n−2}`). The second/third
+/// derivatives are the on-site charge kernels the 2n+1 `L_axx`/`L_xxx` terms contract with the
+/// charge responses; the harmonic part contributes nothing to the third.
+///
+/// ```text
+///   ∂³E/∂q³ = 2Γ    + Σ_{n≥4}(n−1)(n−2)X_n q^{n−3}
+///   ∂⁴E/∂q⁴ =         Σ_{n≥4}(n−1)(n−2)(n−3)X_n q^{n−4}
+/// ```
+///
+/// The fourth derivative vanishes identically for stock GFN1 (`charge_order = 3`, `E = ⅓Γq³`) —
+/// it is the `λ`-derivative of the `∂K/∂q` chain kernel that the directional QUARTIC response
+/// stage needs, and it only becomes non-zero with the Breathing-Radius orders `n ≥ 4`.
+///
+/// Production consumers: the CPXTB response kernel (`∂²E/∂q²` on the same-atom
+/// block, keeping Hessian/response properties consistent with `charge_order ≥ 4`
+/// energies), the third-derivative ∂K/∂q chain (`∂³E/∂q³`) and the fourth-derivative
+/// `D_λ(∂K/∂q)` chain (`∂⁴E/∂q⁴`).
 pub(crate) fn onsite_charge_anharmonic_derivatives(
     gamma: f64,
     gam3: f64,
     charge_order: usize,
     q: f64,
-) -> (f64, f64, f64) {
+) -> (f64, f64, f64, f64) {
     let mut first = gam3 * q * q; // ∂[(1/3)Γq³]
     let mut second = 2.0 * gam3 * q; // ∂²
     let mut third = 2.0 * gam3; // ∂³
+    let mut fourth = 0.0; // ∂⁴ — the cubic term is exhausted at third order
     if charge_order > 3 && gamma.abs() > 1.0e-8 {
         let ratio = 2.0 * gam3 / gamma; // 2Γ/γ
         for n in 4..=charge_order {
@@ -215,9 +229,10 @@ pub(crate) fn onsite_charge_anharmonic_derivatives(
             first += xn * q.powi(ni - 1);
             second += (n - 1) as f64 * xn * q.powi(ni - 2);
             third += (n - 1) as f64 * (n - 2) as f64 * xn * q.powi(ni - 3);
+            fourth += (n - 1) as f64 * (n - 2) as f64 * (n - 3) as f64 * xn * q.powi(ni - 4);
         }
     }
-    (first, second, third)
+    (first, second, third, fourth)
 }
 
 #[inline]
@@ -453,21 +468,26 @@ mod charge_anharmonic_tests {
     use super::onsite_charge_anharmonic_derivatives;
 
     // The on-site charge derivative ladder (the L_ax/L_axx/L_xxx charge factors): each order is
-    // the central FD of the previous — first→second→third — for stock GFN1 (order 3) and the
-    // higher-order Breathing-Radius extension.
+    // the central FD of the previous — first→second→third→fourth — for stock GFN1 (order 3) and
+    // the higher-order Breathing-Radius extension. The fourth order is what the directional
+    // QUARTIC response stage's `D_λ(∂K/∂q)` chain contracts with; for order 3 it must be exactly
+    // zero (`E = ⅓Γq³` ⇒ `E'''' ≡ 0`), which the last assertion pins.
     #[test]
     fn onsite_charge_derivative_ladder_matches_finite_difference() {
         let (gamma, gam3) = (0.5_f64, 0.12_f64);
         let h = 1.0e-6;
         for &order in &[3_usize, 4, 6] {
             for &q in &[-0.4_f64, -0.1, 0.25, 0.6] {
-                let (_, second, third) =
+                let (_, second, third, fourth) =
                     onsite_charge_anharmonic_derivatives(gamma, gam3, order, q);
                 let fd2 = (onsite_charge_anharmonic_derivatives(gamma, gam3, order, q + h).0
                     - onsite_charge_anharmonic_derivatives(gamma, gam3, order, q - h).0)
                     / (2.0 * h);
                 let fd3 = (onsite_charge_anharmonic_derivatives(gamma, gam3, order, q + h).1
                     - onsite_charge_anharmonic_derivatives(gamma, gam3, order, q - h).1)
+                    / (2.0 * h);
+                let fd4 = (onsite_charge_anharmonic_derivatives(gamma, gam3, order, q + h).2
+                    - onsite_charge_anharmonic_derivatives(gamma, gam3, order, q - h).2)
                     / (2.0 * h);
                 assert!(
                     (second - fd2).abs() < 1.0e-5 * (1.0 + second.abs()),
@@ -477,6 +497,16 @@ mod charge_anharmonic_tests {
                     (third - fd3).abs() < 1.0e-5 * (1.0 + third.abs()),
                     "∂³E/∂q³ order {order} q {q}: {third} vs FD {fd3}"
                 );
+                assert!(
+                    (fourth - fd4).abs() < 1.0e-5 * (1.0 + fourth.abs()),
+                    "∂⁴E/∂q⁴ order {order} q {q}: {fourth} vs FD {fd4}"
+                );
+                if order == 3 {
+                    assert_eq!(
+                        fourth, 0.0,
+                        "stock GFN1 (charge_order 3) must have ∂⁴E/∂q⁴ ≡ 0"
+                    );
+                }
             }
         }
     }

@@ -68,8 +68,9 @@ use crate::params::{AngularMomentum, Gfn1Parameters};
 use crate::repulsion::repulsion_energy;
 use crate::system::PeriodicSystem;
 
-const BOLTZMANN_HARTREE_PER_K: f64 = 3.166_811_563e-6;
-const ELECTRON_COUNT_TOLERANCE: f64 = 1.0e-6;
+const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
+// Unified with the restricted path (was 1e-6 here vs 1e-8 there).
+const ELECTRON_COUNT_TOLERANCE: f64 = 1.0e-8;
 
 /// Spin-resolved data attached to an [`ElectronicResult`] produced by the
 /// spin-polarized (open-shell) path. Carries everything the analytic spin
@@ -786,10 +787,8 @@ fn spin_scc_loop_core(
                 v_mixed[k] += mixing * residual[k];
             }
         }
-        for ish in 0..nsh {
-            shell_charges[ish] = v_mixed[ish];
-            magnetization[ish] = v_mixed[nsh + ish];
-        }
+        shell_charges[..nsh].copy_from_slice(&v_mixed[..nsh]);
+        magnetization[..nsh].copy_from_slice(&v_mixed[nsh..2 * nsh]);
     }
     let alpha = alpha.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
     let beta = beta.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
@@ -1671,7 +1670,7 @@ fn run_spin_unrestricted(
     } else {
         0.0
     };
-    let halogen = halogen_energy(system)?;
+    let halogen = halogen_energy(system, params)?;
 
     let kt = options.electronic_temperature.max(0.0) * BOLTZMANN_HARTREE_PER_K;
 
@@ -1853,6 +1852,7 @@ fn run_spin_unrestricted(
         occupations: Vec::new(),
         electronic_temperature: options.electronic_temperature,
         fermi_level: 0.0,
+        charge_order: options.charge_order.max(3),
         shell_charges: final_shell_charges,
         atomic_charges,
         shell_scc_potential: scc.shell_potential,
@@ -1863,6 +1863,11 @@ fn run_spin_unrestricted(
         third_order_energy: scc.third_order,
         dispersion_energy: dispersion,
         halogen_energy: halogen,
+        higher_order_energy: scc.higher_order,
+        multipole_energy: e_camm_final,
+        exchange_energy: 0.0,
+        spin_polarization_energy: e_spin,
+        plus_u_energy: e_plus_u_final,
         external_field_energy: 0.0,
         electronic_entropy_term: entropy_term,
         total_internal,
@@ -1919,16 +1924,10 @@ mod tests {
     use crate::gradient::{analytic_gradient, AnalyticGradientOptions};
 
 
-    /// Load the GFN1 parameters from the env var, falling back to the repo-root
-    /// `param_gfn1-xtb.txt` so the spin tests actually run in a plain `cargo test`.
+    /// Load the GFN1 parameters via the standard resolution (`GFN1_XTB_PARAM`
+    /// when set, otherwise the builtin bundled parameters).
     fn load_params() -> Option<Gfn1Parameters> {
-        if let Ok(path) = std::env::var(crate::params::GFN1_PARAM_ENV) {
-            if let Ok(p) = Gfn1Parameters::from_file(path) {
-                return Some(p);
-            }
-        }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("param_gfn1-xtb.txt");
-        Gfn1Parameters::from_file(root).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     fn tight_options() -> ElectronicOptions {

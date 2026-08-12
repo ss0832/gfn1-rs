@@ -332,8 +332,7 @@ mod tests {
     use crate::params::Gfn1Parameters;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     fn nacl_like() -> PeriodicSystem {

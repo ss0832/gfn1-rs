@@ -24,6 +24,33 @@
 //! magnetizability ([`magnetizability_isotropic`], eq 26) and the magnetic nuclear
 //! gradient ([`magnetic_gradient`]). Non-periodic, closed shell.
 //!
+//! # Conventions and scope
+//!
+//! - **Magnetizability sign.** `xi_ab = -d^2 E / dB_a dB_b`, equivalently
+//!   `E(B) = E(0) - 1/2 xi_ab B_a B_b`. A diamagnetic closed-shell molecule is
+//!   pushed *out* of the field, so `d^2E/dB^2 > 0` and its isotropic
+//!   magnetizability is **negative** (water lands near `-170 x 10^-30 J T^-2`
+//!   here, methane near `-250`). Every magnetizability entry point in this module
+//!   — [`magnetizability_isotropic`], [`magnetizability_diagonal_analytic`],
+//!   [`magnetizability_tensor_analytic`] — uses that one sign.
+//! - **Gauge origin.** `options.external_field.origin` does **not** enter `S(B)`
+//!   or `H0(B)` at all: London orbitals make them depend on the field only through
+//!   the difference `A_mu - A_nu = 1/2 B x (R_mu - R_nu)`, and the individually
+//!   origin-dependent pieces of the `pi^2` integral cancel exactly. The energy is
+//!   therefore gauge-origin invariant *structurally*, not approximately, and is
+//!   invariant for charged systems too. The origin is still used by the electric
+//!   field, the Mulliken dipole and the (common-gauge-origin, hence genuinely
+//!   origin-dependent) NMR shielding [`nmr_shielding_tensor`].
+//! - **Translation / rotation.** Rigidly translating the molecule multiplies
+//!   `H0(B)` and `S(B)` by the same diagonal unitary `exp(i A_mu.d)`, so the energy
+//!   is translation invariant; rotating the molecule and `B` together is likewise
+//!   exact. Both are gated in `tests/magnetic.rs`.
+//! - **Occupations.** The magnetic SCC is strictly zero-temperature: it fills the
+//!   lowest `2 * nocc` states with integer occupations and **ignores**
+//!   `ElectronicOptions::electronic_temperature`. It also ignores the anisotropic
+//!   multipole (AES) options — only the isotropic shell-charge Coulomb model is
+//!   used, matching the field-free path at its defaults.
+//!
 //! # References
 //!
 //! - **GFN1-xTB-M0/M1 method:** C. Y. Cheng and A. M. Wibowo-Teale, "Semiempirical
@@ -77,8 +104,14 @@ use std::collections::HashMap;
 /// The magnetically-dressed overlap/Hamiltonian block picks up the phase factor
 /// `exp(i * theta_ab)`. The angle is antisymmetric (`theta_ab = -theta_ba`),
 /// vanishes for `B = 0` and for collinear centres, and is the geometric core of
-/// the Peierls substitution. This is exact and parameter-free; it is exposed so
-/// the magnetic Hamiltonian can be assembled on top of it later.
+/// the Peierls substitution.
+///
+/// **Caveat.** Unlike the exact London overlap this angle *does* depend on
+/// `origin`: `theta_ab` is only the leading (s-type, equal-exponent, midpoint)
+/// phase of `<omega_a|omega_b>`, and it reproduces it only for `origin = 0`. The
+/// true LAO overlap [`lao_overlap_matrix`] is gauge-origin free. Use this for
+/// Peierls-style model work, never as a stand-in for the real integrals — see
+/// [`london_dress_ao_matrix`].
 pub fn london_phase_angle(b: Vec3, origin: Vec3, r_a: Vec3, r_b: Vec3) -> f64 {
     let ra = r_a - origin;
     let rb = r_b - origin;
@@ -146,13 +179,22 @@ pub struct ComplexAoMatrix {
 /// theta_{mu nu} = 1/2 B . [(R_mu - O) x (R_nu - O)].
 /// ```
 ///
-/// This is the single-basis (GFN1-xTB-M0) field dressing of the zero-field
-/// Hamiltonian / overlap from Cheng & Wibowo-Teale, *J. Chem. Theory Comput.*
-/// **19**, 6226 (2023) (eq 12, first and overlap terms). The field-dependent
-/// kinetic-energy correction (the `pi^2`/`p^2` term of the dual-basis M1 variant)
-/// is **not** included — it needs momentum integrals that GFN1 does not carry —
-/// so this is a foothold for the full magnetic Hamiltonian, not the complete
-/// method. Non-periodic only.
+/// This is a Peierls-style *model* dressing of the zero-field Hamiltonian /
+/// overlap, i.e. the leading s-type phase of the London overlap only. It is **not**
+/// what the GFN1-xTB-M SCC uses and it is **not** interchangeable with it:
+///
+/// - it omits the Gaussian damping `exp(-chi.chi/4 zeta)` and every angular /
+///   derivative correction of the exact complex Gaussian product theorem, and
+/// - it is **gauge-origin dependent** (`theta_{mu nu}` moves with `options.origin`,
+///   see [`london_phase_angle`]), whereas the exact LAO overlap
+///   [`lao_overlap_matrix`] does not depend on the origin at all.
+///
+/// The production path is [`lao_overlap_matrix`] plus the `pi^2` kinetic-energy
+/// correction; this function is kept as the Peierls-substitution reference point
+/// and as the negative control in
+/// `tests/magnetic.rs::lao_overlap_is_gauge_origin_free_but_phase_dressing_is_not`.
+/// Non-periodic only. Cheng & Wibowo-Teale, *J. Chem. Theory Comput.* **19**, 6226
+/// (2023), eq 12.
 pub fn london_dress_ao_matrix(
     real: &Matrix,
     system: &PeriodicSystem,
@@ -247,9 +289,29 @@ fn lao_overlap_pair(
     cb: Vec3,
     field: Vec3,
 ) -> (f64, f64) {
-    let r2 = (ca - cb).norm2();
     // chi = 1/2 B x (B - A): geometry/field only, independent of the gauge origin.
-    let chi = field.cross(cb - ca) * 0.5;
+    complex_boost_overlap_pair(a, b, ca, cb, field.cross(cb - ca) * 0.5)
+}
+
+/// Complex-Gaussian-product overlap for a *general* complex boost vector `chi`:
+///
+/// ```text
+///   <a| exp(-i chi . r) |b>,   Pbar = P - (i/2 zeta) chi,
+///   K_P = exp(-chi.chi/(4 zeta) - i P.chi).
+/// ```
+///
+/// This is the one kernel behind both consumers of the complex Gaussian product
+/// theorem: the London (GIAO) overlap sets `chi = 1/2 B x (R_b - R_a)` (see
+/// [`lao_overlap_matrix`]), the periodic Berry-phase boost sets `chi = -q` (see
+/// [`boosted_overlap_pair`]).
+fn complex_boost_overlap_pair(
+    a: &AOBasisFunction,
+    b: &AOBasisFunction,
+    ca: Vec3,
+    cb: Vec3,
+    chi: Vec3,
+) -> (f64, f64) {
+    let r2 = (ca - cb).norm2();
     let chi2 = chi.dot(chi);
     let mut acc = (0.0_f64, 0.0_f64);
     for pa in &a.primitives {
@@ -282,6 +344,31 @@ fn lao_overlap_pair(
         }
     }
     acc
+}
+
+/// **Boosted AO overlap** `<chi_a| e^{i q . r} |chi_b>` for one contracted AO pair
+/// centred at `ca` (bra) and `cb` (ket), returned as `(re, im)`.
+///
+/// This is the plane-wave-boosted (momentum-shifted) overlap the periodic
+/// Berry-phase polarization needs — see
+/// [`crate::pbc::polarization::pbc_berry_polarization`]. It is *exactly* the same
+/// complex Gaussian product theorem the London/GIAO overlap already uses: with
+/// `exp(-zeta |r - P|^2 + i q . r) = exp(-zeta |r - Pbar|^2) exp(i P.q - q.q/(4 zeta))`
+/// and `Pbar = P + (i/2 zeta) q`, the LAO kernel [`complex_boost_overlap_pair`]
+/// reproduces it verbatim at `chi = -q`. No new integral code: only the complex
+/// boost vector differs (LAO: `chi = 1/2 B x (R_b - R_a)`; Berry: `chi = -q`).
+///
+/// `q` is a **Cartesian** wave vector in `bohr^-1`, and the operator uses the
+/// absolute `r`, so the result depends on the choice of coordinate origin exactly
+/// as `e^{i q . r}` does. Reduces to the real AO overlap at `q = 0`.
+pub fn boosted_overlap_pair(
+    a: &AOBasisFunction,
+    b: &AOBasisFunction,
+    ca: Vec3,
+    cb: Vec3,
+    q: Vec3,
+) -> (f64, f64) {
+    complex_boost_overlap_pair(a, b, ca, cb, -q)
 }
 
 /// Exact London (GIAO) AO overlap matrix `S(B)_{mu nu} = <omega_mu|omega_nu>` via
@@ -475,7 +562,6 @@ fn lao_kinetic_pair(
                     term((0.125 * bx * bx, 0.0), sx, m2y, sz);
                     term((0.125 * by * by, 0.0), m2x, sy, sz);
                     term((-0.25 * bx * by, 0.0), m1x, m1y, sz);
-                    drop(term);
                     let tk = cmul(t, kp);
                     acc.0 += coeff * tk.0;
                     acc.1 += coeff * tk.1;
@@ -517,7 +603,13 @@ pub fn lao_kinetic_matrix(
 /// Spin-Zeeman one-electron contributions `<mu|H_SZ|nu> = +/- 1/2 |B| S_{mu nu}`
 /// for the alpha (`+`) and beta (`-`) spin blocks (Cheng & Wibowo-Teale eq 13).
 /// Returns `(alpha_block, beta_block)`. These are the open-shell spin terms a full
-/// magnetic UHF would add to the per-spin effective Hamiltonian.
+/// magnetic UHF would add to the per-spin effective Hamiltonian; for a closed shell
+/// they cancel, which is why the SCC here never calls this.
+///
+/// Convention: `H_SZ = B . s` in atomic units (`g_e/2 ~ 1`) with the spin quantised
+/// **along `B`**, so the coupling is the field *magnitude* `|B|` and alpha (spin
+/// parallel to `B`) is raised. Consequently the blocks do not change sign under
+/// `B -> -B` — the quantisation axis flips with the field.
 pub fn spin_zeeman_blocks(overlap: &Matrix, options: &ExternalFieldOptions) -> (Matrix, Matrix) {
     let b = options.magnetic_field.unwrap_or(Vec3::zero()).norm();
     let half = 0.5 * b;
@@ -907,15 +999,52 @@ fn magnetic_ke_correction(
     ComplexAoMatrix { re, im }
 }
 
+/// The field-free GFN1 `H0` **shell-pair** prefactors `hij[(I, J)]`, i.e. the factor
+/// in `H0_{mu nu} = hij(I, J) S_{mu nu}` for `mu` in shell `I` and `nu` in shell `J`
+/// ([`crate::hamiltonian::build_h0_from_overlap`]: `hij` is built from the shell
+/// self-energies, `hscale` and the distance polynomial only, so it is constant across
+/// the AO block).
+///
+/// Recovered as `H0_{mu nu} / S_{mu nu}` at the AO pair with the **largest** `|S|` in
+/// the block. Taking that ratio per AO pair instead is unsound: inside a block the
+/// field-free overlap can vanish *exactly* by symmetry — `<O 2p_z|H 1s>` for a
+/// molecule lying in the `xy` plane — while the London overlap `S(B)_{mu nu}` at an
+/// in-plane field does not. A per-pair ratio then silently drops the whole band
+/// contribution `hij S(B)_{mu nu}` for those pairs, and whether the denominator is a
+/// hard zero or a `~1e-16` rounding artefact depends on where the molecule sits and
+/// how it is oriented, so the energy stops being rotation / translation invariant.
+/// A block whose overlap vanishes identically (beyond the integral cutoff) has
+/// `H0 = 0` too, so `hij = 0` there is exact.
+fn shell_pair_h0_prefactors(basis: &BasisSet, core: &crate::hamiltonian::HamiltonianCore) -> Matrix {
+    let nsh = basis.shells.len();
+    let mut hij = Matrix::zeros(nsh, nsh);
+    for (ish, shi) in basis.shells.iter().enumerate() {
+        for (jsh, shj) in basis.shells.iter().enumerate() {
+            let (mut best, mut value) = (0.0_f64, 0.0_f64);
+            for mu in shi.first_ao..shi.first_ao + shi.nao {
+                for nu in shj.first_ao..shj.first_ao + shj.nao {
+                    let s = core.integrals.overlap[(mu, nu)];
+                    if s.abs() > best {
+                        best = s.abs();
+                        value = core.h0[(mu, nu)] / s;
+                    }
+                }
+            }
+            hij[(ish, jsh)] = value;
+        }
+    }
+    hij
+}
+
 /// Assemble the closed-shell GFN1-xTB-M LAO Hamiltonian `H0(B)` and overlap `S(B)`
 /// in the primary AO basis for the magnetic field / gauge origin in `field`
 /// (Cheng & Wibowo-Teale eq 12/20). `secondary = Some(..)` evaluates the
-/// kinetic-energy correction over the M1 dual basis. `hij = H0_real/S_real` is the
-/// (`B`-independent) field-free GFN1 `H0` shell-pair prefactor, so `hij S(B)` is the
-/// band term over LAOs and the bracket `<om|1/2 pi^2|om> - e^{i f}<phi|1/2 p^2|phi>`
-/// is the kinetic-energy correction. Reduces to `(H0_real, S_real)` at `B = 0`.
-/// Shared by [`run_magnetic_scc`]'s SCC loop and the analytic magnetic response so
-/// both see identical matrices.
+/// kinetic-energy correction over the M1 dual basis. `hij` is the (`B`-independent)
+/// field-free GFN1 `H0` shell-pair prefactor ([`shell_pair_h0_prefactors`]), so
+/// `hij S(B)` is the band term over LAOs and the bracket
+/// `<om|1/2 pi^2|om> - e^{i f}<phi|1/2 p^2|phi>` is the kinetic-energy correction.
+/// Reduces to `(H0_real, S_real)` at `B = 0`. Shared by [`run_magnetic_scc`]'s SCC
+/// loop and the analytic magnetic response so both see identical matrices.
 fn assemble_magnetic_matrices(
     system: &PeriodicSystem,
     basis: &BasisSet,
@@ -948,15 +1077,12 @@ fn assemble_magnetic_matrices(
         let _p = crate::profile::scope("magnetic.assemble.ke");
         magnetic_ke_correction(&ke_aos, &centers, bvec, origin)
     };
+    let hpair = shell_pair_h0_prefactors(basis, core);
     let mut h0_b = CMatrix::zeros(n);
     for mu in 0..n {
+        let ish = basis.aos[mu].shell_index;
         for nu in 0..n {
-            let sr = core.integrals.overlap[(mu, nu)];
-            let hij = if sr.abs() > 1.0e-30 {
-                core.h0[(mu, nu)] / sr
-            } else {
-                0.0
-            };
+            let hij = hpair[(ish, basis.aos[nu].shell_index)];
             h0_b.re[(mu, nu)] = hij * s_b.re[(mu, nu)] + corr.re[(mu, nu)];
             h0_b.im[(mu, nu)] = hij * s_b.im[(mu, nu)] + corr.im[(mu, nu)];
         }
@@ -1068,7 +1194,7 @@ fn magnetic_geom(
     } else {
         0.0
     };
-    let halogen = halogen_energy(system)?;
+    let halogen = halogen_energy(system, params)?;
     Ok(MagneticGeom {
         basis,
         core,
@@ -1289,6 +1415,10 @@ fn run_magnetic_scc_with_geom(
 /// (Hartree / (atomic field unit)^2); multiply by `MAGNETIZABILITY_AU_TO_SI` for
 /// `10^-30 J T^-2`. `secondary = Some(..)` selects M1, `None` selects M0. The field
 /// in `options.external_field` is overridden. Non-periodic.
+///
+/// Sign: with `E(B) = E(0) - 1/2 xi_ab B_a B_b`, a diamagnetic closed-shell molecule
+/// returns a **negative** `xi_iso` (gated in
+/// `tests/magnetic.rs::diamagnetic_molecules_have_negative_isotropic_magnetizability`).
 pub fn magnetizability_isotropic(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -1452,6 +1582,70 @@ fn magnetic_first_order_response(
     (pa, wa)
 }
 
+/// Rigidly move a molecule so that its atom centroid sits at the coordinate
+/// origin, carrying the field/gauge origin along with it.
+///
+/// This is an exact **gauge transformation** for the London basis: translating
+/// the molecule by `d` multiplies `S(B)` and `H0(B)` by the same diagonal
+/// unitary `exp(i A_mu . d)`, so every observable is unchanged. The *finite
+/// differences* below are not invariant under it, though, because they are
+/// taken along fixed global field axes: their effective expansion parameter is
+/// `step` times the LAO phase area `1/2 |B x R_mu . R_nu|`, which grows with
+/// the molecule's distance from the coordinate origin. Measured on non-eq water
+/// (`step = 4e-3`), the tensor moves by rel `6.3e-6` under a 2-bohr rigid shift
+/// and by rel `1.2e-3` under a 9.4-bohr one — a `|d|^4` growth of an error that
+/// has nothing to do with the physics, only with where the caller happened to
+/// put the molecule.
+///
+/// Recentring removes that dependence at the root: the FD parameter is then set
+/// by the molecule's own extent, and the same molecule always produces the same
+/// tensor. Measured residual under a rigid translation afterwards: rel `1.8e-12`
+/// (2 bohr) and `7.5e-12` (9.4 bohr), i.e. SCC-convergence noise only.
+///
+/// Translating `external_field.origin` by the same vector keeps the electric
+/// site potential `-E.(R_A - origin)` and the Mulliken dipole identical, so the
+/// recentring is invisible to a simultaneous electric field. Periodic inputs are
+/// returned untouched (the LAO path is molecular).
+fn recentred_for_field_derivatives(
+    system: &PeriodicSystem,
+    options: &ElectronicOptions,
+) -> (PeriodicSystem, ElectronicOptions) {
+    if system.lattice.is_some() || system.atoms.is_empty() {
+        return (system.clone(), options.clone());
+    }
+    let mut centroid = Vec3::zero();
+    for atom in &system.atoms {
+        centroid = centroid + atom.position;
+    }
+    let centroid = centroid * (1.0 / system.atoms.len() as f64);
+    let mut recentred = system.clone();
+    for atom in &mut recentred.atoms {
+        atom.position = atom.position - centroid;
+    }
+    let mut shifted = options.clone();
+    shifted.external_field.origin = shifted.external_field.origin - centroid;
+    (recentred, shifted)
+}
+
+/// Richardson combination `(4 D(h/2) - D(h)) / 3` of the same central-difference
+/// matrix evaluated at two steps, elementwise on the real and imaginary parts.
+///
+/// The central differences of the LAO builder are exactly `O(h^2)` — the
+/// residual ladder in `tests/magnetizability_frame_invariance.rs` measures a
+/// ratio of 4.00 per halving across a decade of steps — so this leaves `O(h^4)`
+/// and is legitimate at every step in the truncation-dominated regime.
+fn richardson_pair(coarse: &CMatrix, fine: &CMatrix) -> CMatrix {
+    let n = coarse.n;
+    let mut out = CMatrix::zeros(n);
+    for i in 0..n {
+        for j in 0..n {
+            out.re[(i, j)] = (4.0 * fine.re[(i, j)] - coarse.re[(i, j)]) / 3.0;
+            out.im[(i, j)] = (4.0 * fine.im[(i, j)] - coarse.im[(i, j)]) / 3.0;
+        }
+    }
+    out
+}
+
 /// Diagonal magnetizability tensor `xi_aa = -d^2 E / dB_a^2` (atomic units;
 /// multiply by [`MAGNETIZABILITY_AU_TO_SI`] for `10^-30 J T^-2`), evaluated by the
 /// **analytic McWeeny density-matrix CP-SCC response** instead of differencing the
@@ -1459,6 +1653,18 @@ fn magnetic_first_order_response(
 /// overlap` at `±step`, no SCF); the orbital response is analytic, so this costs one
 /// magnetic SCC plus cheap builder evaluations rather than the `6+1` full SCCs of
 /// [`magnetizability_isotropic`].
+///
+/// **What `step` means.** The integral derivatives are Richardson extrapolated:
+/// each is built at `step` *and* `step / 2` and combined as `(4 D(h/2) - D(h))/3`,
+/// so `step` is the **coarse** node of the pair and the truncation is `O(step^4)`,
+/// not `O(step^2)`. That costs twice the builder evaluations but still only one SCC
+/// (measured on the full tensor: water `68 -> 112 ms`, methane `73 -> 142 ms`), and
+/// it is what makes the result independent of the coordinate frame — see
+/// [`recentred_for_field_derivatives`] for the other half of the fix and
+/// `tests/magnetizability_frame_invariance.rs` for the ladders behind both. Useful
+/// steps are `4e-3 .. 1.6e-2`; the extrapolation is at its best (frame residual
+/// rel `~5e-11`) around `4e-3` to `8e-3` and degrades below `2e-3`, where the
+/// `1/h^2` amplification of builder rounding takes over.
 ///
 /// For each field direction `a` (closed shell, at `B = 0`, real reference orbitals):
 /// ```text
@@ -1491,6 +1697,10 @@ pub fn magnetizability_diagonal_analytic(
             "magnetizability step must be positive".to_string(),
         ));
     }
+    // Frame fix: differentiate in the molecule's own centroid frame, so the FD
+    // truncation error cannot depend on where the caller placed the molecule.
+    let (system, options) = recentred_for_field_derivatives(system, options);
+    let (system, options) = (&system, &options);
     let with_field = |b: Vec3| -> ElectronicOptions {
         let mut opt = options.clone();
         opt.external_field.magnetic_field = Some(b);
@@ -1553,13 +1763,13 @@ pub fn magnetizability_diagonal_analytic(
         }
     };
 
-    let inv = 1.0 / (2.0 * step);
-    let inv2 = 1.0 / (step * step);
-    let mut diag = [0.0_f64; 3];
-    for axis in 0..3 {
-        let (h0p, sp) = h0s(&with_field(unit(axis, step)));
-        let (h0m, sm) = h0s(&with_field(unit(axis, -step)));
-        // First/second field derivatives of H0(B), S(B) (central FD of the LAO builder).
+    // First/second field derivatives of H0(B), S(B) along one axis, by central FD
+    // of the LAO builder at one step: `[H0^a, S^a, H0^aa, S^aa]`.
+    let axis_derivatives = |axis: usize, h: f64| -> [CMatrix; 4] {
+        let (h0p, sp) = h0s(&with_field(unit(axis, h)));
+        let (h0m, sm) = h0s(&with_field(unit(axis, -h)));
+        let inv = 1.0 / (2.0 * h);
+        let inv2 = 1.0 / (h * h);
         let mut h0_a = CMatrix::zeros(n);
         let mut s_a = CMatrix::zeros(n);
         let mut h0_aa = CMatrix::zeros(n);
@@ -1576,6 +1786,18 @@ pub fn magnetizability_diagonal_analytic(
                 s_aa.im[(i, j)] = (sp.im[(i, j)] - 2.0 * s00.im[(i, j)] + sm.im[(i, j)]) * inv2;
             }
         }
+        [h0_a, s_a, h0_aa, s_aa]
+    };
+    let mut diag = [0.0_f64; 3];
+    for axis in 0..3 {
+        // Richardson over (step, step/2): removes the leading O(step^2) FD
+        // truncation, which is what makes the result frame independent.
+        let coarse = axis_derivatives(axis, step);
+        let fine = axis_derivatives(axis, 0.5 * step);
+        let h0_a = richardson_pair(&coarse[0], &fine[0]);
+        let s_a = richardson_pair(&coarse[1], &fine[1]);
+        let h0_aa = richardson_pair(&coarse[2], &fine[2]);
+        let s_aa = richardson_pair(&coarse[3], &fine[3]);
         let h0mo_aa = mo(&h0_aa);
         let smo_aa = mo(&s_aa);
 
@@ -1626,7 +1848,18 @@ pub fn magnetizability_isotropic_analytic(
 /// derivative `H0^ab`/`S^ab` (cross finite difference of the LAO builder) and the
 /// symmetrized cross response `1/2[Tr(P^a H0^b) + Tr(P^b H0^a)] - ...`. `secondary =
 /// Some(..)` selects M1. Non-periodic. See [`magnetizability_diagonal_analytic`] for
-/// the term-by-term derivation.
+/// the term-by-term derivation and for what `step` means (it is the coarse node of a
+/// Richardson pair, not a bare central-difference step).
+///
+/// **Frame independence.** The cross finite difference runs along the *global* field
+/// axes, so its truncation error is not a tensor: at a bare `step = 4e-3` the tensor
+/// moved by rel `6.3e-6` under a 2-bohr rigid translation (rel `1.2e-3` at 9.4 bohr)
+/// and broke `xi(R r) = R xi(r) R^T` by rel `2.7e-6`. Recentring the molecule on its
+/// centroid kills the translation dependence structurally and the Richardson pair
+/// removes the `O(step^2)` term the rotation residual is made of; both are gated to
+/// rel `1e-9` in `tests/magnetizability_frame_invariance.rs`. Shrinking `step`
+/// instead cannot get there: the bare rotation residual bottoms out at rel `~1e-8`
+/// near `step = 2.5e-4` and then rises again on builder rounding.
 pub fn magnetizability_tensor_analytic(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -1640,6 +1873,10 @@ pub fn magnetizability_tensor_analytic(
             "magnetizability step must be positive".to_string(),
         ));
     }
+    // Frame fix: differentiate in the molecule's own centroid frame, so the FD
+    // truncation error cannot depend on where the caller placed the molecule.
+    let (system, options) = recentred_for_field_derivatives(system, options);
+    let (system, options) = (&system, &options);
     let with_field = |b: Vec3| -> ElectronicOptions {
         let mut opt = options.clone();
         opt.external_field.magnetic_field = Some(b);
@@ -1652,13 +1889,13 @@ pub fn magnetizability_tensor_analytic(
             _ => Vec3::new(0.0, 0.0, s),
         }
     };
-    // Two-axis field s_a*step on axis a plus s_b*step on axis b (b != a).
-    let pair_vec = |a: usize, sa: f64, b: usize, sb: f64| -> Vec3 {
-        let mut v = axis_vec(a, sa * step);
+    // Two-axis field s_a*h on axis a plus s_b*h on axis b (b != a).
+    let pair_vec = |a: usize, sa: f64, b: usize, sb: f64, h: f64| -> Vec3 {
+        let mut v = axis_vec(a, sa * h);
         match b {
-            0 => v.x += sb * step,
-            1 => v.y += sb * step,
-            _ => v.z += sb * step,
+            0 => v.x += sb * h,
+            1 => v.y += sb * h,
+            _ => v.z += sb * h,
         }
         v
     };
@@ -1707,18 +1944,12 @@ pub fn magnetizability_tensor_analytic(
             im: ct.matmul(&m.im).unwrap().matmul(c).unwrap(),
         }
     };
-    let inv = 1.0 / (2.0 * step);
-    let inv2 = 1.0 / (step * step);
-
-    // Per-axis first derivatives and responses, plus the diagonal second derivatives.
-    let mut h0_a: Vec<CMatrix> = Vec::with_capacity(3);
-    let mut s_a: Vec<CMatrix> = Vec::with_capacity(3);
-    let mut pa: Vec<CMatrix> = Vec::with_capacity(3);
-    let mut wa: Vec<CMatrix> = Vec::with_capacity(3);
-    let mut tensor = [[0.0_f64; 3]; 3];
-    for a in 0..3 {
-        let (h0p, sp) = h0s(&with_field(axis_vec(a, step)));
-        let (h0m, sm) = h0s(&with_field(axis_vec(a, -step)));
+    // `[H0^a, S^a, H0^aa, S^aa]` from the central FD of the LAO builder at step `h`.
+    let axis_derivatives = |axis: usize, h: f64| -> [CMatrix; 4] {
+        let (h0p, sp) = h0s(&with_field(axis_vec(axis, h)));
+        let (h0m, sm) = h0s(&with_field(axis_vec(axis, -h)));
+        let inv = 1.0 / (2.0 * h);
+        let inv2 = 1.0 / (h * h);
         let mut da = CMatrix::zeros(n);
         let mut dsa = CMatrix::zeros(n);
         let mut h0_aa = CMatrix::zeros(n);
@@ -1735,6 +1966,24 @@ pub fn magnetizability_tensor_analytic(
                 s_aa.im[(i, j)] = (sp.im[(i, j)] - 2.0 * s00.im[(i, j)] + sm.im[(i, j)]) * inv2;
             }
         }
+        [da, dsa, h0_aa, s_aa]
+    };
+
+    // Per-axis first derivatives and responses, plus the diagonal second derivatives.
+    let mut h0_a: Vec<CMatrix> = Vec::with_capacity(3);
+    let mut s_a: Vec<CMatrix> = Vec::with_capacity(3);
+    let mut pa: Vec<CMatrix> = Vec::with_capacity(3);
+    let mut wa: Vec<CMatrix> = Vec::with_capacity(3);
+    let mut tensor = [[0.0_f64; 3]; 3];
+    for a in 0..3 {
+        // Richardson over (step, step/2): removes the leading O(step^2) FD
+        // truncation, which is what makes the tensor frame independent.
+        let coarse = axis_derivatives(a, step);
+        let fine = axis_derivatives(a, 0.5 * step);
+        let da = richardson_pair(&coarse[0], &fine[0]);
+        let dsa = richardson_pair(&coarse[1], &fine[1]);
+        let h0_aa = richardson_pair(&coarse[2], &fine[2]);
+        let s_aa = richardson_pair(&coarse[3], &fine[3]);
         let (p_a, w_a) =
             magnetic_first_order_response(n, nocc, c, &ct, eps, vao, p0, &f0c, &da, &dsa);
         // Diagonal element xi_aa.
@@ -1764,25 +2013,34 @@ pub fn magnetizability_tensor_analytic(
     // Off-diagonal elements xi_ab (a < b), symmetrized.
     for a in 0..3 {
         for b in (a + 1)..3 {
-            let (pp, spp) = h0s(&with_field(pair_vec(a, 1.0, b, 1.0)));
-            let (pm, spm) = h0s(&with_field(pair_vec(a, 1.0, b, -1.0)));
-            let (mp, smp) = h0s(&with_field(pair_vec(a, -1.0, b, 1.0)));
-            let (mm, smm) = h0s(&with_field(pair_vec(a, -1.0, b, -1.0)));
-            let mut h0_ab = CMatrix::zeros(n);
-            let mut s_ab = CMatrix::zeros(n);
-            let q = 1.0 / (4.0 * step * step);
-            for i in 0..n {
-                for j in 0..n {
-                    h0_ab.re[(i, j)] =
-                        (pp.re[(i, j)] - pm.re[(i, j)] - mp.re[(i, j)] + mm.re[(i, j)]) * q;
-                    h0_ab.im[(i, j)] =
-                        (pp.im[(i, j)] - pm.im[(i, j)] - mp.im[(i, j)] + mm.im[(i, j)]) * q;
-                    s_ab.re[(i, j)] =
-                        (spp.re[(i, j)] - spm.re[(i, j)] - smp.re[(i, j)] + smm.re[(i, j)]) * q;
-                    s_ab.im[(i, j)] =
-                        (spp.im[(i, j)] - spm.im[(i, j)] - smp.im[(i, j)] + smm.im[(i, j)]) * q;
+            let cross_derivatives = |h: f64| -> [CMatrix; 2] {
+                let (pp, spp) = h0s(&with_field(pair_vec(a, 1.0, b, 1.0, h)));
+                let (pm, spm) = h0s(&with_field(pair_vec(a, 1.0, b, -1.0, h)));
+                let (mp, smp) = h0s(&with_field(pair_vec(a, -1.0, b, 1.0, h)));
+                let (mm, smm) = h0s(&with_field(pair_vec(a, -1.0, b, -1.0, h)));
+                let mut h0_ab = CMatrix::zeros(n);
+                let mut s_ab = CMatrix::zeros(n);
+                let q = 1.0 / (4.0 * h * h);
+                for i in 0..n {
+                    for j in 0..n {
+                        h0_ab.re[(i, j)] =
+                            (pp.re[(i, j)] - pm.re[(i, j)] - mp.re[(i, j)] + mm.re[(i, j)]) * q;
+                        h0_ab.im[(i, j)] =
+                            (pp.im[(i, j)] - pm.im[(i, j)] - mp.im[(i, j)] + mm.im[(i, j)]) * q;
+                        s_ab.re[(i, j)] =
+                            (spp.re[(i, j)] - spm.re[(i, j)] - smp.re[(i, j)] + smm.re[(i, j)]) * q;
+                        s_ab.im[(i, j)] =
+                            (spp.im[(i, j)] - spm.im[(i, j)] - smp.im[(i, j)] + smm.im[(i, j)]) * q;
+                    }
                 }
-            }
+                [h0_ab, s_ab]
+            };
+            // Same Richardson pair as the diagonal blocks; the cross difference
+            // carries the same O(h^2) truncation.
+            let coarse = cross_derivatives(step);
+            let fine = cross_derivatives(0.5 * step);
+            let h0_ab = richardson_pair(&coarse[0], &fine[0]);
+            let s_ab = richardson_pair(&coarse[1], &fine[1]);
             // Mixed diamagnetic Tr(P0 H0^ab) - Tr(W0 S^ab) (MO-diagonal over occ).
             let h0mo_ab = mo(&h0_ab);
             let smo_ab = mo(&s_ab);
@@ -1816,10 +2074,13 @@ pub fn magnetizability_tensor_analytic(
     Ok(tensor)
 }
 
-/// Atomic unit of magnetizability in `10^-30 J T^-2` (`e^2 a_0^2 / m_e`), for
-/// comparing [`magnetizability_isotropic`] with the SI-unit literature/benchmark
-/// values (e.g. Cheng & Wibowo-Teale Figure 2 / SI).
-pub const MAGNETIZABILITY_AU_TO_SI: f64 = 78.910_383_2;
+/// Atomic unit of magnetizability in `10^-30 J T^-2` (`e^2 a_0^2 / m_e =
+/// 7.8910366008e-29 J T^-2`, CODATA 2018), for comparing
+/// [`magnetizability_isotropic`] with the SI-unit literature/benchmark values (e.g.
+/// Cheng & Wibowo-Teale Figure 2 / SI). Gated against the underlying SI constants by
+/// `tests/magnetic.rs::magnetizability_au_to_si_matches_codata`; before that gate the
+/// literal was `78.9103832`, wrong in the 7th significant figure.
+pub const MAGNETIZABILITY_AU_TO_SI: f64 = 78.910_366_008;
 
 fn cartesian_unit(axis: usize, s: f64) -> Vec3 {
     match axis {
@@ -2068,7 +2329,7 @@ fn scc_classical_energy_fixed_charges(
     } else {
         0.0
     };
-    let hal = halogen_energy(system)?;
+    let hal = halogen_energy(system, params)?;
     Ok(scc.second_order + scc.third_order + rep + disp + hal)
 }
 
@@ -2190,8 +2451,11 @@ pub fn magnetic_analytic_gradient(
     })
 }
 
-/// Speed of light in atomic units (CODATA 2018). The fine-structure constant is
-/// `alpha = 1/c`, so the NMR shielding prefactor is `alpha^2/2 = 1/(2 c^2)`.
+/// Speed of light in atomic units, i.e. the inverse fine-structure constant
+/// `1/alpha = 137.035999177` (CODATA 2022; the 2018 recommendation was
+/// `137.035999084`, a `7e-10` relative difference that is far below the accuracy of
+/// any shielding computed here). The NMR shielding prefactor is
+/// `alpha^2/2 = 1/(2 c^2)`.
 pub const SPEED_OF_LIGHT_AU: f64 = 137.035_999_177;
 
 /// NMR nuclear magnetic shielding tensor of one nucleus, `sigma_{ab} = d^2 E /
@@ -2205,9 +2469,12 @@ pub struct NmrShielding {
     /// Full shielding tensor `sigma_{ab}` (row `a` = external-field axis, column `b`
     /// = nuclear-moment axis), atomic units.
     pub sigma: [[f64; 3]; 3],
-    /// Diamagnetic part `sigma^dia_{ab} = (alpha^2/2) Tr(P0 . d_{ba})`.
+    /// Diamagnetic part `sigma^dia_{ab} = (alpha^2/2) Tr(P0 . d_{ba})`, with `d_{ba}`
+    /// the bare bracket `[delta_ab (r_O.r_A) - r_{A,a} r_{O,b}]/r_A^3`.
     pub diamagnetic: [[f64; 3]; 3],
-    /// Paramagnetic part `sigma^para_{ab} = (alpha^2/2) Tr((dP/dB_a) . L_{A,b}/r_A^3)`.
+    /// Paramagnetic part `sigma^para_{ab} = alpha^2 Tr((dP/dB_a) . L_{A,b}/r_A^3)`,
+    /// evaluated as `(alpha^2/2) Tr(P^a . L_{A,b}/r_A^3)` with `P^a = 2 dP/dB_a`, the
+    /// response to the *bare* angular momentum — see [`nmr_shielding_tensor`].
     pub paramagnetic: [[f64; 3]; 3],
 }
 
@@ -2221,11 +2488,20 @@ impl NmrShielding {
 /// Analytic GFN1 NMR nuclear magnetic shielding tensor of nucleus `nucleus` with the
 /// common gauge origin `gauge_origin` (CGO), `sigma_{A,ab} = d^2 E / dB_a dm_{A,b}`.
 ///
-/// The external magnetic field couples through the orbital-Zeeman operator
-/// `dH/dB_a = -i (r_O x grad)_a = -i L_{O,a}` (`O` = gauge origin) and the nuclear
-/// magnetic dipole through `dH/dm_b = -i (r_A x grad)_b / r_A^3 = -i L_{A,b}/r_A^3`;
-/// their `B`-`m` cross term in `1/2 |A|^2` gives the diamagnetic operator
-/// `d^2H/dB_a dm_b = 1/2 [delta_ab (r_O.r_A) - r_{A,a} r_{O,b}] / r_A^3`. Then
+/// With `A = A_B + A_m`, `A_B = 1/2 B x r_O` (`O` = gauge origin) and
+/// `A_m = alpha^2 (m x r_A)/r_A^3`, the exact derivatives of `H = 1/2 (p + A)^2` are
+/// ```text
+/// dH/dB_a      = 1/2 L_{O,a}                = 1/2 (-i)(r_O x grad)_a,
+/// dH/dm_b      = alpha^2 L_{A,b}/r_A^3      = alpha^2 (-i)(r_A x grad)_b / r_A^3,
+/// d2H/dB_a dm_b = (alpha^2/2) [delta_ab (r_O.r_A) - r_{A,a} r_{O,b}] / r_A^3.
+/// ```
+/// **Bookkeeping note:** the code below perturbs with the *bare* angular momentum
+/// `(-i)(r_O x grad)_a`, i.e. `2 dH/dB_a`, so the density response `pa` it obtains is
+/// `2 dP/dB_a`; the single shared prefactor `alpha^2/2` then lands the paramagnetic
+/// term on `alpha^2 Tr(dP/dB_a . L_{A,b}/r_A^3)` — the physical value. The factor 2
+/// is deliberate and cancels; do not "fix" it without re-deriving the prefactor.
+/// (`crate::nmr::diamagnetic_operator_matrix` likewise returns the bracket without
+/// its `alpha^2/2`.) Then
 /// ```text
 /// sigma_ab = (alpha^2/2) [ Tr(P0 . d_{ba})              (diamagnetic, no response)
 ///                        + Tr( (dP/dB_a) . L_{A,b}/r_A^3 ) ] (paramagnetic response)
@@ -2371,8 +2647,9 @@ mod tests {
     const WATER: &str = "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n";
 
     fn load_params() -> Option<crate::params::Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        crate::params::Gfn1Parameters::from_file(path).ok()
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
+        Some(params)
     }
 
     /// Load the GFN1-xTB-M1 secondary basis from the path in `GFN1_M1_BASIS` (the

@@ -14,6 +14,7 @@ use crate::coordination::{coordination_with_derivatives, CoordinationOptions};
 use crate::d4_reference;
 use crate::data_tables::covalent_radius_d3_bohr;
 use crate::error::{Gfn1Error, Result};
+use crate::jets::{DirectionScope, Jet1, Jet2, Jet3, Jet4};
 use crate::linalg::Matrix;
 use crate::math::Vec3;
 use crate::pairlist::{
@@ -1366,20 +1367,13 @@ pub fn dispersion_energy_gradient_hessian(
     let s6 = params.global("s6", 1.0);
     let s8 = params.required_global("s8")?;
     let s9 = params.required_global("s9")?;
-    if s9.abs() > 1.0e-15 {
-        return Err(Gfn1Error::InvalidInput(
-            "D3 ATM (three-body) Hessian is not implemented; the ATM term (s9!=0) supports \
-             only energy and gradient. GFN1 has s9=0."
-                .to_string(),
-        ));
-    }
+    let atm_active = s9.abs() > 1.0e-15;
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
     let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
-    let coords = jet_coordinates(system, ndof);
-    let cn = d3_coordination_jets(system, &coords, ndof)?;
+    let cn = d3_coordination_jets::<Jet2>(system, ndof)?;
     let weights = reference_weight_jets(system, &reference, &cn, ndof)?;
     let c6 = atomic_c6_jets(system, &reference, &weights, ndof)?;
     let mut energy = Jet2::constant(0.0, ndof);
@@ -1390,8 +1384,7 @@ pub fn dispersion_energy_gradient_hessian(
         let j = pair.j;
         let zi = system.atoms[i].z;
         let zj = system.atoms[j].z;
-        let rij = jet_vec_pair_from_coords(&coords, pair.i, pair.j, pair.translation);
-        let r2 = jet_dot(&rij, &rij);
+        let r2 = disp_pair_r2::<Jet2>(system, pair.i, pair.j, pair.translation, ndof);
         if r2.value > cutoff2 || r2.value <= DIST_EPS {
             continue;
         }
@@ -1405,6 +1398,12 @@ pub fn dispersion_energy_gradient_hessian(
         let t8 = r4.mul(&r4).add_scalar(r0_8).powf(-1.0);
         let edisp = t6.scale(s6).add(&t8.scale(s8 * r4r2ij));
         energy = energy.sub(&c6[i][j].mul(&edisp));
+    }
+
+    // Axilrod-Teller-Muto three-body Hessian (only when s9 != 0; GFN1 sets s9 = 0, so the
+    // two-body Hessian stays byte-identical for stock GFN1).
+    if atm_active {
+        d3_atm_accumulate_jet(system, &reference, &c6, s9, a1, a2, ndof, &mut energy)?;
     }
 
     let gradient = jet_gradient_vec3(&energy, nat);
@@ -1487,7 +1486,7 @@ fn dispersion_strain_energy_jet(
         let zi = system.atoms[i].z;
         let zj = system.atoms[j].z;
         let rij = strain_vector_jets(pair.dr, ndof);
-        let r2 = jet_dot(&rij, &rij);
+        let r2 = disp_dot(&rij, &rij);
         if r2.value > cutoff2 || r2.value <= DIST_EPS {
             continue;
         }
@@ -1530,97 +1529,44 @@ fn d3_atm_strain_energy_jet(
     ndof: usize,
     energy: &mut Jet2,
 ) -> Result<()> {
-    let nat = system.atoms.len();
-    if nat == 0 {
-        return Ok(());
-    }
-    let alp3 = D3_ATM_DAMPING_EXPONENT / 3.0;
-    let r4r2 = system
-        .atoms
-        .iter()
-        .map(|atom| reference.r4r2(atom.z))
-        .collect::<Result<Vec<_>>>()?;
-    let cutoff = D4_ATM_CUTOFF;
-    let cutoff2 = cutoff * cutoff;
-    let triple_weight = 1.0 / 3.0;
-    let neighbors = all_center_short_range_neighbors(system, cutoff)?;
-
-    for i in 0..nat {
-        let neigh = &neighbors[i];
-        for (a, pair_ib) in neigh.iter().enumerate() {
-            let j = pair_ib.j;
-            if pair_ib.r2 <= DIST_EPS || pair_ib.r2 > cutoff2 {
-                continue;
-            }
-            let v_ij = strain_vector_jets(pair_ib.dr, ndof);
-            for pair_ic in neigh[(a + 1)..].iter() {
-                let k = pair_ic.j;
-                if pair_ic.r2 <= DIST_EPS || pair_ic.r2 > cutoff2 {
-                    continue;
-                }
-                let dr_jk = pair_ic.dr - pair_ib.dr;
-                let r2jk = dr_jk.norm2();
-                if r2jk <= DIST_EPS || r2jk > cutoff2 {
-                    continue;
-                }
-                // Cheap scalar guard so we skip vanishing-C9 triples without the
-                // (more expensive) Jet2 product.
-                let root_value = (c6[i][j].value * c6[i][k].value * c6[j][k].value)
-                    .abs()
-                    .sqrt();
-                if root_value <= 1.0e-30 {
-                    continue;
-                }
-                let v_ik = strain_vector_jets(pair_ic.dr, ndof);
-                let v_jk = strain_vector_jets(dr_jk, ndof);
-                let r2ij = jet_dot(&v_ij, &v_ij);
-                let r2ik = jet_dot(&v_ik, &v_ik);
-                let r2jk_jet = jet_dot(&v_jk, &v_jk);
-
-                let r0ij = a1 * (3.0 * r4r2[i] * r4r2[j]).sqrt() + a2;
-                let r0ik = a1 * (3.0 * r4r2[i] * r4r2[k]).sqrt() + a2;
-                let r0jk = a1 * (3.0 * r4r2[j] * r4r2[k]).sqrt() + a2;
-                let r0_product = r0ij * r0ik * r0jk;
-
-                let e = d3_atm_triple_energy_strain_jet(
-                    &r2ij,
-                    &r2ik,
-                    &r2jk_jet,
-                    &c6[i][j],
-                    &c6[i][k],
-                    &c6[j][k],
-                    s9,
-                    r0_product,
-                    alp3,
-                );
-                *energy = energy.add(&e.scale(triple_weight));
-            }
-        }
-    }
-    Ok(())
+    let mut source = C6Table { table: c6 };
+    d3_atm_energy_jet_periodic(
+        system,
+        reference,
+        &mut source,
+        s9,
+        a1,
+        a2,
+        energy,
+        |_i, _j, _translation, dr| {
+            let leg = strain_vector_jets(dr, ndof);
+            disp_dot(&leg, &leg)
+        },
+    )
 }
 
-/// One D3 ATM triple energy as a `Jet2` of the squared leg lengths and the
-/// (strain-dependent) `C6` jets.  Same angular factor and Chai-Head-Gordon zero
-/// damping as [`d4_atm_energy_distance_derivatives`], expressed via `Jet2` ops so
-/// the strain derivative propagates by forward AD.
+/// One D3 ATM triple energy as a jet of the squared leg lengths and the `C6` jets — the single
+/// expression every ATM derivative order goes through (`Jet2` for the Hessian and the periodic
+/// strain/stress, `Jet3` for the third derivative, `Jet4` for the fourth).  Same angular factor
+/// and Chai-Head-Gordon zero damping as [`d4_atm_energy_distance_derivatives`], expressed via jet
+/// ops so every derivative propagates by forward AD.
 ///
 /// `E = s9 sqrt(|C6_ij C6_ik C6_jk|) (0.375 p / r̄⁵ + 1 / r̄³) fdmp`, with
 /// `r̄² = r²_ij r²_ik r²_jk`, `p = (r²_ij+r²_jk−r²_ik)(r²_ij−r²_jk+r²_ik)(−r²_ij+r²_jk+r²_ik)`
 /// and `fdmp = 1 / (1 + 6 (R0_product / r̄)^(alp/3))`.  The energy prefactor is
 /// `−C9 = +s9 sqrt(|…|)`, matching the gradient/energy paths.
 #[allow(clippy::too_many_arguments)]
-fn d3_atm_triple_energy_strain_jet(
-    r2ij: &Jet2,
-    r2ik: &Jet2,
-    r2jk: &Jet2,
-    c6ij: &Jet2,
-    c6ik: &Jet2,
-    c6jk: &Jet2,
+fn d3_atm_triple_energy_jet<J: DispJet>(
+    r2ij: &J,
+    r2ik: &J,
+    r2jk: &J,
+    c6ij: &J,
+    c6ik: &J,
+    c6jk: &J,
     s9: f64,
     r0_product: f64,
     alp3: f64,
-) -> Jet2 {
+) -> J {
     // p = (x + z - y)(x - z + y)(-x + z + y) with x=r2ij, y=r2ik, z=r2jk.
     let pa = r2ij.add(r2jk).sub(r2ik);
     let pb = r2ij.sub(r2jk).add(r2ik);
@@ -2076,45 +2022,242 @@ fn d3_atm_accumulate_periodic(
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct ReferenceWeightJets {
-    gw: Vec<Vec<Jet2>>,
+// --- Order-generic forward-AD plumbing -----------------------------------------------------
+//
+// The D3 assembly (CN sigmoid -> reference-weight softmax -> `C6` interpolation -> BJ radial /
+// ATM angular+damping) is written **once** against this op set and instantiated at second
+// ([`Jet2`]), third ([`Jet3`]) and fourth ([`Jet4`]) order.  Every method forwards to the inherent
+// method of the shared jet, so the operation *sequence* — hence the floating-point result — is
+// identical to the hand-written per-order code it replaces.
+
+/// The shared-jet operations the D3 energy assembly needs.
+trait DispJet: Clone {
+    fn constant(value: f64, n: usize) -> Self;
+    /// Overwrite one first-order seed slot.
+    fn seed_gradient(&mut self, dof: usize, value: f64);
+    /// Overwrite one second-order seed slot.
+    fn seed_hessian(&mut self, a: usize, b: usize, value: f64);
+    fn value(&self) -> f64;
+    fn n(&self) -> usize;
+    fn add(&self, rhs: &Self) -> Self;
+    fn sub(&self, rhs: &Self) -> Self;
+    fn add_scalar(&self, rhs: f64) -> Self;
+    fn scale(&self, s: f64) -> Self;
+    /// Fused `self += s · other` (one pass, no temporary — the inner loop of the factored `C6`).
+    fn add_scaled(&mut self, other: &Self, s: f64);
+    fn mul(&self, rhs: &Self) -> Self;
+    fn div(&self, rhs: &Self) -> Self;
+    fn powf(&self, p: f64) -> Self;
+    fn exp(&self) -> Self;
 }
 
-fn jet_coordinates(system: &PeriodicSystem, ndof: usize) -> Vec<[Jet2; 3]> {
-    system
-        .atoms
-        .iter()
-        .enumerate()
-        .map(|(iat, atom)| {
-            [
-                Jet2::variable(atom.position.x, ndof, 3 * iat),
-                Jet2::variable(atom.position.y, ndof, 3 * iat + 1),
-                Jet2::variable(atom.position.z, ndof, 3 * iat + 2),
-            ]
-        })
-        .collect()
+macro_rules! impl_disp_jet {
+    ($ty:ty, $($order:ident),+) => {
+        impl DispJet for $ty {
+            #[inline]
+            fn constant(value: f64, n: usize) -> Self {
+                <$ty>::constant(value, n)
+            }
+            #[inline]
+            fn seed_gradient(&mut self, dof: usize, value: f64) {
+                self.gradient[dof] = value;
+            }
+            #[inline]
+            fn seed_hessian(&mut self, a: usize, b: usize, value: f64) {
+                let n = self.gradient.len();
+                self.hessian[a * n + b] = value;
+            }
+            #[inline]
+            fn value(&self) -> f64 {
+                self.value
+            }
+            #[inline]
+            fn n(&self) -> usize {
+                <$ty>::n(self)
+            }
+            #[inline]
+            fn add(&self, rhs: &Self) -> Self {
+                <$ty>::add(self, rhs)
+            }
+            #[inline]
+            fn sub(&self, rhs: &Self) -> Self {
+                <$ty>::sub(self, rhs)
+            }
+            #[inline]
+            fn add_scalar(&self, rhs: f64) -> Self {
+                <$ty>::add_scalar(self, rhs)
+            }
+            #[inline]
+            fn scale(&self, s: f64) -> Self {
+                <$ty>::scale(self, s)
+            }
+            fn add_scaled(&mut self, other: &Self, s: f64) {
+                self.value += other.value * s;
+                $(
+                    for (dst, src) in self.$order.iter_mut().zip(other.$order.iter()) {
+                        *dst += *src * s;
+                    }
+                )+
+            }
+            #[inline]
+            fn mul(&self, rhs: &Self) -> Self {
+                <$ty>::mul(self, rhs)
+            }
+            #[inline]
+            fn div(&self, rhs: &Self) -> Self {
+                <$ty>::div(self, rhs)
+            }
+            #[inline]
+            fn powf(&self, p: f64) -> Self {
+                <$ty>::powf(self, p)
+            }
+            #[inline]
+            fn exp(&self) -> Self {
+                <$ty>::exp(self)
+            }
+        }
+    };
 }
 
-fn d3_coordination_jets(
+impl_disp_jet!(Jet2, gradient, hessian);
+impl_disp_jet!(Jet3, gradient, hessian, third);
+impl_disp_jet!(Jet4, gradient, hessian, third, fourth);
+
+/// The DIRECTIONAL instantiation of the same op set: [`Jet1`] carries the univariate Taylor of
+/// `E(R + t·v)`, so the whole D3 pipeline below runs unchanged at `O(1)` storage per jet instead
+/// of `O(ndof⁴)`.
+///
+/// The per-DOF seed hooks contract against the direction installed by
+/// [`crate::jets::DirectionScope`]: `seed_gradient(a, x)` contributes `x·v_a` to `dE/dt` and
+/// `seed_hessian(a, b, x)` contributes `x·v_a v_b` to `d²E/dt²`. Both ACCUMULATE where the
+/// full-space impls overwrite, which is equivalent at the only call site
+/// ([`disp_pair_r2`], whose seeds start at zero and touch each slot once) and is what makes the
+/// contraction possible at all.
+impl DispJet for Jet1 {
+    #[inline]
+    fn constant(value: f64, _n: usize) -> Self {
+        Jet1::constant(value)
+    }
+    #[inline]
+    fn seed_gradient(&mut self, dof: usize, value: f64) {
+        self.d1 += value * crate::jets::direction_component(dof);
+    }
+    #[inline]
+    fn seed_hessian(&mut self, a: usize, b: usize, value: f64) {
+        self.d2 += value
+            * crate::jets::direction_component(a)
+            * crate::jets::direction_component(b);
+    }
+    #[inline]
+    fn value(&self) -> f64 {
+        self.value
+    }
+    #[inline]
+    fn n(&self) -> usize {
+        1
+    }
+    #[inline]
+    fn add(&self, rhs: &Self) -> Self {
+        Jet1::add(self, rhs)
+    }
+    #[inline]
+    fn sub(&self, rhs: &Self) -> Self {
+        Jet1::sub(self, rhs)
+    }
+    #[inline]
+    fn add_scalar(&self, rhs: f64) -> Self {
+        Jet1::add_scalar(self, rhs)
+    }
+    #[inline]
+    fn scale(&self, s: f64) -> Self {
+        Jet1::scale(self, s)
+    }
+    #[inline]
+    fn add_scaled(&mut self, other: &Self, s: f64) {
+        Jet1::add_scaled(self, other, s);
+    }
+    #[inline]
+    fn mul(&self, rhs: &Self) -> Self {
+        Jet1::mul(self, rhs)
+    }
+    #[inline]
+    fn div(&self, rhs: &Self) -> Self {
+        Jet1::div(self, rhs)
+    }
+    #[inline]
+    fn powf(&self, p: f64) -> Self {
+        Jet1::powf(self, p)
+    }
+    #[inline]
+    fn exp(&self) -> Self {
+        Jet1::exp(self)
+    }
+}
+
+/// The squared length `|R_j + T − R_i|²` as a full-space jet, seeded in closed form.
+///
+/// Every distance-dependent D3 term consumes only this scalar, and it is a *quadratic* polynomial
+/// in the nuclear coordinates: its third and higher derivatives vanish identically and its
+/// gradient/Hessian have `O(1)` nonzero entries. Writing those entries directly costs `O(1)` work
+/// plus the jet allocation, instead of the three jet **products** an explicit `v·v` dot would need
+/// — the single largest saving in the fourth-order path, where each product is `O(ndof⁴)`.
+///
+/// It reproduces the previous `dot(coords[j] + T − coords[i], …)` bit-for-bit: with linear legs
+/// that dot yields exactly `2 Σ_c d_c g_c` per gradient slot and `2 Σ_c g_c[a] g_c[b]` per Hessian
+/// slot, and `x + x == 2x`, `0 + x == x` are exact in IEEE-754. A self-image pair (`i == j`) is a
+/// pure lattice translation, hence geometry-independent: all seeds stay zero.
+fn disp_pair_r2<J: DispJet>(
     system: &PeriodicSystem,
-    coords: &[[Jet2; 3]],
+    i: usize,
+    j: usize,
+    translation: Vec3,
     ndof: usize,
-) -> Result<Vec<Jet2>> {
+) -> J {
+    let ri = system.atoms[i].position.to_array();
+    let rj = system.atoms[j].position.to_array();
+    let t = translation.to_array();
+    let d = [
+        (rj[0] + t[0]) - ri[0],
+        (rj[1] + t[1]) - ri[1],
+        (rj[2] + t[2]) - ri[2],
+    ];
+    let mut out = J::constant((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2], ndof);
+    if i == j {
+        return out;
+    }
+    for (component, &dc) in d.iter().enumerate() {
+        let (aj, ai) = (3 * j + component, 3 * i + component);
+        out.seed_gradient(aj, 2.0 * dc);
+        out.seed_gradient(ai, -2.0 * dc);
+        out.seed_hessian(aj, aj, 2.0);
+        out.seed_hessian(ai, ai, 2.0);
+        out.seed_hessian(aj, ai, -2.0);
+        out.seed_hessian(ai, aj, -2.0);
+    }
+    out
+}
+
+fn disp_dot<J: DispJet>(lhs: &[J; 3], rhs: &[J; 3]) -> J {
+    lhs[0]
+        .mul(&rhs[0])
+        .add(&lhs[1].mul(&rhs[1]))
+        .add(&lhs[2].mul(&rhs[2]))
+}
+
+fn d3_coordination_jets<J: DispJet>(system: &PeriodicSystem, ndof: usize) -> Result<Vec<J>> {
     let nat = system.atoms.len();
     let radii = system
         .atoms
         .iter()
         .map(|atom| covalent_radius_d3_bohr(atom.z))
         .collect::<Result<Vec<_>>>()?;
-    let mut cn = vec![Jet2::constant(0.0, ndof); nat];
+    let mut cn = vec![J::constant(0.0, ndof); nat];
     let cutoff2 = CN_CUTOFF * CN_CUTOFF;
     for pair in unique_short_range_pairs(system, CN_CUTOFF)? {
         let i = pair.i;
         let j = pair.j;
-        let rij = jet_vec_pair_from_coords(coords, i, j, pair.translation);
-        let r2 = jet_dot(&rij, &rij);
-        if r2.value <= DIST_EPS || r2.value > cutoff2 {
+        let r2 = disp_pair_r2::<J>(system, i, j, pair.translation, ndof);
+        if r2.value() <= DIST_EPS || r2.value() > cutoff2 {
             continue;
         }
         let rc = radii[i] + radii[j];
@@ -2145,7 +2288,7 @@ fn d3_strain_coordination_jets(system: &PeriodicSystem, ndof: usize) -> Result<V
         let i = pair.i;
         let j = pair.j;
         let rij = strain_vector_jets(pair.dr, ndof);
-        let r2 = jet_dot(&rij, &rij);
+        let r2 = disp_dot(&rij, &rij);
         if r2.value <= DIST_EPS || r2.value > cutoff2 {
             continue;
         }
@@ -2164,32 +2307,30 @@ fn d3_strain_coordination_jets(system: &PeriodicSystem, ndof: usize) -> Result<V
     Ok(cn)
 }
 
-fn coordination_value_jet(r: &Jet2, kcn: f64, rc: f64) -> Jet2 {
-    let raw_arg = -kcn * (rc / r.value - 1.0);
+fn coordination_value_jet<J: DispJet>(r: &J, kcn: f64, rc: f64) -> J {
+    let n = r.n();
+    let raw_arg = -kcn * (rc / r.value() - 1.0);
     if !(-80.0..=80.0).contains(&raw_arg) {
-        return Jet2::constant(
-            1.0 / (1.0 + raw_arg.clamp(-80.0, 80.0).exp()),
-            r.gradient.len(),
-        );
+        return J::constant(1.0 / (1.0 + raw_arg.clamp(-80.0, 80.0).exp()), n);
     }
     let arg = r.powf(-1.0).scale(rc).add_scalar(-1.0).scale(-kcn);
-    Jet2::constant(1.0, r.gradient.len())
-        .div(&Jet2::constant(1.0, r.gradient.len()).add(&arg.exp()))
+    J::constant(1.0, n).div(&J::constant(1.0, n).add(&arg.exp()))
 }
 
-fn reference_weight_jets(
+/// Normalized-Gaussian D3 reference weights `gw[iat][iref]` as jets of the coordination numbers.
+fn reference_weight_jets<J: DispJet>(
     system: &PeriodicSystem,
     reference: &D3Reference,
-    cn: &[Jet2],
+    cn: &[J],
     ndof: usize,
-) -> Result<ReferenceWeightJets> {
+) -> Result<Vec<Vec<J>>> {
     let mut gw = Vec::with_capacity(system.atoms.len());
     for (iat, atom) in system.atoms.iter().enumerate() {
         let nref = reference.number_of_references(atom.z)?;
         let mut max_logit = f64::NEG_INFINITY;
         for iref in 0..nref {
             let cnref = reference.reference_cn(atom.z, iref)?;
-            let delta = cn[iat].value - cnref;
+            let delta = cn[iat].value() - cnref;
             max_logit = max_logit.max(-WF * delta * delta);
         }
         if !max_logit.is_finite() {
@@ -2200,7 +2341,7 @@ fn reference_weight_jets(
             )));
         }
         let mut raw = Vec::with_capacity(nref);
-        let mut norm = Jet2::constant(0.0, ndof);
+        let mut norm = J::constant(0.0, ndof);
         for iref in 0..nref {
             let cnref = reference.reference_cn(atom.z, iref)?;
             let delta = cn[iat].add_scalar(-cnref);
@@ -2208,7 +2349,7 @@ fn reference_weight_jets(
             norm = norm.add(&weight);
             raw.push(weight);
         }
-        if norm.value <= 0.0 || !norm.value.is_finite() {
+        if norm.value() <= 0.0 || !norm.value().is_finite() {
             return Err(Gfn1Error::InvalidInput(format!(
                 "D3 reference weighting failed for atom {} (Z={})",
                 iat + 1,
@@ -2217,28 +2358,44 @@ fn reference_weight_jets(
         }
         gw.push(raw.iter().map(|weight| weight.div(&norm)).collect());
     }
-    Ok(ReferenceWeightJets { gw })
+    Ok(gw)
 }
 
-fn atomic_c6_jets(
+/// One CN-interpolated `C6_ij` jet from the two atoms' reference-weight jets.
+///
+/// Shared by the tabulated (`Jet2`/`Jet3`) and the streaming (`Jet4`) paths, so the pair `C6`
+/// is built by exactly one code path at every derivative order.
+fn atomic_c6_pair_jet<J: DispJet>(
+    reference: &D3Reference,
+    weights_i: &[J],
+    weights_j: &[J],
+    zi: u8,
+    zj: u8,
+    ndof: usize,
+) -> Result<J> {
+    let mut cij = J::constant(0.0, ndof);
+    for (iref, wi) in weights_i.iter().enumerate() {
+        for (jref, wj) in weights_j.iter().enumerate() {
+            let refc6 = reference.c6(iref, jref, zi, zj)?;
+            cij = cij.add(&wi.mul(wj).scale(refc6));
+        }
+    }
+    Ok(cij)
+}
+
+fn atomic_c6_jets<J: DispJet>(
     system: &PeriodicSystem,
     reference: &D3Reference,
-    weights: &ReferenceWeightJets,
+    weights: &[Vec<J>],
     ndof: usize,
-) -> Result<Vec<Vec<Jet2>>> {
+) -> Result<Vec<Vec<J>>> {
     let nat = system.atoms.len();
-    let mut c6 = vec![vec![Jet2::constant(0.0, ndof); nat]; nat];
+    let mut c6 = vec![vec![J::constant(0.0, ndof); nat]; nat];
     for i in 0..nat {
         let zi = system.atoms[i].z;
         for j in 0..=i {
             let zj = system.atoms[j].z;
-            let mut cij = Jet2::constant(0.0, ndof);
-            for iref in 0..weights.gw[i].len() {
-                for jref in 0..weights.gw[j].len() {
-                    let refc6 = reference.c6(iref, jref, zi, zj)?;
-                    cij = cij.add(&weights.gw[i][iref].mul(&weights.gw[j][jref]).scale(refc6));
-                }
-            }
+            let cij = atomic_c6_pair_jet(reference, &weights[i], &weights[j], zi, zj, ndof)?;
             c6[i][j] = cij.clone();
             c6[j][i] = cij;
         }
@@ -2246,127 +2403,342 @@ fn atomic_c6_jets(
     Ok(c6)
 }
 
-#[derive(Clone, Debug)]
-struct Jet2 {
-    value: f64,
-    gradient: Vec<f64>,
-    hessian: Vec<f64>,
+/// Source of CN-interpolated pair `C6` jets for the two-body and ATM jet loops.
+///
+/// Two implementations decide *whether the `nat × nat` pair table is materialised*:
+/// [`C6Table`] hands out clones of a pre-built table (second/third order, where the table costs
+/// `O(nat² · ndof²)` / `O(nat² · ndof³)` and is cheap), while [`C6Stream`] rebuilds each pair jet
+/// on demand from the cached per-atom reference weights (fourth order, where the same table would
+/// cost `O(nat² · ndof⁴)` — hundreds of MB for a handful of atoms).
+trait C6Source<J: DispJet> {
+    /// Scalar `C6_ij`, for the cheap vanishing-`C9` screen before any jet work.
+    fn value(&self, i: usize, j: usize) -> f64;
+    fn jet(&mut self, i: usize, j: usize) -> Result<J>;
+    /// Hint that the following lookups mostly involve atom `i` (streaming row cache).
+    fn begin_row(&mut self, _i: usize) {}
 }
 
-impl Jet2 {
-    fn constant(value: f64, ndof: usize) -> Self {
-        Self {
-            value,
-            gradient: vec![0.0; ndof],
-            hessian: vec![0.0; ndof * ndof],
-        }
-    }
+struct C6Table<'a, J: DispJet> {
+    table: &'a [Vec<J>],
+}
 
-    fn variable(value: f64, ndof: usize, dof: usize) -> Self {
-        let mut out = Self::constant(value, ndof);
-        out.gradient[dof] = 1.0;
-        out
+impl<J: DispJet> C6Source<J> for C6Table<'_, J> {
+    fn value(&self, i: usize, j: usize) -> f64 {
+        self.table[i][j].value()
     }
-
-    fn add(&self, rhs: &Self) -> Self {
-        let mut out = Self::constant(self.value + rhs.value, self.gradient.len());
-        for i in 0..self.gradient.len() {
-            out.gradient[i] = self.gradient[i] + rhs.gradient[i];
-        }
-        for i in 0..self.hessian.len() {
-            out.hessian[i] = self.hessian[i] + rhs.hessian[i];
-        }
-        out
-    }
-
-    fn add_scalar(&self, rhs: f64) -> Self {
-        let mut out = self.clone();
-        out.value += rhs;
-        out
-    }
-
-    fn sub(&self, rhs: &Self) -> Self {
-        self.add(&rhs.scale(-1.0))
-    }
-
-    fn scale(&self, scale: f64) -> Self {
-        let mut out = Self::constant(self.value * scale, self.gradient.len());
-        for i in 0..self.gradient.len() {
-            out.gradient[i] = self.gradient[i] * scale;
-        }
-        for i in 0..self.hessian.len() {
-            out.hessian[i] = self.hessian[i] * scale;
-        }
-        out
-    }
-
-    fn mul(&self, rhs: &Self) -> Self {
-        let n = self.gradient.len();
-        let mut out = Self::constant(self.value * rhs.value, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] * rhs.value + rhs.gradient[i] * self.value;
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] = self.hessian[i * n + j] * rhs.value
-                    + rhs.hessian[i * n + j] * self.value
-                    + self.gradient[i] * rhs.gradient[j]
-                    + rhs.gradient[i] * self.gradient[j];
-            }
-        }
-        out
-    }
-
-    fn div(&self, rhs: &Self) -> Self {
-        self.mul(&rhs.powf(-1.0))
-    }
-
-    fn powf(&self, power: f64) -> Self {
-        let n = self.gradient.len();
-        let value = self.value.powf(power);
-        let first = power * self.value.powf(power - 1.0);
-        let second = power * (power - 1.0) * self.value.powf(power - 2.0);
-        let mut out = Self::constant(value, n);
-        for i in 0..n {
-            out.gradient[i] = first * self.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] =
-                    first * self.hessian[i * n + j] + second * self.gradient[i] * self.gradient[j];
-            }
-        }
-        out
-    }
-
-    fn exp(&self) -> Self {
-        let n = self.gradient.len();
-        let value = self.value.exp();
-        let mut out = Self::constant(value, n);
-        for i in 0..n {
-            out.gradient[i] = value * self.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] =
-                    value * (self.hessian[i * n + j] + self.gradient[i] * self.gradient[j]);
-            }
-        }
-        out
+    fn jet(&mut self, i: usize, j: usize) -> Result<J> {
+        Ok(self.table[i][j].clone())
     }
 }
 
-fn jet_vec_pair_from_coords(
-    coords: &[[Jet2; 3]],
-    i: usize,
-    j: usize,
-    translation: Vec3,
-) -> [Jet2; 3] {
-    [
-        coords[j][0].add_scalar(translation.x).sub(&coords[i][0]),
-        coords[j][1].add_scalar(translation.y).sub(&coords[i][1]),
-        coords[j][2].add_scalar(translation.z).sub(&coords[i][2]),
-    ]
+/// On-demand pair `C6` jets built from the per-atom reference weights, with a **one-row** cache.
+///
+/// Memory: `O(nat · nref)` weight jets (the caller's) plus at most `nat` cached row jets — i.e.
+/// `O(nat)` live jets, never the `O(nat²)` pair table.  The ATM driver calls [`begin_row`] with
+/// its outer atom `i`, so the two legs `C6_ij` / `C6_ik` of every triple hit the cache and only
+/// the third leg `C6_jk` is rebuilt (`C(nat,3)` rebuilds instead of `3·C(nat,3)`).
+///
+/// [`begin_row`]: C6Source::begin_row
+struct C6Stream<'a, J: DispJet> {
+    system: &'a PeriodicSystem,
+    reference: &'a D3Reference,
+    weights: &'a [Vec<J>],
+    /// Scalar pair `C6` for the screens (cheap: built from the jets' values only).
+    values: Vec<Vec<f64>>,
+    ndof: usize,
+    row_atom: usize,
+    row: Vec<Option<J>>,
+}
+
+impl<'a, J: DispJet> C6Stream<'a, J> {
+    fn new(
+        system: &'a PeriodicSystem,
+        reference: &'a D3Reference,
+        weights: &'a [Vec<J>],
+        ndof: usize,
+    ) -> Result<Self> {
+        let nat = system.atoms.len();
+        let mut values = vec![vec![0.0; nat]; nat];
+        for i in 0..nat {
+            let zi = system.atoms[i].z;
+            for j in 0..=i {
+                let zj = system.atoms[j].z;
+                let mut cij = 0.0;
+                for (iref, wi) in weights[i].iter().enumerate() {
+                    for (jref, wj) in weights[j].iter().enumerate() {
+                        cij += wi.value() * wj.value() * reference.c6(iref, jref, zi, zj)?;
+                    }
+                }
+                values[i][j] = cij;
+                values[j][i] = cij;
+            }
+        }
+        Ok(Self {
+            system,
+            reference,
+            weights,
+            values,
+            ndof,
+            row_atom: usize::MAX,
+            row: vec![None; nat],
+        })
+    }
+
+    /// `C6_ij = Σ_ab gw_i[a] gw_j[b] refc6[a][b]`, factored as
+    /// `Σ_a gw_i[a] · (Σ_b refc6[a][b] gw_j[b])`.
+    ///
+    /// Mathematically identical to [`atomic_c6_pair_jet`] but it costs `nref` jet **products**
+    /// instead of `nref²`; the inner sums are fused scale-adds. Jet products are `O(ndof⁴)` with a
+    /// ~14-term Leibniz kernel while a scale-add is a single pass, so at fourth order — where each
+    /// ATM triple rebuilds its `jk` pair `C6` — this is the difference between the `C6` rebuild
+    /// dominating the triple loop and being a minor cost. (The tabulated lower-order paths keep
+    /// the unfactored form so their arithmetic is unchanged.)
+    fn build(&self, i: usize, j: usize) -> Result<J> {
+        let (zi, zj) = (self.system.atoms[i].z, self.system.atoms[j].z);
+        let mut cij = J::constant(0.0, self.ndof);
+        for (iref, wi) in self.weights[i].iter().enumerate() {
+            let mut inner = J::constant(0.0, self.ndof);
+            for (jref, wj) in self.weights[j].iter().enumerate() {
+                inner.add_scaled(wj, self.reference.c6(iref, jref, zi, zj)?);
+            }
+            cij = cij.add(&wi.mul(&inner));
+        }
+        Ok(cij)
+    }
+}
+
+impl<J: DispJet> C6Source<J> for C6Stream<'_, J> {
+    fn value(&self, i: usize, j: usize) -> f64 {
+        self.values[i][j]
+    }
+
+    fn jet(&mut self, i: usize, j: usize) -> Result<J> {
+        let other = if i == self.row_atom {
+            j
+        } else if j == self.row_atom {
+            i
+        } else {
+            return self.build(i, j);
+        };
+        if self.row[other].is_none() {
+            let built = self.build(self.row_atom, other)?;
+            self.row[other] = Some(built);
+        }
+        Ok(self.row[other].clone().expect("row slot just filled"))
+    }
+
+    fn begin_row(&mut self, i: usize) {
+        self.row_atom = i;
+        for slot in &mut self.row {
+            *slot = None;
+        }
+    }
+}
+
+/// Molecular (non-PBC) D3 ATM three-body energy as a jet: the `i < j < k` loop, cutoffs, screens
+/// and `R0` construction of [`d3_atm_accumulate`] with the scalar triple energy replaced by the
+/// jet expression [`d3_atm_triple_energy_jet`].  Instantiated at second order (Hessian), third
+/// order and fourth order; the `C6(CN(R))` many-body chain rule rides the jets, so nothing about
+/// it is hand-differentiated.
+#[allow(clippy::too_many_arguments)]
+fn d3_atm_energy_jet<J: DispJet, S: C6Source<J>>(
+    system: &PeriodicSystem,
+    reference: &D3Reference,
+    c6: &mut S,
+    s9: f64,
+    a1: f64,
+    a2: f64,
+    ndof: usize,
+    energy: &mut J,
+) -> Result<()> {
+    let nat = system.atoms.len();
+    if nat < 3 {
+        return Ok(());
+    }
+    let alp3 = D3_ATM_DAMPING_EXPONENT / 3.0;
+    let r4r2 = system
+        .atoms
+        .iter()
+        .map(|atom| reference.r4r2(atom.z))
+        .collect::<Result<Vec<_>>>()?;
+    let cutoff2 = D4_ATM_CUTOFF * D4_ATM_CUTOFF;
+    let pos = |a: usize| system.atoms[a].position;
+
+    for i in 0..nat {
+        c6.begin_row(i);
+        for j in (i + 1)..nat {
+            let r2ij_scalar = (pos(j) - pos(i)).norm2();
+            if r2ij_scalar <= DIST_EPS || r2ij_scalar > cutoff2 {
+                continue;
+            }
+            // The ij leg and its C6 jet are shared by every k; build them at most once.
+            let mut ij_jets: Option<(J, J)> = None;
+            for k in (j + 1)..nat {
+                let r2ik_scalar = (pos(k) - pos(i)).norm2();
+                if r2ik_scalar <= DIST_EPS || r2ik_scalar > cutoff2 {
+                    continue;
+                }
+                let r2jk_scalar = (pos(k) - pos(j)).norm2();
+                if r2jk_scalar <= DIST_EPS || r2jk_scalar > cutoff2 {
+                    continue;
+                }
+                let root = (c6.value(i, j) * c6.value(i, k) * c6.value(j, k))
+                    .abs()
+                    .sqrt();
+                if root <= 1.0e-30 {
+                    continue;
+                }
+                if ij_jets.is_none() {
+                    let r2ij = disp_pair_r2::<J>(system, i, j, Vec3::zero(), ndof);
+                    let c6ij = c6.jet(i, j)?;
+                    ij_jets = Some((r2ij, c6ij));
+                }
+                let (r2ij, c6ij) = ij_jets.as_ref().expect("ij jets just built");
+                let r2ik = disp_pair_r2::<J>(system, i, k, Vec3::zero(), ndof);
+                let r2jk = disp_pair_r2::<J>(system, j, k, Vec3::zero(), ndof);
+                let c6ik = c6.jet(i, k)?;
+                let c6jk = c6.jet(j, k)?;
+
+                let r0ij = a1 * (3.0 * r4r2[i] * r4r2[j]).sqrt() + a2;
+                let r0ik = a1 * (3.0 * r4r2[i] * r4r2[k]).sqrt() + a2;
+                let r0jk = a1 * (3.0 * r4r2[j] * r4r2[k]).sqrt() + a2;
+                let r0_product = r0ij * r0ik * r0jk;
+
+                let e = d3_atm_triple_energy_jet(
+                    r2ij, &r2ik, &r2jk, c6ij, &c6ik, &c6jk, s9, r0_product, alp3,
+                );
+                if e.value() == 0.0 || !e.value().is_finite() {
+                    continue;
+                }
+                *energy = energy.add(&e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Lattice-summed (periodic) D3 ATM three-body energy as a jet: the home-anchored directed
+/// neighbor loop, `1/3` counting weight, cutoffs and screens of [`d3_atm_accumulate_periodic`].
+///
+/// `leg_r2(i, j, translation, dr)` supplies each leg's **squared length** as a jet, which is the
+/// *only* difference between the two periodic ATM jet consumers: the Hessian/third/fourth
+/// derivatives seed it on nuclear coordinates ([`disp_pair_r2`]), while the stress seeds it on
+/// homogeneous strain ([`strain_vector_jets`] + [`disp_dot`]).  Sharing the loop keeps the
+/// counting weight and image bookkeeping in exactly one place.
+#[allow(clippy::too_many_arguments)]
+fn d3_atm_energy_jet_periodic<J, S, L>(
+    system: &PeriodicSystem,
+    reference: &D3Reference,
+    c6: &mut S,
+    s9: f64,
+    a1: f64,
+    a2: f64,
+    energy: &mut J,
+    leg_r2: L,
+) -> Result<()>
+where
+    J: DispJet,
+    S: C6Source<J>,
+    L: Fn(usize, usize, Vec3, Vec3) -> J,
+{
+    let nat = system.atoms.len();
+    if nat == 0 {
+        return Ok(());
+    }
+    let alp3 = D3_ATM_DAMPING_EXPONENT / 3.0;
+    let r4r2 = system
+        .atoms
+        .iter()
+        .map(|atom| reference.r4r2(atom.z))
+        .collect::<Result<Vec<_>>>()?;
+    let cutoff = D4_ATM_CUTOFF;
+    let cutoff2 = cutoff * cutoff;
+    const TRIPLE_WEIGHT: f64 = 1.0 / 3.0;
+    let neighbors = all_center_short_range_neighbors(system, cutoff)?;
+
+    for i in 0..nat {
+        c6.begin_row(i);
+        let neigh = &neighbors[i];
+        for (a, pair_ib) in neigh.iter().enumerate() {
+            let j = pair_ib.j;
+            if pair_ib.r2 <= DIST_EPS || pair_ib.r2 > cutoff2 {
+                continue;
+            }
+            let r2ij = leg_r2(i, j, pair_ib.translation, pair_ib.dr);
+            for pair_ic in neigh[(a + 1)..].iter() {
+                let k = pair_ic.j;
+                if pair_ic.r2 <= DIST_EPS || pair_ic.r2 > cutoff2 {
+                    continue;
+                }
+                let dr_jk = pair_ic.dr - pair_ib.dr;
+                let r2jk_scalar = dr_jk.norm2();
+                if r2jk_scalar <= DIST_EPS || r2jk_scalar > cutoff2 {
+                    continue;
+                }
+                // Cheap scalar guard so vanishing-C9 triples skip the (expensive) jet products.
+                let root = (c6.value(i, j) * c6.value(i, k) * c6.value(j, k))
+                    .abs()
+                    .sqrt();
+                if root <= 1.0e-30 {
+                    continue;
+                }
+                let r2ik = leg_r2(i, k, pair_ic.translation, pair_ic.dr);
+                let r2jk = leg_r2(j, k, pair_ic.translation - pair_ib.translation, dr_jk);
+
+                let r0ij = a1 * (3.0 * r4r2[i] * r4r2[j]).sqrt() + a2;
+                let r0ik = a1 * (3.0 * r4r2[i] * r4r2[k]).sqrt() + a2;
+                let r0jk = a1 * (3.0 * r4r2[j] * r4r2[k]).sqrt() + a2;
+                let r0_product = r0ij * r0ik * r0jk;
+
+                let e = d3_atm_triple_energy_jet(
+                    &r2ij,
+                    &r2ik,
+                    &r2jk,
+                    &c6.jet(i, j)?,
+                    &c6.jet(i, k)?,
+                    &c6.jet(j, k)?,
+                    s9,
+                    r0_product,
+                    alp3,
+                );
+                if !e.value().is_finite() {
+                    continue;
+                }
+                *energy = energy.add(&e.scale(TRIPLE_WEIGHT));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Add the D3 ATM three-body contribution to a coordinate-seeded energy jet, routing lattices to
+/// the lattice-summed loop exactly as [`dispersion_energy_gradient`] routes the scalar path.
+#[allow(clippy::too_many_arguments)]
+fn d3_atm_accumulate_jet<J: DispJet>(
+    system: &PeriodicSystem,
+    reference: &D3Reference,
+    c6: &[Vec<J>],
+    s9: f64,
+    a1: f64,
+    a2: f64,
+    ndof: usize,
+    energy: &mut J,
+) -> Result<()> {
+    let mut source = C6Table { table: c6 };
+    if system.lattice.is_some() {
+        d3_atm_energy_jet_periodic(
+            system,
+            reference,
+            &mut source,
+            s9,
+            a1,
+            a2,
+            energy,
+            |i, j, translation, _dr| disp_pair_r2::<J>(system, i, j, translation, ndof),
+        )
+    } else {
+        d3_atm_energy_jet(system, reference, &mut source, s9, a1, a2, ndof, energy)
+    }
 }
 
 fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
@@ -2384,13 +2756,6 @@ fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
     out
 }
 
-fn jet_dot(lhs: &[Jet2; 3], rhs: &[Jet2; 3]) -> Jet2 {
-    lhs[0]
-        .mul(&rhs[0])
-        .add(&lhs[1].mul(&rhs[1]))
-        .add(&lhs[2].mul(&rhs[2]))
-}
-
 fn jet_gradient_vec3(jet: &Jet2, nat: usize) -> Vec<Vec3> {
     let mut gradient = vec![Vec3::zero(); nat];
     for (dof, &value) in jet.gradient.iter().enumerate() {
@@ -2406,317 +2771,15 @@ fn jet_gradient_vec3(jet: &Jet2, nat: usize) -> Vec<Vec3> {
 
 // --- Third-order forward-AD (dispersion analytic third derivative) --------------------------
 //
-// `Jet3` carries value + gradient + Hessian (`n×n`) + third (`n×n×n`, index `(i·n+j)·n+k`),
-// mirroring the local [`Jet2`] one order higher (same per-module dual-number pattern halogen.rs
-// uses). Promoting the dispersion energy assembly `Jet2 → Jet3` makes the **many-body** D3 CN
-// chain rule (`C6(CN(R))`, the reference-weight softmax, and the BJ radial term) propagate the
-// **third** derivative automatically through forward AD — the Faà di Bruno bookkeeping the plan's
-// "D3/CN are many-body, not central two-body" caveat warns about is handled by the chain rule in
-// `mul`/`powf`/`exp`. Dense `n³` storage ⇒ small molecules only (the FD-validation target); this
-// is a frozen-geometry `L_abc` block (no electronic response) and so is FD-isolatable like the
-// repulsion/halogen third derivatives.
-#[derive(Clone, Debug)]
-struct Jet3 {
-    value: f64,
-    gradient: Vec<f64>,
-    hessian: Vec<f64>,
-    third: Vec<f64>,
-}
-
-impl Jet3 {
-    fn constant(value: f64, n: usize) -> Self {
-        Self {
-            value,
-            gradient: vec![0.0; n],
-            hessian: vec![0.0; n * n],
-            third: vec![0.0; n * n * n],
-        }
-    }
-
-    fn variable(value: f64, n: usize, dof: usize) -> Self {
-        let mut out = Self::constant(value, n);
-        out.gradient[dof] = 1.0;
-        out
-    }
-
-    #[inline]
-    fn n(&self) -> usize {
-        self.gradient.len()
-    }
-
-    fn add(&self, rhs: &Self) -> Self {
-        let n = self.n();
-        let mut out = Self::constant(self.value + rhs.value, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] + rhs.gradient[i];
-        }
-        for i in 0..n * n {
-            out.hessian[i] = self.hessian[i] + rhs.hessian[i];
-        }
-        for i in 0..n * n * n {
-            out.third[i] = self.third[i] + rhs.third[i];
-        }
-        out
-    }
-
-    fn add_scalar(&self, rhs: f64) -> Self {
-        let mut out = self.clone();
-        out.value += rhs;
-        out
-    }
-
-    fn scale(&self, s: f64) -> Self {
-        let n = self.n();
-        let mut out = Self::constant(self.value * s, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] * s;
-        }
-        for i in 0..n * n {
-            out.hessian[i] = self.hessian[i] * s;
-        }
-        for i in 0..n * n * n {
-            out.third[i] = self.third[i] * s;
-        }
-        out
-    }
-
-    fn sub(&self, rhs: &Self) -> Self {
-        self.add(&rhs.scale(-1.0))
-    }
-
-    fn mul(&self, rhs: &Self) -> Self {
-        let n = self.n();
-        let (a, b) = (self, rhs);
-        let mut out = Self::constant(a.value * b.value, n);
-        for i in 0..n {
-            out.gradient[i] = a.gradient[i] * b.value + a.value * b.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] = a.hessian[i * n + j] * b.value
-                    + a.value * b.hessian[i * n + j]
-                    + a.gradient[i] * b.gradient[j]
-                    + a.gradient[j] * b.gradient[i];
-            }
-        }
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    let idx = (i * n + j) * n + k;
-                    out.third[idx] = a.third[idx] * b.value
-                        + a.value * b.third[idx]
-                        + a.hessian[i * n + j] * b.gradient[k]
-                        + a.hessian[i * n + k] * b.gradient[j]
-                        + a.hessian[j * n + k] * b.gradient[i]
-                        + a.gradient[i] * b.hessian[j * n + k]
-                        + a.gradient[j] * b.hessian[i * n + k]
-                        + a.gradient[k] * b.hessian[i * n + j];
-                }
-            }
-        }
-        out
-    }
-
-    fn div(&self, rhs: &Self) -> Self {
-        self.mul(&rhs.powf(-1.0))
-    }
-
-    // Composition `f(v)` with scalar derivatives `phi1,phi2,phi3 = f',f'',f'''` propagates the
-    // dual numbers; `powf`/`exp` differ only in those three scalars.
-    fn compose(&self, value: f64, phi1: f64, phi2: f64, phi3: f64) -> Self {
-        let n = self.n();
-        let mut out = Self::constant(value, n);
-        for i in 0..n {
-            out.gradient[i] = phi1 * self.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] =
-                    phi1 * self.hessian[i * n + j] + phi2 * self.gradient[i] * self.gradient[j];
-            }
-        }
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    let idx = (i * n + j) * n + k;
-                    out.third[idx] = phi3 * self.gradient[i] * self.gradient[j] * self.gradient[k]
-                        + phi2
-                            * (self.hessian[i * n + j] * self.gradient[k]
-                                + self.hessian[i * n + k] * self.gradient[j]
-                                + self.hessian[j * n + k] * self.gradient[i])
-                        + phi1 * self.third[idx];
-                }
-            }
-        }
-        out
-    }
-
-    fn powf(&self, power: f64) -> Self {
-        let v = self.value;
-        self.compose(
-            v.powf(power),
-            power * v.powf(power - 1.0),
-            power * (power - 1.0) * v.powf(power - 2.0),
-            power * (power - 1.0) * (power - 2.0) * v.powf(power - 3.0),
-        )
-    }
-
-    fn exp(&self) -> Self {
-        let e = self.value.exp();
-        self.compose(e, e, e, e)
-    }
-}
-
-fn jet3_coordinates(system: &PeriodicSystem, ndof: usize) -> Vec<[Jet3; 3]> {
-    system
-        .atoms
-        .iter()
-        .enumerate()
-        .map(|(i, atom)| {
-            [
-                Jet3::variable(atom.position.x, ndof, 3 * i),
-                Jet3::variable(atom.position.y, ndof, 3 * i + 1),
-                Jet3::variable(atom.position.z, ndof, 3 * i + 2),
-            ]
-        })
-        .collect()
-}
-
-fn jet3_vec_pair_from_coords(
-    coords: &[[Jet3; 3]],
-    i: usize,
-    j: usize,
-    translation: Vec3,
-) -> [Jet3; 3] {
-    [
-        coords[j][0].add_scalar(translation.x).sub(&coords[i][0]),
-        coords[j][1].add_scalar(translation.y).sub(&coords[i][1]),
-        coords[j][2].add_scalar(translation.z).sub(&coords[i][2]),
-    ]
-}
-
-fn jet3_dot(lhs: &[Jet3; 3], rhs: &[Jet3; 3]) -> Jet3 {
-    lhs[0]
-        .mul(&rhs[0])
-        .add(&lhs[1].mul(&rhs[1]))
-        .add(&lhs[2].mul(&rhs[2]))
-}
-
-fn coordination_value_jet3(r: &Jet3, kcn: f64, rc: f64) -> Jet3 {
-    let n = r.n();
-    let raw_arg = -kcn * (rc / r.value - 1.0);
-    if !(-80.0..=80.0).contains(&raw_arg) {
-        return Jet3::constant(1.0 / (1.0 + raw_arg.clamp(-80.0, 80.0).exp()), n);
-    }
-    let arg = r.powf(-1.0).scale(rc).add_scalar(-1.0).scale(-kcn);
-    Jet3::constant(1.0, n).div(&Jet3::constant(1.0, n).add(&arg.exp()))
-}
-
-fn d3_coordination_jets3(
-    system: &PeriodicSystem,
-    coords: &[[Jet3; 3]],
-    ndof: usize,
-) -> Result<Vec<Jet3>> {
-    let nat = system.atoms.len();
-    let radii = system
-        .atoms
-        .iter()
-        .map(|atom| covalent_radius_d3_bohr(atom.z))
-        .collect::<Result<Vec<_>>>()?;
-    let mut cn = vec![Jet3::constant(0.0, ndof); nat];
-    let cutoff2 = CN_CUTOFF * CN_CUTOFF;
-    for pair in unique_short_range_pairs(system, CN_CUTOFF)? {
-        let i = pair.i;
-        let j = pair.j;
-        let rij = jet3_vec_pair_from_coords(coords, i, j, pair.translation);
-        let r2 = jet3_dot(&rij, &rij);
-        if r2.value <= DIST_EPS || r2.value > cutoff2 {
-            continue;
-        }
-        let rc = radii[i] + radii[j];
-        if rc <= DIST_EPS {
-            continue;
-        }
-        let value = coordination_value_jet3(&r2.powf(0.5), CoordinationOptions::default().kcn, rc);
-        if i == j {
-            cn[i] = cn[i].add(&value.scale(2.0));
-        } else {
-            cn[i] = cn[i].add(&value);
-            cn[j] = cn[j].add(&value);
-        }
-    }
-    Ok(cn)
-}
-
-fn reference_weight_jets3(
-    system: &PeriodicSystem,
-    reference: &D3Reference,
-    cn: &[Jet3],
-    ndof: usize,
-) -> Result<Vec<Vec<Jet3>>> {
-    let mut gw = Vec::with_capacity(system.atoms.len());
-    for (iat, atom) in system.atoms.iter().enumerate() {
-        let nref = reference.number_of_references(atom.z)?;
-        let mut max_logit = f64::NEG_INFINITY;
-        for iref in 0..nref {
-            let cnref = reference.reference_cn(atom.z, iref)?;
-            let delta = cn[iat].value - cnref;
-            max_logit = max_logit.max(-WF * delta * delta);
-        }
-        if !max_logit.is_finite() {
-            return Err(Gfn1Error::InvalidInput(format!(
-                "D3 reference weighting failed for atom {} (Z={})",
-                iat + 1,
-                atom.z
-            )));
-        }
-        let mut raw = Vec::with_capacity(nref);
-        let mut norm = Jet3::constant(0.0, ndof);
-        for iref in 0..nref {
-            let cnref = reference.reference_cn(atom.z, iref)?;
-            let delta = cn[iat].add_scalar(-cnref);
-            let weight = delta.mul(&delta).scale(-WF).add_scalar(-max_logit).exp();
-            norm = norm.add(&weight);
-            raw.push(weight);
-        }
-        if norm.value <= 0.0 || !norm.value.is_finite() {
-            return Err(Gfn1Error::InvalidInput(format!(
-                "D3 reference weighting failed for atom {} (Z={})",
-                iat + 1,
-                atom.z
-            )));
-        }
-        gw.push(raw.iter().map(|weight| weight.div(&norm)).collect());
-    }
-    Ok(gw)
-}
-
-fn atomic_c6_jets3(
-    system: &PeriodicSystem,
-    reference: &D3Reference,
-    weights: &[Vec<Jet3>],
-    ndof: usize,
-) -> Result<Vec<Vec<Jet3>>> {
-    let nat = system.atoms.len();
-    let mut c6 = vec![vec![Jet3::constant(0.0, ndof); nat]; nat];
-    for i in 0..nat {
-        let zi = system.atoms[i].z;
-        for j in 0..=i {
-            let zj = system.atoms[j].z;
-            let mut cij = Jet3::constant(0.0, ndof);
-            for iref in 0..weights[i].len() {
-                for jref in 0..weights[j].len() {
-                    let refc6 = reference.c6(iref, jref, zi, zj)?;
-                    cij = cij.add(&weights[i][iref].mul(&weights[j][jref]).scale(refc6));
-                }
-            }
-            c6[i][j] = cij.clone();
-            c6[j][i] = cij;
-        }
-    }
-    Ok(c6)
-}
-
+// [`crate::jets::Jet3`] carries value + gradient + Hessian (`n×n`) + third (`n×n×n`, index
+// `(i·n+j)·n+k`), i.e. the shared [`crate::jets::Jet2`] one order higher. Promoting the dispersion
+// energy assembly `Jet2 → Jet3` makes the **many-body** D3 CN chain rule (`C6(CN(R))`, the
+// reference-weight softmax, and the BJ radial term) propagate the **third** derivative
+// automatically through forward AD — the Faà di Bruno bookkeeping the plan's "D3/CN are many-body,
+// not central two-body" caveat warns about is handled by the chain rule in `mul`/`powf`/`exp`.
+// Dense `n³` storage ⇒ small molecules only (the FD-validation target); this is a frozen-geometry
+// `L_abc` block (no electronic response) and so is FD-isolatable like the repulsion/halogen third
+// derivatives.
 /// Result of the analytic dispersion **third** derivative.
 #[derive(Clone, Debug)]
 pub struct DispersionThirdResult {
@@ -2739,22 +2802,15 @@ pub fn dispersion_third_derivative(
     let s6 = params.global("s6", 1.0);
     let s8 = params.required_global("s8")?;
     let s9 = params.required_global("s9")?;
-    if s9.abs() > 1.0e-15 {
-        return Err(Gfn1Error::InvalidInput(
-            "D3 ATM (three-body) third derivative is not implemented; the ATM term (s9!=0) \
-             supports only energy and gradient. GFN1 has s9=0."
-                .to_string(),
-        ));
-    }
+    let atm_active = s9.abs() > 1.0e-15;
     let a1 = params.required_global("a1")?;
     let a2 = params.required_global("a2")?;
     let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
-    let coords = jet3_coordinates(system, ndof);
-    let cn = d3_coordination_jets3(system, &coords, ndof)?;
-    let weights = reference_weight_jets3(system, &reference, &cn, ndof)?;
-    let c6 = atomic_c6_jets3(system, &reference, &weights, ndof)?;
+    let cn = d3_coordination_jets::<Jet3>(system, ndof)?;
+    let weights = reference_weight_jets(system, &reference, &cn, ndof)?;
+    let c6 = atomic_c6_jets(system, &reference, &weights, ndof)?;
     let mut energy = Jet3::constant(0.0, ndof);
     let cutoff2 = DISP2_CUTOFF * DISP2_CUTOFF;
 
@@ -2763,8 +2819,7 @@ pub fn dispersion_third_derivative(
         let j = pair.j;
         let zi = system.atoms[i].z;
         let zj = system.atoms[j].z;
-        let rij = jet3_vec_pair_from_coords(&coords, pair.i, pair.j, pair.translation);
-        let r2 = jet3_dot(&rij, &rij);
+        let r2 = disp_pair_r2::<Jet3>(system, pair.i, pair.j, pair.translation, ndof);
         if r2.value > cutoff2 || r2.value <= DIST_EPS {
             continue;
         }
@@ -2780,11 +2835,212 @@ pub fn dispersion_third_derivative(
         energy = energy.sub(&c6[i][j].mul(&edisp));
     }
 
+    if atm_active {
+        d3_atm_accumulate_jet(system, &reference, &c6, s9, a1, a2, ndof, &mut energy)?;
+    }
+
     Ok(DispersionThirdResult {
         energy: energy.value,
         third: energy.third,
         ndof,
     })
+}
+
+/// Hard cap on the degrees of freedom the analytic dispersion **fourth** derivative accepts.
+///
+/// A full-space `Jet4` stores `ndof⁴` doubles — 4.25 MB per jet at `ndof = 27` and 13.4 MB at
+/// `ndof = 36` — and the assembly keeps `O(nat)` of them alive, so the working set grows as
+/// `ndof⁵`. 30 DOF (10 atoms) keeps that around a few hundred MB while still covering the
+/// water-trimer validation target; raise it deliberately, not by accident.
+pub const MAX_FOURTH_DERIVATIVE_NDOF: usize = 30;
+
+/// Result of the analytic dispersion **fourth** derivative.
+#[derive(Clone, Debug)]
+pub struct DispersionFourthResult {
+    pub energy: f64,
+    /// Dense `ndof⁴` fourth derivative `∂⁴E_disp/∂R⁴`, row-major `((a·ndof+b)·ndof+c)·ndof+d`.
+    pub fourth: Vec<f64>,
+    pub ndof: usize,
+}
+
+/// Analytic D3-BJ dispersion **fourth** derivative `∂⁴E_disp/∂R⁴` (quartic force constants), via
+/// the `Jet4` promotion of [`dispersion_third_derivative`]: the same energy expression carried one
+/// AD order higher, covering the two-body BJ term always and the ATM three-body term when
+/// `s9 != 0`.  Like the third derivative this is a purely geometric (frozen, response-free) block,
+/// so it FD-isolates against [`dispersion_third_derivative`] and must satisfy the acoustic sum
+/// rule exactly.
+///
+/// **Streaming (memory) structure.** The lower-order paths materialise the full `nat × nat` table
+/// of `C6` jets; at fourth order that table alone would be `O(nat² · ndof⁴)` doubles (≈ 340 MB for
+/// a water trimer). Instead this path keeps only `O(nat)` jets alive:
+///
+/// 1. the `nat` coordination-number jets, which are **dropped** as soon as
+/// 2. the `nat · nref` reference-weight jets are built from them (`nref ≤ 5`, a constant), and
+/// 3. every pair `C6_ij` jet is rebuilt on demand from those weights by [`C6Stream`], with a
+///    one-row cache so each ATM triple rebuilds only its `jk` leg.
+///
+/// Coordinate jets are never stored either: a coordinate *difference* is linear, so
+/// [`disp_pair_vector`] seeds each leg directly instead of subtracting two dense `O(ndof⁴)` jets.
+pub fn dispersion_fourth_derivative(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+) -> Result<DispersionFourthResult> {
+    let s6 = params.global("s6", 1.0);
+    let s8 = params.required_global("s8")?;
+    let s9 = params.required_global("s9")?;
+    let atm_active = s9.abs() > 1.0e-15;
+    let a1 = params.required_global("a1")?;
+    let a2 = params.required_global("a2")?;
+    let nat = system.atoms.len();
+    let ndof = 3 * nat;
+    if ndof > MAX_FOURTH_DERIVATIVE_NDOF {
+        let per_jet_mb = (ndof as f64).powi(4) * 8.0 / (1024.0 * 1024.0);
+        return Err(Gfn1Error::InvalidInput(format!(
+            "analytic D3 dispersion fourth derivative is capped at {MAX_FOURTH_DERIVATIVE_NDOF} \
+             degrees of freedom ({} atoms); got {ndof} ({nat} atoms). A full-space Jet4 stores \
+             ndof^4 doubles ({per_jet_mb:.0} MB each at this size) and the assembly keeps O(nat) \
+             of them alive, so the working set grows as ndof^5. Use a smaller system or raise \
+             `MAX_FOURTH_DERIVATIVE_NDOF` deliberately",
+            MAX_FOURTH_DERIVATIVE_NDOF / 3
+        )));
+    }
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
+    // Step 1+2: CN jets feed the reference weights and are then dropped (scoped block).
+    let weights = {
+        let cn = d3_coordination_jets::<Jet4>(system, ndof)?;
+        reference_weight_jets(system, &reference, &cn, ndof)?
+    };
+    let mut c6 = C6Stream::new(system, &reference, &weights, ndof)?;
+    let mut energy = Jet4::constant(0.0, ndof);
+    let cutoff2 = DISP2_CUTOFF * DISP2_CUTOFF;
+
+    for pair in unique_short_range_pairs(system, DISP2_CUTOFF)? {
+        let i = pair.i;
+        let j = pair.j;
+        let zi = system.atoms[i].z;
+        let zj = system.atoms[j].z;
+        let r2 = disp_pair_r2::<Jet4>(system, i, j, pair.translation, ndof);
+        if r2.value > cutoff2 || r2.value <= DIST_EPS {
+            continue;
+        }
+        let r4r2ij = 3.0 * reference.r4r2(zi)? * reference.r4r2(zj)?;
+        let r0 = a1 * r4r2ij.sqrt() + a2;
+        let r0_2 = r0 * r0;
+        let r0_6 = r0_2 * r0_2 * r0_2;
+        let r0_8 = r0_6 * r0_2;
+        let r4 = r2.mul(&r2);
+        let t6 = r4.mul(&r2).add_scalar(r0_6).powf(-1.0);
+        let t8 = r4.mul(&r4).add_scalar(r0_8).powf(-1.0);
+        let edisp = t6.scale(s6).add(&t8.scale(s8 * r4r2ij));
+        energy = energy.sub(&c6.jet(i, j)?.mul(&edisp));
+    }
+
+    if atm_active {
+        if system.lattice.is_some() {
+            d3_atm_energy_jet_periodic(
+                system,
+                &reference,
+                &mut c6,
+                s9,
+                a1,
+                a2,
+                &mut energy,
+                |i, j, translation, _dr| disp_pair_r2::<Jet4>(system, i, j, translation, ndof),
+            )?;
+        } else {
+            d3_atm_energy_jet(system, &reference, &mut c6, s9, a1, a2, ndof, &mut energy)?;
+        }
+    }
+
+    Ok(DispersionFourthResult {
+        energy: energy.value,
+        fourth: energy.fourth,
+        ndof,
+    })
+}
+
+/// **Directional** analytic D3-BJ dispersion fourth derivative
+/// `e⁗[v] = Σ_abcd v_a v_b v_c v_d ∂⁴E_disp/∂R_a∂R_b∂R_c∂R_d` — the same pipeline as
+/// [`dispersion_fourth_derivative`], instantiated on the univariate [`Jet1`] instead of the
+/// full-space [`Jet4`].
+///
+/// A directional fourth derivative is the 4th Taylor coefficient of `E(R + t·v)`, which needs
+/// only ONE differentiation variable. Every jet therefore costs five doubles instead of `ndof⁴`,
+/// and every jet product `O(1)` instead of `O(ndof⁴)` — so this route carries **no**
+/// [`MAX_FOURTH_DERIVATIVE_NDOF`] cap. The expression, the screens, the streaming `C6` and the
+/// ATM loop are literally the same generic code the capped path runs, so nothing can drift
+/// between them; the equality is gated against `contract_vvvv` of the full tensor on systems
+/// small enough for both by `dispersion_fourth_directional_matches_full_tensor`.
+pub fn dispersion_fourth_directional(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+    v: &[f64],
+) -> Result<f64> {
+    let nat = system.atoms.len();
+    let ndof = 3 * nat;
+    if v.len() != ndof {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "dispersion_fourth_directional: direction length {} != 3*natoms {ndof}",
+            v.len()
+        )));
+    }
+    let s6 = params.global("s6", 1.0);
+    let s8 = params.required_global("s8")?;
+    let s9 = params.required_global("s9")?;
+    let atm_active = s9.abs() > 1.0e-15;
+    let a1 = params.required_global("a1")?;
+    let a2 = params.required_global("a2")?;
+    let reference = resolve_and_load_d3_reference(explicit_reference_path)?;
+    let _direction = DirectionScope::install(v);
+    let weights = {
+        let cn = d3_coordination_jets::<Jet1>(system, ndof)?;
+        reference_weight_jets(system, &reference, &cn, ndof)?
+    };
+    let mut c6 = C6Stream::new(system, &reference, &weights, ndof)?;
+    let mut energy = <Jet1 as DispJet>::constant(0.0, ndof);
+    let cutoff2 = DISP2_CUTOFF * DISP2_CUTOFF;
+
+    for pair in unique_short_range_pairs(system, DISP2_CUTOFF)? {
+        let i = pair.i;
+        let j = pair.j;
+        let zi = system.atoms[i].z;
+        let zj = system.atoms[j].z;
+        let r2 = disp_pair_r2::<Jet1>(system, i, j, pair.translation, ndof);
+        if r2.value > cutoff2 || r2.value <= DIST_EPS {
+            continue;
+        }
+        let r4r2ij = 3.0 * reference.r4r2(zi)? * reference.r4r2(zj)?;
+        let r0 = a1 * r4r2ij.sqrt() + a2;
+        let r0_2 = r0 * r0;
+        let r0_6 = r0_2 * r0_2 * r0_2;
+        let r0_8 = r0_6 * r0_2;
+        let r4 = r2.mul(&r2);
+        let t6 = r4.mul(&r2).add_scalar(r0_6).powf(-1.0);
+        let t8 = r4.mul(&r4).add_scalar(r0_8).powf(-1.0);
+        let edisp = t6.scale(s6).add(&t8.scale(s8 * r4r2ij));
+        energy = energy.sub(&c6.jet(i, j)?.mul(&edisp));
+    }
+
+    if atm_active {
+        if system.lattice.is_some() {
+            d3_atm_energy_jet_periodic(
+                system,
+                &reference,
+                &mut c6,
+                s9,
+                a1,
+                a2,
+                &mut energy,
+                |i, j, translation, _dr| disp_pair_r2::<Jet1>(system, i, j, translation, ndof),
+            )?;
+        } else {
+            d3_atm_energy_jet(system, &reference, &mut c6, s9, a1, a2, ndof, &mut energy)?;
+        }
+    }
+
+    Ok(energy.d4)
 }
 
 #[derive(Clone, Debug)]
@@ -3073,8 +3329,9 @@ fn push_float_token(out: &mut Vec<f64>, token: &str) -> Result<()> {
 mod tests {
     use super::{
         dispersion_energy, dispersion_energy_gradient, dispersion_energy_gradient_hessian,
-        dispersion_third_derivative, reference_weight_cn_derivatives,
-        resolve_and_load_d3_reference,
+        dispersion_fourth_derivative, dispersion_fourth_directional, dispersion_third_derivative,
+        reference_weight_cn_derivatives, resolve_and_load_d3_reference,
+        MAX_FOURTH_DERIVATIVE_NDOF,
     };
     use crate::lattice::Lattice;
     use crate::math::{Mat3, Vec3};
@@ -3130,10 +3387,7 @@ mod tests {
 
     #[test]
     fn d3_h2_matches_xtb_reference_dispersion() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system =
             PeriodicSystem::from_xyz_str("2\nH2\nH 0.0 0.0 0.0\nH 0.74 0.0 0.0\n", 0.0, false)
                 .unwrap();
@@ -3150,10 +3404,7 @@ mod tests {
 
     #[test]
     fn d3_gradient_matches_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",
             0.0,
@@ -3186,10 +3437,7 @@ mod tests {
 
     #[test]
     fn d3_hessian_matches_gradient_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",
             0.0,
@@ -3234,10 +3482,7 @@ mod tests {
     // full many-body `C6(CN(R))` chain carried automatically through forward AD.
     #[test]
     fn d3_third_derivative_matches_hessian_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",
             0.0,
@@ -3287,10 +3532,7 @@ mod tests {
     // A physical-correctness gate on the Jet3 many-body assembly, independent of the FD gate.
     #[test]
     fn d3_third_derivative_acoustic_sum_rule() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",
             0.0,
@@ -3319,10 +3561,7 @@ mod tests {
 
     #[test]
     fn d3_periodic_gradient_matches_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = periodic_water();
         let result = dispersion_energy_gradient(&system, &params, None).unwrap();
         assert!(result.stress.is_some());
@@ -3351,10 +3590,7 @@ mod tests {
 
     #[test]
     fn d3_periodic_hessian_matches_gradient_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = periodic_water();
         let result = dispersion_energy_gradient_hessian(&system, &params, None).unwrap();
         assert!(result.stress.is_some());
@@ -3391,10 +3627,7 @@ mod tests {
 
     #[test]
     fn d3_periodic_stress_matches_strain_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = periodic_water();
         let result = dispersion_energy_gradient(&system, &params, None).unwrap();
         let stress = result.stress.as_ref().unwrap();
@@ -3419,10 +3652,7 @@ mod tests {
 
     #[test]
     fn d3_periodic_mgo_high_cn_weights_are_stable() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = periodic_mgo();
         let result = dispersion_energy_gradient(&system, &params, None).unwrap();
         assert!(result.energy.is_finite());
@@ -3514,12 +3744,11 @@ mod tests {
 
     // --- D3 ATM (three-body) tests --------------------------------------------------------
 
-    /// Load the bundled official `param_gfn1-xtb.txt` (so these tests do not depend on the
-    /// `GFN1_XTB_PARAM` env var) and override `s9`. The D3 reference resolves to the bundled
-    /// `third_party/simple-dftd3` snapshot via the `None` path.
+    /// Load the bundled official GFN1-xTB parametrization and override `s9`.
+    /// The D3 reference resolves to the bundled `third_party/simple-dftd3`
+    /// snapshot via the `None` path.
     fn params_with_s9(s9: f64) -> Gfn1Parameters {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/param_gfn1-xtb.txt");
-        let mut params = Gfn1Parameters::from_file(path).unwrap();
+        let mut params = Gfn1Parameters::builtin().unwrap();
         params.globpar.insert("s9".to_string(), s9);
         params
     }
@@ -3786,6 +4015,412 @@ mod tests {
         assert!(
             (e_pbc - e_mol).abs() < 1.0e-10,
             "isolated periodic ATM {e_pbc:.12e} != molecular {e_mol:.12e}"
+        );
+    }
+
+    // --- D3 ATM Hessian / third / fourth derivative gates ----------------------------------
+
+    fn water_dimer() -> PeriodicSystem {
+        PeriodicSystem::from_xyz_str(
+            "6\nwater dimer\n\
+             O  0.000000  0.000000  0.000000\n\
+             H  0.757000  0.586000  0.000000\n\
+             H -0.757000  0.586000  0.000000\n\
+             O  2.900000  0.300000  0.500000\n\
+             H  3.500000 -0.300000  0.900000\n\
+             H  3.200000  1.100000  0.900000\n",
+            0.0,
+            false,
+        )
+        .unwrap()
+    }
+
+    /// ATM-only analytic Hessian: `H(s9=1) − H(s9=0)`, isolating the three-body block from the
+    /// (separately gated) two-body one.
+    fn atm_hessian(system: &PeriodicSystem) -> crate::linalg::Matrix {
+        let h1 = dispersion_energy_gradient_hessian(system, &params_with_s9(1.0), None).unwrap();
+        let h0 = dispersion_energy_gradient_hessian(system, &params_with_s9(0.0), None).unwrap();
+        let ndof = 3 * system.atoms.len();
+        let mut out = crate::linalg::Matrix::zeros(ndof, ndof);
+        for row in 0..ndof {
+            for col in 0..ndof {
+                out[(row, col)] = h1.hessian[(row, col)] - h0.hessian[(row, col)];
+            }
+        }
+        out
+    }
+
+    /// ATM-only analytic third derivative, flat `ndof³`.
+    fn atm_third(system: &PeriodicSystem) -> Vec<f64> {
+        let t1 = dispersion_third_derivative(system, &params_with_s9(1.0), None).unwrap();
+        let t0 = dispersion_third_derivative(system, &params_with_s9(0.0), None).unwrap();
+        t1.third
+            .iter()
+            .zip(t0.third.iter())
+            .map(|(a, b)| a - b)
+            .collect()
+    }
+
+    // The Jet2 ATM promotion must reproduce the production (scalar) ATM energy and gradient — the
+    // order-0/1 slice of the same expression — before its Hessian means anything. The Jet2
+    // `i<j<k` loop evaluates the identical triple energy, so the two agree to rounding.
+    #[test]
+    fn d3_atm_hessian_energy_and_gradient_match_production_path() {
+        for system in [methane(), water_trimer()] {
+            let (p1, p0) = (params_with_s9(1.0), params_with_s9(0.0));
+            let h1 = dispersion_energy_gradient_hessian(&system, &p1, None).unwrap();
+            let h0 = dispersion_energy_gradient_hessian(&system, &p0, None).unwrap();
+            let g1 = dispersion_energy_gradient(&system, &p1, None).unwrap();
+            let g0 = dispersion_energy_gradient(&system, &p0, None).unwrap();
+            let jet_energy = h1.energy - h0.energy;
+            let ref_energy = g1.energy - g0.energy;
+            assert!(ref_energy.abs() > 1.0e-10, "ATM reference energy too small");
+            assert!(
+                (jet_energy - ref_energy).abs() < 1.0e-14 * (1.0 + ref_energy.abs()),
+                "Jet2 ATM energy {jet_energy:.17e} vs production {ref_energy:.17e}"
+            );
+            for atom in 0..system.atoms.len() {
+                let jet = h1.gradient[atom] - h0.gradient[atom];
+                let reference = g1.gradient[atom] - g0.gradient[atom];
+                for (a, b) in [
+                    (jet.x, reference.x),
+                    (jet.y, reference.y),
+                    (jet.z, reference.z),
+                ] {
+                    assert!(
+                        (a - b).abs() < 1.0e-13 * (1.0 + b.abs()),
+                        "Jet2 ATM gradient atom {atom}: {a:.17e} vs {b:.17e}"
+                    );
+                }
+            }
+        }
+    }
+
+    // FD-Hessian gate: the analytic ATM Hessian (Jet2 promotion) matches a central finite
+    // difference of the analytic ATM gradient. Isolates the three-body block from the two-body one
+    // by differencing s9=1 against s9=0 on both sides.
+    #[test]
+    fn d3_atm_hessian_matches_gradient_finite_difference() {
+        for system in [methane(), water_trimer()] {
+            let (p1, p0) = (params_with_s9(1.0), params_with_s9(0.0));
+            let analytic = atm_hessian(&system);
+            let ndof = 3 * system.atoms.len();
+            let atm_gradient = |sys: &PeriodicSystem| -> Vec<Vec3> {
+                let g1 = dispersion_energy_gradient(sys, &p1, None).unwrap().gradient;
+                let g0 = dispersion_energy_gradient(sys, &p0, None).unwrap().gradient;
+                g1.iter().zip(g0.iter()).map(|(a, b)| *a - *b).collect()
+            };
+            let h = 1.0e-5;
+            let mut max_delta = 0.0_f64;
+            for col in 0..ndof {
+                let mut plus = system.clone();
+                let mut minus = system.clone();
+                shift(&mut plus, col / 3, col % 3, h);
+                shift(&mut minus, col / 3, col % 3, -h);
+                let gp = atm_gradient(&plus);
+                let gm = atm_gradient(&minus);
+                for row in 0..ndof {
+                    let fd = (component(&gp, row) - component(&gm, row)) / (2.0 * h);
+                    max_delta = max_delta.max((analytic[(row, col)] - fd).abs());
+                }
+            }
+            assert!(
+                max_delta < 1.0e-7,
+                "D3 ATM Hessian finite-difference max delta {max_delta:.3e}"
+            );
+        }
+    }
+
+    // The ATM energy depends only on interatomic distances, so a rigid translation leaves its
+    // gradient unchanged: Σ_A H_{Aα,b} = 0. A physical-correctness gate on the Jet2 ATM assembly
+    // independent of the FD gate (and it also pins the periodic 1/3 counting weight's home-atom
+    // force scatter, which the scalar path does by hand).
+    #[test]
+    fn d3_atm_hessian_translational_invariance() {
+        for system in [methane(), water_trimer()] {
+            let analytic = atm_hessian(&system);
+            let ndof = 3 * system.atoms.len();
+            let nat = system.atoms.len();
+            let mut max = 0.0_f64;
+            for alpha in 0..3 {
+                for col in 0..ndof {
+                    let sum: f64 = (0..nat).map(|a| analytic[(3 * a + alpha, col)]).sum();
+                    max = max.max(sum.abs());
+                }
+            }
+            assert!(
+                max < 1.0e-10,
+                "D3 ATM Hessian acoustic sum rule violated: max {max:.3e}"
+            );
+        }
+    }
+
+    // FD-third gate: the analytic ATM third derivative (Jet3 promotion) matches a central finite
+    // difference of the analytic ATM Hessian, plus full permutation symmetry of the flat tensor.
+    #[test]
+    fn d3_atm_third_derivative_matches_hessian_finite_difference() {
+        for system in [methane(), water_trimer()] {
+            let analytic = atm_third(&system);
+            let ndof = 3 * system.atoms.len();
+            let h = 1.0e-4;
+            let mut max_delta = 0.0_f64;
+            for a in 0..ndof {
+                let mut plus = system.clone();
+                let mut minus = system.clone();
+                shift(&mut plus, a / 3, a % 3, h);
+                shift(&mut minus, a / 3, a % 3, -h);
+                let hp = atm_hessian(&plus);
+                let hm = atm_hessian(&minus);
+                for b in 0..ndof {
+                    for c in 0..ndof {
+                        let fd = (hp[(b, c)] - hm[(b, c)]) / (2.0 * h);
+                        let an = analytic[(a * ndof + b) * ndof + c];
+                        max_delta = max_delta.max((an - fd).abs());
+                    }
+                }
+            }
+            assert!(
+                max_delta < 1.0e-6,
+                "D3 ATM third-derivative finite-difference max delta {max_delta:.3e}"
+            );
+
+            let mut max_asym = 0.0_f64;
+            let idx = |a: usize, b: usize, c: usize| (a * ndof + b) * ndof + c;
+            for a in 0..ndof {
+                for b in 0..ndof {
+                    for c in 0..ndof {
+                        let v = analytic[idx(a, b, c)];
+                        for &(x, y, z) in &[(b, a, c), (a, c, b), (c, b, a), (b, c, a), (c, a, b)] {
+                            max_asym = max_asym.max((v - analytic[idx(x, y, z)]).abs());
+                        }
+                    }
+                }
+            }
+            assert!(
+                max_asym < 1.0e-12,
+                "D3 ATM third derivative is not permutation symmetric: {max_asym:.3e}"
+            );
+        }
+    }
+
+    /// Σ_A Q_{Aα,bcd} over atoms — the fourth-order acoustic sum rule residual. The dispersion
+    /// energy is a function of interatomic distances only, so a rigid translation cannot change
+    /// any derivative: this must vanish to numerical precision, with no electronic response to
+    /// hide behind.
+    fn fourth_acoustic_residual(fourth: &[f64], ndof: usize) -> f64 {
+        let nat = ndof / 3;
+        let mut max = 0.0_f64;
+        for alpha in 0..3 {
+            for b in 0..ndof {
+                for c in 0..ndof {
+                    for d in 0..ndof {
+                        let sum: f64 = (0..nat)
+                            .map(|atom| {
+                                fourth[(((3 * atom + alpha) * ndof + b) * ndof + c) * ndof + d]
+                            })
+                            .sum();
+                        max = max.max(sum.abs());
+                    }
+                }
+            }
+        }
+        max
+    }
+
+    /// Largest deviation of the flat `ndof⁴` tensor from full permutation symmetry.
+    fn fourth_permutation_residual(fourth: &[f64], n: usize) -> f64 {
+        let idx = |a: usize, b: usize, c: usize, d: usize| ((a * n + b) * n + c) * n + d;
+        let mut max = 0.0_f64;
+        for a in 0..n {
+            for b in 0..n {
+                for c in 0..n {
+                    for d in 0..n {
+                        let v = fourth[idx(a, b, c, d)];
+                        for &(w, x, y, z) in &[
+                            (b, a, c, d),
+                            (a, c, b, d),
+                            (a, b, d, c),
+                            (d, c, b, a),
+                            (c, d, a, b),
+                        ] {
+                            max = max.max((v - fourth[idx(w, x, y, z)]).abs());
+                        }
+                    }
+                }
+            }
+        }
+        max
+    }
+
+    // FD-fourth gate: the analytic dispersion fourth derivative (Jet4 promotion) matches a central
+    // finite difference of the analytic third derivative. Two systems: a water dimer with s9 = 0
+    // (two-body only) and a water trimer with s9 = 1 (two-body AND ATM together). The acoustic sum
+    // rule and permutation symmetry are checked on the same tensors here so the (expensive) Jet4
+    // assembly runs once per system; the standalone gates below repeat them on the cheap system.
+    #[test]
+    fn dispersion_fourth_derivative_matches_third_finite_difference() {
+        for (system, s9) in [(water_dimer(), 0.0), (water_trimer(), 1.0)] {
+            let params = params_with_s9(s9);
+            let analytic = dispersion_fourth_derivative(&system, &params, None).unwrap();
+            let ndof = analytic.ndof;
+            let acoustic = fourth_acoustic_residual(&analytic.fourth, ndof);
+            assert!(
+                acoustic < 1.0e-9,
+                "D3 fourth-derivative acoustic sum rule violated: {acoustic:.3e} (s9 = {s9})"
+            );
+            let asymmetry = fourth_permutation_residual(&analytic.fourth, ndof);
+            assert!(
+                asymmetry < 1.0e-12,
+                "D3 fourth derivative is not permutation symmetric: {asymmetry:.3e} (s9 = {s9})"
+            );
+            // The Jet4 value must reproduce the Jet3 path's energy (same expression).
+            let t = dispersion_third_derivative(&system, &params, None).unwrap();
+            assert!(
+                (analytic.energy - t.energy).abs() < 1.0e-12,
+                "Jet4 energy {} vs Jet3 energy {}",
+                analytic.energy,
+                t.energy
+            );
+            let h = 1.0e-4;
+            let mut max_delta = 0.0_f64;
+            for d in 0..ndof {
+                let mut plus = system.clone();
+                let mut minus = system.clone();
+                shift(&mut plus, d / 3, d % 3, h);
+                shift(&mut minus, d / 3, d % 3, -h);
+                let tp = dispersion_third_derivative(&plus, &params, None)
+                    .unwrap()
+                    .third;
+                let tm = dispersion_third_derivative(&minus, &params, None)
+                    .unwrap()
+                    .third;
+                for idx3 in 0..ndof * ndof * ndof {
+                    let fd = (tp[idx3] - tm[idx3]) / (2.0 * h);
+                    let an = analytic.fourth[idx3 * ndof + d];
+                    max_delta = max_delta.max((an - fd).abs());
+                }
+            }
+            assert!(
+                max_delta < 2.0e-6,
+                "D3 fourth-derivative finite-difference max delta {max_delta:.3e} (s9 = {s9})"
+            );
+        }
+    }
+
+    // Standalone acoustic-sum-rule / permutation gates, named so a regression points straight at
+    // the physics rather than at the FD comparison. Run on the water dimer with the ATM term
+    // active (20 triples), which keeps the Jet4 assembly cheap; the trimer is covered inside
+    // `dispersion_fourth_derivative_matches_third_finite_difference`.
+    #[test]
+    fn dispersion_fourth_derivative_acoustic_sum_rule() {
+        let system = water_dimer();
+        let analytic = dispersion_fourth_derivative(&system, &params_with_s9(1.0), None).unwrap();
+        let max = fourth_acoustic_residual(&analytic.fourth, analytic.ndof);
+        assert!(
+            max < 1.0e-9,
+            "D3 fourth-derivative acoustic sum rule violated: max {max:.3e}"
+        );
+    }
+
+    #[test]
+    fn dispersion_fourth_derivative_is_permutation_symmetric() {
+        let system = water_dimer();
+        let analytic = dispersion_fourth_derivative(&system, &params_with_s9(1.0), None).unwrap();
+        let max = fourth_permutation_residual(&analytic.fourth, analytic.ndof);
+        assert!(
+            max < 1.0e-12,
+            "D3 fourth derivative is not permutation symmetric: {max:.3e}"
+        );
+    }
+
+    /// **The directional 1-D-jet gate.** [`dispersion_fourth_directional`] must reproduce the
+    /// `vvvv` contraction of the full `ndof⁴` tensor to machine precision. Both run the SAME
+    /// generic pipeline — coordination jets, reference weights, the streaming `C6`, the two-body
+    /// BJ term and the ATM triples — differing only in the jet width, so this pins the `Jet1`
+    /// Leibniz/Faà-di-Bruno rules and the directional seeding of `disp_pair_r2` at once.
+    /// Run with the ATM three-body term ACTIVE (`s9 = 1`) so the triple loop is covered.
+    #[test]
+    fn dispersion_fourth_directional_matches_full_tensor() {
+        let system = water_dimer();
+        let params = params_with_s9(1.0);
+        let ndof = 3 * system.atoms.len();
+        // Generic skew direction: no zero components, no accidental symmetry.
+        let v: Vec<f64> = (0..ndof)
+            .map(|k| 0.11 + 0.07 * ((k * 13 % 7) as f64) - 0.15 * ((k % 3) as f64))
+            .collect();
+        let full = dispersion_fourth_derivative(&system, &params, None).unwrap();
+        let mut want = 0.0;
+        for a in 0..ndof {
+            for b in 0..ndof {
+                for c in 0..ndof {
+                    let base = ((a * ndof + b) * ndof + c) * ndof;
+                    for d in 0..ndof {
+                        want += v[a] * v[b] * v[c] * v[d] * full.fourth[base + d];
+                    }
+                }
+            }
+        }
+        let got = dispersion_fourth_directional(&system, &params, None, &v).unwrap();
+        let delta = (got - want).abs();
+        eprintln!(
+            "D3 directional fourth: 1-D jet {got:.17e} vs full-tensor vvvv {want:.17e} \
+             (delta {delta:.3e})"
+        );
+        assert!(
+            want.abs() > 1.0e-9,
+            "the full-tensor reference is numerically zero — the gate is vacuous"
+        );
+        assert!(
+            delta <= 1.0e-12 * want.abs(),
+            "D3 directional fourth deviates from the full-tensor contraction: \
+             got {got:.17e} want {want:.17e} delta {delta:.3e}"
+        );
+    }
+
+    /// The directional route carries NO system-size cap: a chain above
+    /// [`MAX_FOURTH_DERIVATIVE_NDOF`] — which
+    /// `dispersion_fourth_derivative_rejects_oversized_systems` shows the full-tensor route
+    /// refuses — must evaluate normally, because a `Jet1` is five doubles at any `ndof`.
+    #[test]
+    fn dispersion_fourth_directional_has_no_system_size_cap() {
+        let mut xyz = String::new();
+        let nat = MAX_FOURTH_DERIVATIVE_NDOF / 3 + 2;
+        xyz.push_str(&format!("{nat}\nchain\n"));
+        for i in 0..nat {
+            xyz.push_str(&format!("H {:.6} 0.000000 0.000000\n", 1.2 * i as f64));
+        }
+        let system = PeriodicSystem::from_xyz_str(&xyz, 0.0, false).unwrap();
+        let params = params_with_s9(1.0);
+        let ndof = 3 * nat;
+        assert!(ndof > MAX_FOURTH_DERIVATIVE_NDOF);
+        assert!(dispersion_fourth_derivative(&system, &params, None).is_err());
+        let v: Vec<f64> = (0..ndof)
+            .map(|k| 0.11 + 0.07 * ((k * 13 % 7) as f64) - 0.15 * ((k % 3) as f64))
+            .collect();
+        let got = dispersion_fourth_directional(&system, &params, None, &v).unwrap();
+        assert!(
+            got.is_finite() && got.abs() > 1.0e-12,
+            "directional D3 fourth above the full-tensor cap returned {got}"
+        );
+    }
+
+    // Memory guard: a full-space Jet4 costs ndof^4 doubles and the assembly keeps O(nat) of them
+    // alive, so oversized systems must be rejected up front with an actionable message rather than
+    // exhausting memory.
+    #[test]
+    fn dispersion_fourth_derivative_rejects_oversized_systems() {
+        let mut xyz = String::new();
+        let nat = MAX_FOURTH_DERIVATIVE_NDOF / 3 + 2;
+        xyz.push_str(&format!("{nat}\nchain\n"));
+        for i in 0..nat {
+            xyz.push_str(&format!("H {:.6} 0.000000 0.000000\n", 1.2 * i as f64));
+        }
+        let system = PeriodicSystem::from_xyz_str(&xyz, 0.0, false).unwrap();
+        let err = dispersion_fourth_derivative(&system, &params_with_s9(0.0), None).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("fourth derivative") && message.contains("degrees of freedom"),
+            "unexpected guard message: {message}"
         );
     }
 }

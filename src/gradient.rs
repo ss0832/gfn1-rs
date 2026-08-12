@@ -97,7 +97,7 @@ fn pbc_analytic_gradient_result(
     } else {
         vec![Vec3::zero(); nat]
     };
-    let halogen_gradient = halogen_energy_gradient(system)?.gradient;
+    let halogen_gradient = halogen_energy_gradient(system, params)?.gradient;
     let electronic_gradient: Vec<Vec3> = result
         .gradient
         .iter()
@@ -216,7 +216,7 @@ pub fn analytic_gradient_from_result(
 
     if options.include_halogen {
         let _profile = crate::profile::scope("gradient.halogen");
-        let halogen = halogen_energy_gradient(system)?;
+        let halogen = halogen_energy_gradient(system, params)?;
         halogen_gradient = halogen.gradient;
         for atom in 0..nat {
             gradient[atom] += halogen_gradient[atom];
@@ -1190,8 +1190,7 @@ mod multipole_grad_tests {
     use super::*;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     fn displaced(system: &PeriodicSystem, atom: usize, axis: usize, delta: f64) -> PeriodicSystem {

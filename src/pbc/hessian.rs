@@ -20,14 +20,14 @@ use crate::coulomb::harmonic_average;
 use crate::data_tables::atomic_radius_bohr;
 use crate::dispersion::dispersion_energy_gradient_hessian;
 use crate::electronic::ElectronicOptions;
-use crate::error::Result;
+use crate::error::{Gfn1Error, Result};
 use crate::halogen::halogen_energy_gradient_hessian;
 use crate::hamiltonian::{hscale, shell_polynomial};
 use crate::integrals::{
     contracted_pair, contracted_pair_with_derivatives, contracted_pair_with_second_derivatives,
 };
 use crate::lattice::Lattice;
-use crate::linalg::Matrix;
+use crate::linalg::{DenseLu, Matrix};
 use crate::math::{erfc, Vec3};
 use crate::model::KPoint;
 use crate::params::Gfn1Parameters;
@@ -46,7 +46,7 @@ use std::f64::consts::PI;
 const SQRT_PI: f64 = 1.772_453_850_905_516;
 const TAU: f64 = 5.5;
 const DIST_EPS: f64 = 1.0e-12;
-const BOLTZMANN_HARTREE_PER_K: f64 = 3.166_808_578_545_117e-6;
+const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
 /// Occupation window (exclusive of 0 and the doubly-occupied 2.0) that flags a
 /// genuinely fractional / finite-temperature band, triggering the finite-T CPXTB
 /// response instead of the integer occ-virt path.
@@ -477,7 +477,7 @@ fn coordination_derivatives(system: &PeriodicSystem, cutoff: f64) -> Result<Vec<
 /// Periodic SCC scalar potential derivatives `dV_shell/dR_y` at fixed shell
 /// charges, `[dof][shell]`. `V_i = sum_j Gamma_ij q_j`, with the periodic
 /// QCore `Gamma` (`1/R` Ewald + generalized `R^-3` Ewald + KO residual).
-fn shell_potential_derivatives(
+pub(crate) fn shell_potential_derivatives(
     system: &PeriodicSystem,
     lattice: &Lattice,
     scf: &PbcSccResult,
@@ -750,13 +750,22 @@ fn fermi_fill_occupations(energies: &[f64], nelec: f64, kt: f64) -> Vec<f64> {
     let mut lo = min_e - 100.0 * kt - 10.0;
     let mut hi = max_e + 100.0 * kt + 10.0;
     let count = |mu: f64| energies.iter().map(|&e| fermi_occ2(e, mu, kt)).sum::<f64>();
+    // Bisection on a bracket that is valid by construction (`count(lo) -> 0` and
+    // `count(hi) -> 2n >= nelec`), so there is no non-convergence mode here — but
+    // the bracket reaches f64 resolution after ~60 halvings, and the remaining
+    // rounds each re-evaluate the whole occupation vector to move nothing. Stop at
+    // the f64 fixed point instead: once an update leaves `(lo, hi)` unchanged every
+    // later round recomputes the same midpoint and the same bracket, so the
+    // returned `mu` is BIT-IDENTICAL to the 200-round result (the same exit as
+    // `electronic::fermi_occupations`). The 200 cap stays as the safety bound.
     for _ in 0..200 {
         let mu = 0.5 * (lo + hi);
-        if count(mu) < nelec {
-            lo = mu;
-        } else {
-            hi = mu;
+        let (next_lo, next_hi) = if count(mu) < nelec { (mu, hi) } else { (lo, mu) };
+        if next_lo == lo && next_hi == hi {
+            break;
         }
+        lo = next_lo;
+        hi = next_hi;
     }
     let mu = 0.5 * (lo + hi);
     energies.iter().map(|&e| fermi_occ2(e, mu, kt)).collect()
@@ -1229,13 +1238,31 @@ pub fn kpoint_cpxtb_density_responses(
                 .any(|&f| f > FRACTIONAL_OCC_EPS && f < 2.0 - FRACTIONAL_OCC_EPS)
         });
 
+    // The finite-T charge-space dielectric `I − χ⁰K` is a property of the
+    // reference state alone, so it is built and LU-factored ONCE here and reused
+    // by every Cartesian DOF (the susceptibility costs `nsh` unit-potential
+    // response passes; the old fixed point cost up to 50 passes per DOF).
+    let dielectric = if finite_temperature && couple {
+        let chi0 = kpoint_finite_temperature_susceptibility(scf, &kdata, kt)?;
+        Some(PeriodicChargeDielectric::build(&chi0, &kernel)?)
+    } else {
+        None
+    };
+
     let mut out: Vec<Vec<CMatrix>> = Vec::with_capacity(ndof);
     let mut out_w: Vec<Vec<CMatrix>> = Vec::with_capacity(ndof);
     let mut out_dq: Vec<Vec<f64>> = Vec::with_capacity(ndof);
     for y in 0..ndof {
         if finite_temperature {
             let (dp_k, dw_k, dq_total) = kpoint_finite_temperature_response_dof(
-                scf, &kdata, &skeletons, &kernel, y, kt, couple,
+                scf,
+                &kdata,
+                &skeletons,
+                &kernel,
+                dielectric.as_ref(),
+                y,
+                kt,
+                couple,
             )?;
             out.push(dp_k);
             out_w.push(dw_k);
@@ -1610,25 +1637,248 @@ fn complex_ft_response_coefficients(
     coeff
 }
 
+/// Factored periodic charge-space dielectric matrix `D = I − χ⁰K`, the direct
+/// replacement for the damped fixed-point iteration the finite-temperature
+/// periodic response used to run.
+///
+/// The SCC self-consistency of a response couples the density only through the
+/// `nsh` Mulliken shell charges, and — at a FIXED reference state — the
+/// finite-temperature response map is *linear* in its three inputs (skeleton
+/// Fock derivative, overlap derivative, and the SCC response potential): the
+/// orbital-energy response, the grand-canonical occupation response with its
+/// chemical-potential shift, and the response-coefficient matrix are all linear
+/// in `(H^1, S^1, RF)`. Writing `δq_bare` for the response charges at frozen SCC
+/// potential and `χ⁰` for the static shell-charge susceptibility (the charges
+/// induced by a unit potential on each shell, at frozen skeleton), the
+/// self-consistent shell-charge response is the exact solution of
+///
+/// ```text
+///   (I − χ⁰ K) δq  =  δq_bare .
+/// ```
+///
+/// This mirrors the molecular [`crate::response::charge_space`] route: `χ⁰` costs
+/// `nsh` unit-potential response evaluations and the dielectric matrix is
+/// LU-factored ONCE per Hessian call, then reused for every Cartesian DOF. Unlike
+/// the old iteration it cannot silently return an unconverged response — the
+/// solve is exact by construction and [`Self::solve`] additionally VERIFIES the
+/// residual of every right-hand side, returning an error if the dielectric is
+/// singular or ill-conditioned enough to spoil the solution.
+pub(crate) struct PeriodicChargeDielectric {
+    /// `χ⁰K` (nsh×nsh), retained for the post-solve residual verification.
+    chi0_kernel: Matrix,
+    lu: DenseLu,
+}
+
+impl PeriodicChargeDielectric {
+    /// LU-factor `I − χ⁰K` for a static susceptibility `χ⁰` and response kernel `K`.
+    pub(crate) fn build(chi0: &Matrix, kernel: &Matrix) -> Result<Self> {
+        let nsh = chi0.rows();
+        if chi0.cols() != nsh || kernel.rows() != nsh || kernel.cols() != nsh {
+            return Err(Gfn1Error::InvalidInput(
+                "periodic dielectric: susceptibility/kernel dimension mismatch".to_string(),
+            ));
+        }
+        let chi0_kernel = chi0.matmul(kernel)?;
+        let mut dielectric = Matrix::zeros(nsh, nsh);
+        for s in 0..nsh {
+            for t in 0..nsh {
+                dielectric[(s, t)] = f64::from(s == t) - chi0_kernel[(s, t)];
+            }
+        }
+        let lu = DenseLu::factor(&dielectric)?;
+        Ok(Self { chi0_kernel, lu })
+    }
+
+    /// Solve `(I − χ⁰K) δq = δq_bare` and verify the result.
+    ///
+    /// `DenseLu` does not itself detect a singular matrix (a zero pivot yields
+    /// non-finite or arbitrarily wrong entries), so the residual
+    /// `r = δq − χ⁰K δq − δq_bare` is measured here and a solution that fails it
+    /// is reported as an error rather than flowing into the densities. The
+    /// tolerance is relative to the solution magnitude, with an absolute floor
+    /// tied to the right-hand side so that a tiny (near-zero) response is not
+    /// judged against an unreachably strict absolute bound.
+    pub(crate) fn solve(&self, q_bare: &[f64]) -> Result<Vec<f64>> {
+        let nsh = self.chi0_kernel.rows();
+        if q_bare.len() != nsh {
+            return Err(Gfn1Error::InvalidInput(format!(
+                "periodic dielectric: rhs length {} != nsh {nsh}",
+                q_bare.len()
+            )));
+        }
+        let q = self.lu.solve_vec(q_bare)?;
+        let mut residual = 0.0_f64;
+        let mut scale = q_bare
+            .iter()
+            .fold(0.0_f64, |acc, v| acc.max(v.abs()))
+            .max(1.0e-12);
+        for &v in &q {
+            if !v.is_finite() {
+                return Err(Gfn1Error::LinearAlgebra(
+                    "periodic finite-temperature dielectric solve produced a non-finite \
+                     shell-charge response (the charge-space dielectric I - chi0*K is \
+                     singular)"
+                        .to_string(),
+                ));
+            }
+            scale = scale.max(v.abs());
+        }
+        for s in 0..nsh {
+            let mut row = q[s] - q_bare[s];
+            for t in 0..nsh {
+                row -= self.chi0_kernel[(s, t)] * q[t];
+            }
+            residual = residual.max(row.abs());
+        }
+        let tolerance = 1.0e-9 * scale;
+        if residual > tolerance {
+            return Err(Gfn1Error::LinearAlgebra(format!(
+                "periodic finite-temperature dielectric solve did not satisfy its own \
+                 equation: residual {residual:.3e} > tolerance {tolerance:.3e} (the \
+                 charge-space dielectric I - chi0*K is singular or severely \
+                 ill-conditioned)"
+            )));
+        }
+        Ok(q)
+    }
+}
+
+/// Static shell-charge susceptibility `χ⁰` of the finite-temperature complex
+/// k-point response: column `t` is the k-summed Mulliken shell-charge response to
+/// a unit SCC potential on shell `t`, at frozen skeleton (no geometry derivative).
+///
+/// The per-k response operators are complex, but the perturbing potential and the
+/// Brillouin-zone-summed Mulliken charges are real, so `χ⁰` — and therefore the
+/// dielectric matrix — is a real `nsh × nsh` object exactly as at Gamma.
+fn kpoint_finite_temperature_susceptibility(
+    scf: &PbcSccResult,
+    kdata: &[KCpxtbData],
+    kt: f64,
+) -> Result<Matrix> {
+    let n = scf.basis.len();
+    let nsh = scf.basis.shells.len();
+    let nk = kdata.len();
+    let zero_mo: Vec<CMatrix> = (0..nk).map(|_| CMatrix::zeros(n)).collect();
+    let zero_ao = CMatrix::zeros(n);
+    let mut chi0 = Matrix::zeros(nsh, nsh);
+    for t in 0..nsh {
+        let mut unit = vec![0.0_f64; nsh];
+        unit[t] = 1.0;
+        let (dp_k, _df, _hmo) =
+            kpoint_finite_temperature_pass(kdata, &scf.basis, &zero_mo, &zero_mo, &unit, kt, true);
+        let mut dq = vec![0.0_f64; nsh];
+        for (ik, kd) in kdata.iter().enumerate() {
+            accumulate_complex_shell_charges(
+                &mut dq, scf, ik, &kd.mos, &dp_k[ik], &zero_ao, kd.weight,
+            );
+        }
+        for s in 0..nsh {
+            chi0[(s, t)] = dq[s];
+        }
+    }
+    Ok(chi0)
+}
+
+/// One finite-temperature complex k-point response evaluation at a GIVEN SCC
+/// response potential `vresp`: the total MO-basis Fock derivative `H^1_mo(k)`, the
+/// global chemical-potential response, the occupation response `df(k)`, and the
+/// density response `dP(k)`.
+///
+/// `hmo_base` and `smo_all` are the (vresp-independent) MO representations of the
+/// skeleton Fock and overlap derivatives; passing zeros for both turns this into
+/// the unit-potential probe that builds `χ⁰`.
+fn kpoint_finite_temperature_pass(
+    kdata: &[KCpxtbData],
+    basis: &BasisSet,
+    hmo_base: &[CMatrix],
+    smo_all: &[CMatrix],
+    vresp: &[f64],
+    kt: f64,
+    couple: bool,
+) -> (Vec<CMatrix>, Vec<Vec<f64>>, Vec<CMatrix>) {
+    let n = basis.len();
+    let nk = kdata.len();
+    let mut hmo_all = Vec::with_capacity(nk);
+    let mut deps_all = Vec::with_capacity(nk);
+    for ik in 0..nk {
+        let mut hmo = hmo_base[ik].clone();
+        if couple {
+            let rf = build_response_fock_k(&kdata[ik].mos.overlap, vresp, basis);
+            let rfc = cmatmul(&rf, &kdata[ik].mos.coeff);
+            let hmo_rf = cmo_full(&kdata[ik].mos.coeff, &rfc);
+            cadd_in_place(&mut hmo, &hmo_rf);
+        }
+        let eps = &kdata[ik].mos.energies;
+        let deps: Vec<f64> = (0..n)
+            .map(|i| hmo.re[(i, i)] - eps[i] * smo_all[ik].re[(i, i)])
+            .collect();
+        deps_all.push(deps);
+        hmo_all.push(hmo);
+    }
+    // Global chemical-potential response enforcing sum_k w_k sum_i df_ik = 0.
+    let mut num = 0.0;
+    let mut den = 0.0;
+    for (ik, kd) in kdata.iter().enumerate() {
+        let wk = kd.weight;
+        let occ = &kd.mos.occupations;
+        for i in 0..n {
+            let w_ik = (occ[i] * (1.0 - 0.5 * occ[i])).max(0.0) / kt;
+            num += wk * w_ik * deps_all[ik][i];
+            den += wk * w_ik;
+        }
+    }
+    let dmu = if den > 1.0e-30 { num / den } else { 0.0 };
+    let mut dp_k = Vec::with_capacity(nk);
+    let mut df_all = Vec::with_capacity(nk);
+    for (ik, kd) in kdata.iter().enumerate() {
+        let occ = &kd.mos.occupations;
+        let energies = &kd.mos.energies;
+        let df: Vec<f64> = (0..n)
+            .map(|i| {
+                let w_ik = (occ[i] * (1.0 - 0.5 * occ[i])).max(0.0) / kt;
+                -w_ik * (deps_all[ik][i] - dmu)
+            })
+            .collect();
+        let coeff = complex_ft_response_coefficients(
+            occ,
+            energies,
+            &df,
+            &hmo_all[ik],
+            &smo_all[ik],
+            kt,
+            false,
+        );
+        dp_k.push(density_from_mo_coeff(&kd.mos.coeff, &coeff));
+        df_all.push(df);
+    }
+    (dp_k, df_all, hmo_all)
+}
+
 /// Finite-temperature complex k-point CPXTB response for one Cartesian DOF, with a
 /// single Brillouin-zone-wide chemical-potential constraint. Returns the per-k
 /// density response `dP(k)`, energy-weighted density response `dW(k)`, and the
-/// shared real shell-charge response `dq`. The SCC charge response is iterated to
-/// self-consistency (mirrors the Gamma finite-T helper); the occupation response
-/// `df_ik/dR` is fixed by the global Fermi-level constraint
-/// `sum_k w_k sum_i df_ik = 0`.
+/// shared real shell-charge response `dq`.
+///
+/// The SCC charge response is obtained from ONE direct charge-space dielectric
+/// solve (`dielectric`, built once per Hessian call by
+/// [`kpoint_finite_temperature_susceptibility`] +
+/// [`PeriodicChargeDielectric::build`]) rather than from a damped fixed-point
+/// iteration, so it is exact and cannot silently return an unconverged response;
+/// `dielectric` is `None` exactly when the SCC coupling is switched off
+/// (`couple = false`). The occupation response `df_ik/dR` is fixed by the global
+/// Fermi-level constraint `sum_k w_k sum_i df_ik = 0`.
 #[allow(clippy::type_complexity)]
 fn kpoint_finite_temperature_response_dof(
     scf: &PbcSccResult,
     kdata: &[KCpxtbData],
     skeletons: &[KpointSkeleton],
     kernel: &Matrix,
+    dielectric: Option<&PeriodicChargeDielectric>,
     y: usize,
     kt: f64,
     couple: bool,
 ) -> Result<(Vec<CMatrix>, Vec<CMatrix>, Vec<f64>)> {
     let basis = &scf.basis;
-    let n = basis.len();
     let nsh = basis.shells.len();
     let nk = kdata.len();
 
@@ -1646,109 +1896,41 @@ fn kpoint_finite_temperature_response_dof(
         .map(|ik| cmo_full(&kdata[ik].mos.coeff, &fc_k[ik]))
         .collect();
 
-    // One response pass for a given SCC response potential `vresp`: total
-    // H^1_mo(k), the global mu, the occupation response df(k), and dP(k).
-    let pass = |vresp: &[f64]| -> (Vec<CMatrix>, Vec<Vec<f64>>, Vec<CMatrix>) {
-        let mut hmo_all = Vec::with_capacity(nk);
-        let mut deps_all = Vec::with_capacity(nk);
-        for ik in 0..nk {
-            let mut hmo = hmo_base[ik].clone();
-            if couple {
-                let rf = build_response_fock_k(&kdata[ik].mos.overlap, vresp, basis);
-                let rfc = cmatmul(&rf, &kdata[ik].mos.coeff);
-                let hmo_rf = cmo_full(&kdata[ik].mos.coeff, &rfc);
-                cadd_in_place(&mut hmo, &hmo_rf);
-            }
-            let eps = &kdata[ik].mos.energies;
-            let deps: Vec<f64> = (0..n)
-                .map(|i| hmo.re[(i, i)] - eps[i] * smo_all[ik].re[(i, i)])
-                .collect();
-            deps_all.push(deps);
-            hmo_all.push(hmo);
-        }
-        // Global chemical-potential response enforcing sum_k w_k sum_i df_ik = 0.
-        let mut num = 0.0;
-        let mut den = 0.0;
-        for ik in 0..nk {
-            let wk = kdata[ik].weight;
-            let occ = &kdata[ik].mos.occupations;
-            for i in 0..n {
-                let w_ik = (occ[i] * (1.0 - 0.5 * occ[i])).max(0.0) / kt;
-                num += wk * w_ik * deps_all[ik][i];
-                den += wk * w_ik;
-            }
-        }
-        let dmu = if den > 1.0e-30 { num / den } else { 0.0 };
-        let mut dp_k = Vec::with_capacity(nk);
-        let mut df_all = Vec::with_capacity(nk);
-        for ik in 0..nk {
-            let occ = &kdata[ik].mos.occupations;
-            let energies = &kdata[ik].mos.energies;
-            let df: Vec<f64> = (0..n)
-                .map(|i| {
-                    let w_ik = (occ[i] * (1.0 - 0.5 * occ[i])).max(0.0) / kt;
-                    -w_ik * (deps_all[ik][i] - dmu)
-                })
-                .collect();
-            let coeff = complex_ft_response_coefficients(
-                occ,
-                energies,
-                &df,
-                &hmo_all[ik],
-                &smo_all[ik],
+    // Bare response (frozen SCC potential) -> bare shell charges, then ONE direct
+    // charge-space dielectric solve for the self-consistent charge response.
+    let zero_potential = vec![0.0_f64; nsh];
+    let vresp = match dielectric {
+        Some(dielectric) => {
+            let (dp_bare, _df, _hmo) = kpoint_finite_temperature_pass(
+                kdata,
+                basis,
+                &hmo_base,
+                &smo_all,
+                &zero_potential,
                 kt,
-                false,
+                couple,
             );
-            dp_k.push(density_from_mo_coeff(&kdata[ik].mos.coeff, &coeff));
-            df_all.push(df);
+            let mut q_bare = vec![0.0_f64; nsh];
+            for (ik, kd) in kdata.iter().enumerate() {
+                accumulate_complex_shell_charges(
+                    &mut q_bare,
+                    scf,
+                    ik,
+                    &kd.mos,
+                    &dp_bare[ik],
+                    &skeletons[ik].overlap[y],
+                    kd.weight,
+                );
+            }
+            let shell_charges = dielectric.solve(&q_bare)?;
+            crate::linalg::matrix_vector_product(kernel, &shell_charges)?
         }
-        (dp_k, df_all, hmo_all)
+        None => zero_potential,
     };
 
-    // Self-consistent SCC response loop (mirrors the Gamma finite-T helper).
-    let mut vresp = vec![0.0; nsh];
-    let mut shell_response = vec![0.0; nsh];
-    let response_mixing = 0.35;
-    for _ in 0..50 {
-        let (dp_k, _df, _hmo) = pass(&vresp);
-        let mut next_shell = vec![0.0; nsh];
-        for ik in 0..nk {
-            accumulate_complex_shell_charges(
-                &mut next_shell,
-                scf,
-                ik,
-                &kdata[ik].mos,
-                &dp_k[ik],
-                &skeletons[ik].overlap[y],
-                kdata[ik].weight,
-            );
-        }
-        if !couple {
-            break;
-        }
-        let shell_delta = shell_response
-            .iter()
-            .zip(next_shell.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0_f64, f64::max);
-        let mixed = if shell_response.iter().any(|v| v.abs() > 0.0) {
-            shell_response
-                .iter()
-                .zip(next_shell.iter())
-                .map(|(&old, &new)| old + response_mixing * (new - old))
-                .collect::<Vec<_>>()
-        } else {
-            next_shell.clone()
-        };
-        vresp = crate::linalg::matrix_vector_product(kernel, &mixed)?;
-        shell_response = mixed;
-        if shell_delta < 1.0e-12 {
-            break;
-        }
-    }
-
-    // Final pass with the converged response potential -> dP(k), dq, then dW(k).
-    let (dp_k, df_all, hmo_all) = pass(&vresp);
+    // Final pass at the screening potential -> dP(k), dq, then dW(k).
+    let (dp_k, df_all, hmo_all) =
+        kpoint_finite_temperature_pass(kdata, basis, &hmo_base, &smo_all, &vresp, kt, couple);
     let mut dq_total = vec![0.0; nsh];
     for ik in 0..nk {
         accumulate_complex_shell_charges(
@@ -1915,10 +2097,19 @@ pub fn gamma_cpxtb_density_responses(
         out
     };
 
+    // Finite-T charge-space dielectric `I − χ⁰K`: a reference-state property, so
+    // it is built and LU-factored ONCE here and reused by every Cartesian DOF.
+    let dielectric = if finite_temperature {
+        let chi0 = gamma_finite_temperature_susceptibility(basis, mos, kt)?;
+        Some(PeriodicChargeDielectric::build(&chi0, &kernel)?)
+    } else {
+        None
+    };
+
     let mut density_responses = Vec::with_capacity(ndof);
     let mut weighted_responses = Vec::with_capacity(ndof);
     for y in 0..ndof {
-        if finite_temperature {
+        if let Some(dielectric) = dielectric.as_ref() {
             let (density, weighted) = gamma_finite_temperature_response(
                 scf,
                 mos,
@@ -1927,6 +2118,7 @@ pub fn gamma_cpxtb_density_responses(
                 &kernel,
                 &ground_density,
                 kt,
+                dielectric,
             )?;
             density_responses.push(density);
             weighted_responses.push(weighted);
@@ -1988,6 +2180,87 @@ pub fn gamma_cpxtb_density_responses(
         weighted_responses.push(weighted);
     }
     Ok((density_responses, weighted_responses))
+}
+
+/// One integer-occupation Gamma CPXTB solve for an **arbitrary** first-order
+/// operator pair `(fock1, overlap1)` — the directional third-derivative driver
+/// hands in `v`-contracted skeleton matrices so the whole first-order response
+/// costs a single PCG solve instead of `3N`. Returns `(P¹, W¹, q¹)`.
+///
+/// The body is a faithful transcription of the `T = 0` branch of
+/// [`gamma_cpxtb_density_responses`]'s per-DOF loop; the linearity gate in
+/// `pbc::gamma_third` pins the two code paths against each other, so a drift
+/// in either fails loudly.
+pub(crate) fn gamma_cpxtb_response_directional(
+    scf: &PbcSccResult,
+    mos: &GammaMos,
+    fock1: &Matrix,
+    overlap1: &Matrix,
+) -> Result<(Matrix, Matrix, Vec<f64>)> {
+    let basis = &scf.basis;
+    let n = basis.len();
+    let pairs = occ_virt_pairs(&mos.occupations);
+    let gaps: Vec<f64> = pairs
+        .iter()
+        .map(|&(i, a)| mos.energies[a] - mos.energies[i])
+        .collect();
+    let transition = transition_charges(mos, &pairs, basis);
+    let kernel = periodic_response_kernel(scf);
+
+    let matvec = |u: &[f64]| -> Vec<f64> {
+        let nsh = basis.shells.len();
+        let mut induced = vec![0.0; nsh];
+        for (qia, &ui) in transition.iter().zip(u) {
+            for s in 0..nsh {
+                induced[s] += qia[s] * ui;
+            }
+        }
+        let pot = crate::linalg::matrix_vector_product(&kernel, &induced).expect("kernel mv");
+        let mut out = vec![0.0; u.len()];
+        for (row, qia) in transition.iter().enumerate() {
+            let coupling: f64 = qia.iter().zip(&pot).map(|(&q, &v)| q * v).sum();
+            out[row] = gaps[row] * u[row] + coupling;
+        }
+        out
+    };
+
+    let mut rhs = vec![0.0; pairs.len()];
+    for (row, &(i, a)) in pairs.iter().enumerate() {
+        let f1 = mo_element(&mos.coeff, fock1, i, a);
+        let s1 = mo_element(&mos.coeff, overlap1, i, a);
+        rhs[row] = -(f1 - mos.energies[i] * s1);
+    }
+    let metric_density = metric_density_response(mos, overlap1);
+    let metric_shell = density_shell_charges(basis, mos, &metric_density, overlap1);
+    let metric_pot = crate::linalg::matrix_vector_product(&kernel, &metric_shell)?;
+    for (row, qia) in transition.iter().enumerate() {
+        let add: f64 = qia.iter().zip(&metric_pot).map(|(&q, &v)| q * v).sum();
+        rhs[row] -= 0.5 * add;
+    }
+
+    let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-9, 200);
+
+    let mut density = Matrix::zeros(n, n);
+    for (row, &(i, a)) in pairs.iter().enumerate() {
+        let weight = (mos.occupations[i] - mos.occupations[a]) * u[row];
+        if weight == 0.0 {
+            continue;
+        }
+        for mu in 0..n {
+            for nu in 0..n {
+                density[(mu, nu)] += weight
+                    * (mos.coeff[(mu, a)] * mos.coeff[(nu, i)]
+                        + mos.coeff[(mu, i)] * mos.coeff[(nu, a)]);
+            }
+        }
+    }
+    add_in_place(&mut density, &metric_density);
+
+    let weighted = weighted_density_response(
+        mos, fock1, overlap1, &u, &pairs, &kernel, &transition, basis,
+    );
+    let shell = density_shell_charges(basis, mos, &density, overlap1);
+    Ok((density, weighted, shell))
 }
 
 /// Analytic Gamma-point TDA excitation-energy gradient `d omega/dR` for a frozen
@@ -3062,6 +3335,53 @@ fn kmos_transition_charge(
     q
 }
 
+/// Static shell-charge susceptibility `χ⁰` of the finite-temperature Gamma-point
+/// response: column `t` is the Mulliken shell-charge response to a unit SCC
+/// potential on shell `t`, at frozen skeleton (no geometry derivative, no
+/// screening). This is the periodic counterpart of the molecular
+/// [`crate::response::charge_space`] build step; only the response kernel differs
+/// (Ewald-summed periodic `γ` plus the on-site third-order term, see
+/// [`periodic_response_kernel`]).
+///
+/// The `ground_density`/`overlap_deriv` channel of the Mulliken charge is a pure
+/// skeleton term (independent of the potential), so it is deliberately excluded
+/// here — it belongs entirely to the right-hand side `δq_bare`.
+fn gamma_finite_temperature_susceptibility(
+    basis: &BasisSet,
+    mos: &GammaMos,
+    kt: f64,
+) -> Result<Matrix> {
+    let n = basis.len();
+    let nsh = basis.shells.len();
+    let zero = Matrix::zeros(n, n);
+    let mut chi0 = Matrix::zeros(nsh, nsh);
+    for t in 0..nsh {
+        let mut unit = vec![0.0_f64; nsh];
+        unit[t] = 1.0;
+        let response_fock = crate::cphf::scalar_response_fock_matrix(basis, &mos.overlap, &unit)?;
+        let (density, _occupation) = crate::cphf::finite_temperature_density_response(
+            &mos.coeff,
+            &mos.occupations,
+            &mos.energies,
+            &zero,
+            &zero,
+            &response_fock,
+            kt,
+        )?;
+        let dq = crate::cphf::response_shell_charges_from_density(
+            basis,
+            &mos.overlap,
+            &zero,
+            &density,
+            &zero,
+        )?;
+        for s in 0..nsh {
+            chi0[(s, t)] = dq[s];
+        }
+    }
+    Ok(chi0)
+}
+
 /// Finite-temperature Gamma-point CPXTB density and energy-weighted density
 /// response for one Cartesian DOF. The integer occ-virt CPXTB cannot represent the
 /// occupation response `df_i/dR` of fractionally occupied bands, so this mirrors
@@ -3071,6 +3391,13 @@ fn kmos_transition_charge(
 /// self-consistently through the periodic SCC response kernel. The resulting `dP`,
 /// `dW` already carry the occupation response, so the downstream shell-charge
 /// response (`density_shell_charges`) and Hessian assembly are unchanged.
+///
+/// The SCC self-consistency is ONE direct charge-space dielectric solve
+/// `(I − χ⁰K) δq = δq_bare` on the pre-factored `dielectric` (see
+/// [`PeriodicChargeDielectric`]), which is exact and verified — not the damped
+/// fixed-point iteration this used to run, which could exhaust its iteration cap
+/// and return an unconverged response with no warning.
+#[allow(clippy::too_many_arguments)]
 fn gamma_finite_temperature_response(
     scf: &PbcSccResult,
     mos: &GammaMos,
@@ -3079,54 +3406,34 @@ fn gamma_finite_temperature_response(
     kernel: &Matrix,
     ground_density: &Matrix,
     kt: f64,
+    dielectric: &PeriodicChargeDielectric,
 ) -> Result<(Matrix, Matrix)> {
     let basis = &scf.basis;
     let n = basis.len();
-    let nsh = basis.shells.len();
-    // Self-consistent response Fock: the geometry derivative changes the Mulliken
-    // charges, whose induced potential feeds back into the density response.
-    let mut response_fock = Matrix::zeros(n, n);
-    let mut shell_response = vec![0.0_f64; nsh];
-    let response_mixing = 0.35_f64;
-    for _ in 0..50 {
-        let (next_density, _) = crate::cphf::finite_temperature_density_response(
-            &mos.coeff,
-            &mos.occupations,
-            &mos.energies,
-            fock_deriv,
-            overlap_deriv,
-            &response_fock,
-            kt,
-        )?;
-        let next_shell = crate::cphf::response_shell_charges_from_density(
-            basis,
-            &mos.overlap,
-            ground_density,
-            &next_density,
-            overlap_deriv,
-        )?;
-        let shell_delta = shell_response
-            .iter()
-            .zip(next_shell.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0_f64, f64::max);
-        let mixed_shell = if shell_response.iter().any(|v| v.abs() > 0.0) {
-            shell_response
-                .iter()
-                .zip(next_shell.iter())
-                .map(|(&old, &new)| old + response_mixing * (new - old))
-                .collect::<Vec<_>>()
-        } else {
-            next_shell.clone()
-        };
-        let shell_potential = crate::linalg::matrix_vector_product(kernel, &mixed_shell)?;
-        response_fock =
-            crate::cphf::scalar_response_fock_matrix(basis, &mos.overlap, &shell_potential)?;
-        shell_response = mixed_shell;
-        if shell_delta < 1.0e-12 {
-            break;
-        }
-    }
+    // Bare response at frozen SCC potential -> bare Mulliken shell charges.
+    let zero = Matrix::zeros(n, n);
+    let (bare_density, _bare_occupation) = crate::cphf::finite_temperature_density_response(
+        &mos.coeff,
+        &mos.occupations,
+        &mos.energies,
+        fock_deriv,
+        overlap_deriv,
+        &zero,
+        kt,
+    )?;
+    let q_bare = crate::cphf::response_shell_charges_from_density(
+        basis,
+        &mos.overlap,
+        ground_density,
+        &bare_density,
+        overlap_deriv,
+    )?;
+    // Screened charges from the factored dielectric, then one exact evaluation at
+    // the total (skeleton + screening) perturbation.
+    let shell_response = dielectric.solve(&q_bare)?;
+    let shell_potential = crate::linalg::matrix_vector_product(kernel, &shell_response)?;
+    let response_fock =
+        crate::cphf::scalar_response_fock_matrix(basis, &mos.overlap, &shell_potential)?;
     let (final_density, final_occupation) = crate::cphf::finite_temperature_density_response(
         &mos.coeff,
         &mos.occupations,
@@ -4247,7 +4554,7 @@ fn qcore_r3_reciprocal_cross_gradient(
 /// the geometry and the ground density (not on the perturbing DOF), so they are
 /// built once by [`build_response_band_pairs`] and reused across all `ndof`
 /// response columns instead of being recomputed per DOF.
-struct ResponseBandPair {
+pub(crate) struct ResponseBandPair {
     a: usize,
     b: usize,
     mu: usize,
@@ -4272,7 +4579,7 @@ struct ResponseBandPair {
 /// Density-response lookup for [`response_gradient`]: either a single matrix used
 /// for every image (the Gamma case `dP(T) = dP(Gamma)`, which avoids cloning the
 /// matrix to every offset) or a genuine per-image map (the k-point back-transform).
-enum DensityLookup<'a> {
+pub(crate) enum DensityLookup<'a> {
     Uniform(&'a Matrix),
     Images(&'a std::collections::HashMap<[i32; 3], Matrix>),
 }
@@ -4289,7 +4596,7 @@ impl DensityLookup<'_> {
 
 /// Precompute the band/Pulay response-gradient pairs once (overlap-screened):
 /// the integrals and ground-density prefactors are DOF-independent.
-fn build_response_band_pairs(
+pub(crate) fn build_response_band_pairs(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     scf: &PbcSccResult,
@@ -4395,7 +4702,7 @@ fn build_response_band_pairs(
 /// gradient due to the density response `(dp, dw, dq)`. The band/Pulay part is
 /// driven by the precomputed [`ResponseBandPair`]s (geometry built once).
 #[allow(clippy::too_many_arguments)]
-fn response_gradient(
+pub(crate) fn response_gradient(
     system: &PeriodicSystem,
     _params: &Gfn1Parameters,
     scf: &PbcSccResult,
@@ -4605,7 +4912,7 @@ pub fn pbc_gamma_hessian(
     }
     {
         let _p = crate::profile::scope("pbc.hessian.halogen");
-        let xb = halogen_energy_gradient_hessian(system)?;
+        let xb = halogen_energy_gradient_hessian(system, params)?;
         for i in 0..ndof {
             for j in 0..ndof {
                 hessian[(i, j)] += xb.hessian[(i, j)];
@@ -4742,7 +5049,7 @@ pub fn pbc_kpoint_hessian(
     }
     {
         let _p = crate::profile::scope("pbc.kpoint_hessian.halogen");
-        let xb = halogen_energy_gradient_hessian(system)?;
+        let xb = halogen_energy_gradient_hessian(system, params)?;
         for i in 0..ndof {
             for j in 0..ndof {
                 hessian[(i, j)] += xb.hessian[(i, j)];
@@ -4811,8 +5118,7 @@ mod tests {
     use super::*;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     fn tight() -> ElectronicOptions {
@@ -6715,5 +7021,66 @@ mod tests {
             max_diff < 1.0e-6,
             "dS(Gamma)/dR vs finite difference max diff {max_diff:.3e}"
         );
+    }
+
+    // The direct dielectric solve must REJECT a singular charge-space dielectric
+    // rather than return silently wrong shell charges. `DenseLu` does not itself
+    // detect a zero pivot, so this pins the post-solve verification that replaced
+    // the old unguarded 50-round fixed point.
+    #[test]
+    fn periodic_dielectric_rejects_a_singular_system() {
+        // chi0 = K = I  =>  I - chi0 K = 0, maximally singular.
+        let mut identity = Matrix::zeros(2, 2);
+        identity[(0, 0)] = 1.0;
+        identity[(1, 1)] = 1.0;
+        let dielectric = PeriodicChargeDielectric::build(&identity, &identity).unwrap();
+        let message = dielectric.solve(&[1.0, -0.5]).unwrap_err().to_string();
+        assert!(
+            message.contains("singular"),
+            "unexpected error for a singular dielectric: {message}"
+        );
+
+        // Rank-deficient but nonzero: chi0 K has a unit eigenvalue in one shell,
+        // so the dielectric annihilates that shell direction.
+        let mut chi0 = Matrix::zeros(2, 2);
+        chi0[(0, 0)] = 1.0;
+        let mut kernel = Matrix::zeros(2, 2);
+        kernel[(0, 0)] = 1.0;
+        kernel[(1, 1)] = 1.0;
+        let dielectric = PeriodicChargeDielectric::build(&chi0, &kernel).unwrap();
+        let message = dielectric.solve(&[1.0, 0.25]).unwrap_err().to_string();
+        assert!(
+            message.contains("singular"),
+            "unexpected error for a rank-deficient dielectric: {message}"
+        );
+    }
+
+    // A well-conditioned dielectric solve must land exactly on the fixed point the
+    // old damped iteration was only approaching: q = q_bare + chi0 K q.
+    #[test]
+    fn periodic_dielectric_solves_its_own_fixed_point() {
+        let mut chi0 = Matrix::zeros(2, 2);
+        chi0[(0, 0)] = -0.4;
+        chi0[(0, 1)] = 0.15;
+        chi0[(1, 0)] = 0.15;
+        chi0[(1, 1)] = -0.3;
+        let mut kernel = Matrix::zeros(2, 2);
+        kernel[(0, 0)] = 0.5;
+        kernel[(0, 1)] = 0.2;
+        kernel[(1, 0)] = 0.2;
+        kernel[(1, 1)] = 0.45;
+        let dielectric = PeriodicChargeDielectric::build(&chi0, &kernel).unwrap();
+        let q_bare = [0.031, -0.017];
+        let q = dielectric.solve(&q_bare).unwrap();
+        let chi0_k = chi0.matmul(&kernel).unwrap();
+        let mut worst = 0.0_f64;
+        for s in 0..2 {
+            let mut fixed_point = q_bare[s];
+            for t in 0..2 {
+                fixed_point += chi0_k[(s, t)] * q[t];
+            }
+            worst = worst.max((q[s] - fixed_point).abs());
+        }
+        assert!(worst < 1.0e-15, "dielectric fixed-point residual {worst:.3e}");
     }
 }

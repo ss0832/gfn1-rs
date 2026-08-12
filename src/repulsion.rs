@@ -235,6 +235,91 @@ pub fn repulsion_third_derivative(
     Ok(tensor)
 }
 
+/// Radial ladder of the GFN1 pair repulsion `f(r) = Z_i^eff Z_j^eff exp(−√(α_iα_j) r^k)/r`
+/// up to `f''''`, returned as the "hat" derivatives `(c2, c3, c4) = (D̂²f, D̂³f, D̂⁴f)` with
+/// `D̂ = (1/r) d/dr` -- exactly the Cartesian tensor coefficients consumed by
+/// [`crate::fourth_derivative::add_radial_fourth_block_sym`].
+///
+/// The derivatives come from the log-derivative (Bell polynomial) ladder the third
+/// derivative already uses, extended one order: with `L_k = d^k(ln f)/dr^k`,
+///
+/// ```text
+///   f'    = f L₁
+///   f''   = f (L₁² + L₂)
+///   f'''  = f (L₁³ + 3 L₁L₂ + L₃)
+///   f'''' = f (L₁⁴ + 6 L₁²L₂ + 4 L₁L₃ + 3 L₂² + L₄)
+/// ```
+///
+/// and `ln f = ln(Z^eff) − α r^k − rexp·ln r` gives the `L_k` in closed form.
+fn repulsion_pair_hat_derivatives(
+    za: u8,
+    zb: u8,
+    r: f64,
+    params: &Gfn1Parameters,
+) -> Result<(f64, f64, f64)> {
+    let pa = params.element(za)?;
+    let pb = params.element(zb)?;
+    let alpha = (pa.repa * pb.repa).sqrt();
+    let zeff = pa.repb * pb.repb;
+    let kexp = if za <= 2 && zb <= 2 {
+        params.global("kexplight", params.global("kexp", 1.5))
+    } else {
+        params.global("kexp", 1.5)
+    };
+    let rexp = 1.0;
+    let f = zeff * (-alpha * r.powf(kexp)).exp() / r.powf(rexp);
+    let ak = alpha * kexp;
+    let l1 = -ak * r.powf(kexp - 1.0) - rexp / r;
+    let l2 = -ak * (kexp - 1.0) * r.powf(kexp - 2.0) + rexp / (r * r);
+    let l3 = -ak * (kexp - 1.0) * (kexp - 2.0) * r.powf(kexp - 3.0) - 2.0 * rexp / r.powi(3);
+    let l4 = -ak * (kexp - 1.0) * (kexp - 2.0) * (kexp - 3.0) * r.powf(kexp - 4.0)
+        + 6.0 * rexp / r.powi(4);
+    let f1 = f * l1;
+    let f2 = f * (l1 * l1 + l2);
+    let f3 = f * (l1 * l1 * l1 + 3.0 * l1 * l2 + l3);
+    let f4 = f * (l1 * l1 * l1 * l1 + 6.0 * l1 * l1 * l2 + 4.0 * l1 * l3 + 3.0 * l2 * l2 + l4);
+    // Hat-derivatives D̂^k f, D̂ = (1/r) d/dr.
+    let c2 = f2 / r.powi(2) - f1 / r.powi(3);
+    let c3 = f3 / r.powi(3) - 3.0 * f2 / r.powi(4) + 3.0 * f1 / r.powi(5);
+    let c4 = f4 / r.powi(4) - 6.0 * f3 / r.powi(5) + 15.0 * f2 / r.powi(6) - 15.0 * f1 / r.powi(7);
+    Ok((c2, c3, c4))
+}
+
+/// Analytic fourth Cartesian derivative `Q_abcd = ∂⁴E_rep/∂R_a∂R_b∂R_c∂R_d` of the (non-PBC)
+/// repulsion energy, in packed [`crate::fourth_derivative::SymmetricFourth`] storage. Like the
+/// third derivative this is purely geometric (a classical pair sum, no electronic response),
+/// so it enters the quartic assembly as the frozen repulsion block. `Q.get(a, b, c, d)` equals
+/// `∂(third-derivative slab)/∂R_d`, which is the FD gate.
+pub fn repulsion_fourth_derivative(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<crate::fourth_derivative::SymmetricFourth> {
+    let nat = system.atoms.len();
+    let mut store = crate::fourth_derivative::SymmetricFourth::zeros(3 * nat);
+    let cutoff = Cutoffs::default().repulsion;
+    for_each_unique_short_range_pair(system, cutoff, |pair| {
+        if pair.i == pair.j {
+            return Ok(());
+        }
+        let za = system.atoms[pair.i].z;
+        let zb = system.atoms[pair.j].z;
+        let (c2, c3, c4) = repulsion_pair_hat_derivatives(za, zb, pair.r, params)?;
+        // `pair.dr = R_j − R_i`, so the true relative vector `R_i − R_j` is its negation.
+        crate::fourth_derivative::add_radial_fourth_block_sym(
+            &mut store,
+            pair.i,
+            pair.j,
+            pair.dr * (-1.0),
+            c2,
+            c3,
+            c4,
+            1.0,
+        );
+        Ok(())
+    })?;
+    Ok(store)
+}
+
 fn add_radial_hessian_block(
     hessian: &mut Matrix,
     i: usize,
@@ -275,10 +360,7 @@ mod hessian_tests {
 
     #[test]
     fn repulsion_hessian_matches_gradient_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
             0.0,
@@ -311,10 +393,7 @@ mod hessian_tests {
     // finite difference of the analytic repulsion Hessian — the chosen FD-vs-Hessian gate.
     #[test]
     fn repulsion_third_derivative_matches_hessian_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(param_path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
             0.0,
@@ -346,6 +425,105 @@ mod hessian_tests {
         assert!(
             max_delta < 1.0e-6,
             "repulsion third-derivative FD-vs-Hessian max delta {max_delta:.3e}"
+        );
+    }
+
+    /// The 4-atom C/Br/O/H probe geometry shared with the halogen third-derivative tests:
+    /// one short (C--Br) and several long pair distances, so the fourth-order radial ladder
+    /// is exercised across its whole dynamic range.
+    fn cbro_system() -> PeriodicSystem {
+        PeriodicSystem::from_xyz_str(
+            "4\nCBr...O\nC 0.0 0.0 0.0\nBr 1.9 0.0 0.0\nO 4.6 0.2 0.0\nH 5.0 0.8 0.0\n",
+            0.0,
+            false,
+        )
+        .unwrap()
+    }
+
+    /// The packed analytic fourth derivative must reproduce the central finite difference of
+    /// the analytic third derivative: `Q(a,b,c,d) = ∂ T[c][(a,b)] / ∂R_d`.
+    #[test]
+    fn repulsion_fourth_derivative_matches_third_finite_difference() {
+        let params = Gfn1Parameters::builtin().expect("builtin GFN1 parameters");
+        let system = cbro_system();
+        let fourth = super::repulsion_fourth_derivative(&system, &params).unwrap();
+        let step = 1.0e-4;
+        let ndof = 3 * system.atoms.len();
+        let mut max_delta = 0.0_f64;
+        for d in 0..ndof {
+            let mut plus = system.clone();
+            let mut minus = system.clone();
+            displace(&mut plus, d, step);
+            displace(&mut minus, d, -step);
+            let tp = super::repulsion_third_derivative(&plus, &params).unwrap();
+            let tm = super::repulsion_third_derivative(&minus, &params).unwrap();
+            for c in 0..ndof {
+                for a in 0..ndof {
+                    for b in 0..ndof {
+                        let fd = (tp[c][(a, b)] - tm[c][(a, b)]) / (2.0 * step);
+                        max_delta = max_delta.max((fourth.get(a, b, c, d) - fd).abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            max_delta < 1.0e-6,
+            "repulsion fourth-derivative FD-vs-third max delta {max_delta:.3e}"
+        );
+    }
+
+    /// Translational invariance: summing any index over all atoms (fixed Cartesian
+    /// component) must annihilate the tensor.
+    #[test]
+    fn repulsion_fourth_derivative_acoustic_sum_rule() {
+        let params = Gfn1Parameters::builtin().expect("builtin GFN1 parameters");
+        let system = cbro_system();
+        let nat = system.atoms.len();
+        let ndof = 3 * nat;
+        let fourth = super::repulsion_fourth_derivative(&system, &params).unwrap();
+        let mut max_sum = 0.0_f64;
+        for alpha in 0..3 {
+            for b in 0..ndof {
+                for c in 0..ndof {
+                    for d in 0..ndof {
+                        let mut sum = 0.0;
+                        for atom in 0..nat {
+                            sum += fourth.get(3 * atom + alpha, b, c, d);
+                        }
+                        max_sum = max_sum.max(sum.abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            max_sum < 1.0e-9,
+            "repulsion fourth-derivative acoustic sum rule residual {max_sum:.3e}"
+        );
+    }
+
+    /// Scalar gate on the radial ladder itself: `c4 = D̂ c3 = (1/r) dc3/dr`, checked against
+    /// the central finite difference of `c3` rebuilt at `r ± h`.
+    #[test]
+    fn repulsion_radial_hat_ladder_c4_matches_c3_finite_difference() {
+        let params = Gfn1Parameters::builtin().expect("builtin GFN1 parameters");
+        let step = 1.0e-5;
+        let mut max_rel = 0.0_f64;
+        // (6, 35) and (8, 1) take the `kexp` branch; (1, 1) takes `kexplight`.
+        for &(za, zb) in &[(6u8, 35u8), (8u8, 1u8), (1u8, 1u8)] {
+            for &r in &[1.5_f64, 2.5, 3.6, 5.0, 7.0] {
+                let (_, _, c4) = super::repulsion_pair_hat_derivatives(za, zb, r, &params).unwrap();
+                let (_, c3_plus, _) =
+                    super::repulsion_pair_hat_derivatives(za, zb, r + step, &params).unwrap();
+                let (_, c3_minus, _) =
+                    super::repulsion_pair_hat_derivatives(za, zb, r - step, &params).unwrap();
+                let fd = (c3_plus - c3_minus) / (2.0 * step) / r;
+                let rel = (c4 - fd).abs() / c4.abs().max(1.0e-300);
+                max_rel = max_rel.max(rel);
+            }
+        }
+        assert!(
+            max_rel < 1.0e-7,
+            "radial hat-ladder c4-vs-FD(c3) max relative delta {max_rel:.3e}"
         );
     }
 

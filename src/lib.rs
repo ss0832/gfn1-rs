@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! GFN1-xTB components.
 //!
-//! Parameter files are deliberately external. Use [`resolve_param_path`] or
-//! [`Gfn1Parameters::from_file`] with xTB's `param_gfn1-xtb.txt`.
+//! The official GFN1-xTB parameter files are BUNDLED (embedded from
+//! `third_party/xtb`, LGPL-3.0-or-later): [`Gfn1Parameters::resolve`]`(None)`
+//! resolves explicit path > `GFN1_XTB_PARAM` > builtin, so the crate works
+//! with no external files. [`Gfn1Parameters::from_file`] still loads any
+//! compatible parameter file.
 
 pub mod basis;
 pub mod constants;
@@ -16,11 +19,13 @@ pub mod electronic;
 pub mod error;
 pub mod exchange;
 pub mod field;
+pub mod fourth_derivative;
 pub mod gradient;
 pub mod halogen;
 pub mod hamiltonian;
 pub mod hessian;
 pub mod integrals;
+pub mod jets;
 pub mod lattice;
 pub mod linalg;
 pub mod magnetic;
@@ -38,18 +43,23 @@ pub mod pbc;
 pub mod profile;
 pub mod properties;
 pub mod repulsion;
+pub mod response;
 pub mod secondary_bases;
 pub mod secondary_basis;
 pub mod spin;
 pub mod sto;
 pub mod system;
 pub mod td;
+pub mod terms;
 pub mod third_derivative;
 pub mod trah;
 pub mod vibrational;
 
 pub use basis::{AOBasisFunction, BasisOptions, BasisSet, BasisShell};
-pub use dispersion::{dispersion_third_derivative, DispersionThirdResult};
+pub use dispersion::{
+    dispersion_fourth_derivative, dispersion_third_derivative, DispersionFourthResult,
+    DispersionThirdResult, MAX_FOURTH_DERIVATIVE_NDOF,
+};
 pub use electronic::{
     camm_preset, run_electronic, run_electronic_rank_ladder, ElectronicOptions, ElectronicResult,
     EnergyTerms, Gfn1Calculator, MultipoleModel, SccAccelerator,
@@ -64,8 +74,8 @@ pub use hessian::{
     FixedDensityCnH0HessianResult, FixedDensityPulayHessianResult, FixedSccHessianResult,
 };
 pub use magnetic::{
-    angular_momentum_matrix, cotton_mouton_tensor, lao_dipole_matrix, magnetic_analytic_gradient,
-    magnetic_gradient, magnetic_h0_overlap, magnetic_polarizability,
+    angular_momentum_matrix, boosted_overlap_pair, cotton_mouton_tensor, lao_dipole_matrix,
+    magnetic_analytic_gradient, magnetic_gradient, magnetic_h0_overlap, magnetic_polarizability,
     magnetizability_diagonal_analytic, magnetizability_isotropic,
     magnetizability_isotropic_analytic, magnetizability_tensor_analytic, mcd_tensor,
     nmr_shielding_tensor, run_magnetic_scc, run_magnetic_scc_m1, MagneticGradientResult,
@@ -80,13 +90,24 @@ pub use param_deriv::{
     parameter_hessian_derivatives, select_target_chunk, ParamDerivative, ParamDerivativeOptions,
 };
 pub use params::{
-    resolve_param_path, AngularMomentum, ElementParam, Gfn1Parameters, ParameterTarget, ShellParam,
-    GFN1_D3_REFERENCE_ENV,
+    resolve_param_path, AngularMomentum, ElementParam, Gfn1Parameters, ParamSource,
+    ParameterTarget, ShellParam, BUILTIN_PARAM_PROVENANCE, GFN1_D3_REFERENCE_ENV, GFN1_PARAM_ENV,
 };
 pub use pbc::{
-    pbc_analytic_gradient, pbc_electronic_result, pbc_gamma_hessian, pbc_kpoint_hessian,
-    pbc_stress, run_electronic_pbc, run_pbc_scc, EwaldOptions, KMesh, PbcGradientResult,
-    PbcHessianResult, PbcOptions, PbcSccResult, PbcStressResult,
+    pbc_analytic_gradient, pbc_berry_polarization, pbc_electronic_result, pbc_gamma_hessian,
+    pbc_gamma_third_analytic_block, pbc_gamma_third_analytic_dense, pbc_gamma_third_analytic_vector,
+    pbc_gamma_third_with_reference, pbc_gruneisen, pbc_kpoint_hessian,
+    pbc_kpoint_strain_hessian_derivative,
+    pbc_kpoint_third_analytic_block, pbc_kpoint_third_analytic_dense,
+    pbc_kpoint_third_analytic_vector, pbc_kpoint_third_derivative_seminumerical_dense,
+    pbc_kpoint_third_derivative_seminumerical_vector, pbc_kpoint_third_with_reference,
+    pbc_strain_hessian_derivative, pbc_stress, pbc_third_derivative_seminumerical_dense,
+    pbc_third_derivative_seminumerical_vector, run_electronic_pbc, run_pbc_scc,
+    scale_lattice_isotropic, BerryMethodSelector, BerryPolarizationMethod,
+    BerryPolarizationOptions, BerryPolarizationResult, EwaldOptions, GammaThirdReference,
+    GruneisenOptions, GruneisenResult, KMesh, KpointThirdReference, PbcGradientResult,
+    PbcHessianResult, PbcOptions, PbcSccResult, PbcStressResult, SecondOrderStencil,
+    POLARIZATION_AU_TO_C_PER_M2,
 };
 pub use properties::{
     dipole_derivatives, ir_spectrum, polarizability_derivatives, raman_spectrum,
@@ -109,6 +130,15 @@ pub use third_derivative::{
     third_derivative_frozen_complete, third_derivative_frozen_full, third_derivative_geometric,
     third_derivative_seminumerical_block, third_derivative_seminumerical_dense,
     third_derivative_seminumerical_vector, SymmetricThird,
+};
+pub use third_derivative::finite_t::{
+    directional_third_finite_t, third_derivative_finite_t_block, third_derivative_finite_t_dense,
+    FiniteTThirdReference,
+};
+pub use fourth_derivative::{
+    directional_fourth_derivative, directional_fourth_seminumerical,
+    fourth_derivative_analytic_block, fourth_derivative_analytic_dense, QuarticReference,
+    SymmetricFourth,
 };
 pub use vibrational::{vibrational_analysis, VibrationalModes};
 

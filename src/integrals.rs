@@ -58,6 +58,13 @@ pub(crate) use third_derivatives::{
     contracted_pair_with_third_derivatives, ContractedPairThirdDerivatives,
 };
 
+#[path = "integrals_fourth_derivatives.rs"]
+mod fourth_derivatives;
+#[allow(unused_imports)]
+pub(crate) use fourth_derivatives::{
+    contracted_pair_with_fourth_derivatives, ContractedPairFourthDerivatives,
+};
+
 #[derive(Clone, Copy, Debug)]
 pub struct IntegralOptions {
     /// AO image-sum cutoff in Bohr. Non-positive means the home image only.
@@ -1298,10 +1305,8 @@ mod tests {
 
     #[test]
     fn gfn1_basis_overlap_derivatives_match_matrix_finite_difference() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = crate::params::Gfn1Parameters::from_file(param_path).unwrap();
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let xyz = "24
 caffeine
 N 0.000000 0.000000 0.000000
@@ -1378,10 +1383,8 @@ H 0.780000 5.330000 0.000000
 
     #[test]
     fn gfn1_h0_derivatives_match_matrix_finite_difference_without_cn() {
-        let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-            return;
-        };
-        let params = crate::params::Gfn1Parameters::from_file(param_path).unwrap();
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let xyz = "24
 caffeine
 N 0.000000 0.000000 0.000000

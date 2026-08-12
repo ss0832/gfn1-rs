@@ -1517,12 +1517,8 @@ mod tests {
     /// shell-driven ERI engine — a separate optimization.)
     #[test]
     fn onsite_refined_exchange_fock_matches_energy_derivative() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.467\nH 0.0 -0.757 -0.467\n",
             0.0,
@@ -1574,12 +1570,8 @@ mod tests {
     /// element-wise. The O onsite block (s+p) exercises nonzero Hermite orders (`β^{(order+1)/2}`).
     #[test]
     fn onsite_eri_tensor_omega_deriv_matches_fd() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system =
             crate::system::PeriodicSystem::from_xyz_str("1\nO\nO 0.0 0.0 0.0\n", 0.0, false)
                 .unwrap();
@@ -1605,12 +1597,8 @@ mod tests {
     /// several ω. O's onsite block (s+p) exercises nonzero Hermite orders.
     #[test]
     fn onsite_eri_skeleton_matches_direct() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system =
             crate::system::PeriodicSystem::from_xyz_str("1\nO\nO 0.0 0.0 0.0\n", 0.0, false)
                 .unwrap();
@@ -1646,12 +1634,8 @@ mod tests {
     /// (R built once per unique primitive-exponent pair). Sanity-checks symmetry of the result.
     #[test]
     fn onsite_refined_exchange_feasible_for_d_atom() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nH2S\nS 0.0 0.0 0.0\nH 0.0 0.961 0.928\nH 0.0 -0.961 0.928\n",
             0.0,
@@ -1681,12 +1665,8 @@ mod tests {
     /// tensors — and the cached kernel must equal the uncached one.
     #[test]
     fn onsite_cache_matches_uncached() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "4\nH2O2\nO 0.0 0.0 0.0\nO 1.45 0.0 0.0\nH -0.3 0.9 0.2\nH 1.75 -0.9 0.2\n",
             0.0,
@@ -1725,12 +1705,8 @@ mod tests {
     /// matching the γ^lr matrix the Mulliken half uses).
     #[test]
     fn onsite_fock_exchange_self_adjoint_fd() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.467\nH 0.0 -0.757 -0.467\n",
             0.0,
@@ -1963,13 +1939,8 @@ mod tests {
     /// exchange. A two-atom H2-like geometry with finite hardness.
     #[test]
     fn lr_gamma_matrix_properties_and_zero_dp() {
-        let params = match std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        {
-            Some(p) => p,
-            None => return,
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "2\nH2\nH 0.0 0.0 0.0\nH 0.0 0.0 0.74\n",
             0.0,
@@ -2011,12 +1982,8 @@ mod tests {
     /// neutral-atom density). H2O.
     #[test]
     fn reference_density_is_neutral() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.467\nH 0.0 -0.757 -0.467\n",
             0.0,
@@ -2054,12 +2021,8 @@ mod tests {
     /// up). Off ≡ the default, so the off path is the plain GFN1 baseline. Water.
     #[test]
     fn mfx_scc_changes_energy_and_converges() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.467\nH 0.0 -0.757 -0.467\n",
             0.0,
@@ -2087,12 +2050,8 @@ mod tests {
     /// charge mixing, so the user does not have to tune it. Uses default options.
     #[test]
     fn mfx_scc_converges_on_polar_geometry() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.02 0.01 0.10\nH 0.78 0.55 -0.05\nH -0.74 0.58 0.03\n",
             0.0,
@@ -2113,12 +2072,8 @@ mod tests {
     /// water at default options otherwise.
     #[test]
     fn mfx_robust_scf_mixing_independent() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let system = crate::system::PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.02 0.01 0.10\nH 0.78 0.55 -0.05\nH -0.74 0.58 0.03\n",
             0.0,
@@ -2149,12 +2104,8 @@ mod tests {
     /// the method size-consistent. Dispersion off to isolate the electronic size-consistency.
     #[test]
     fn mfx_size_consistent_dissociation() {
-        let Some(params) = std::env::var("GFN1_XTB_PARAM")
-            .ok()
-            .and_then(|p| crate::params::Gfn1Parameters::from_file(p).ok())
-        else {
-            return;
-        };
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
         let mk = |xyz: &str| crate::system::PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
         let monomer = mk("2\nH2\nH 0.0 0.0 0.0\nH 0.0 0.0 0.74\n");
         let dimer =

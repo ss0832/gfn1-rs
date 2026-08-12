@@ -668,7 +668,7 @@ mod tests {
 
     // Orthonormal MO matrix: eigenvectors of a random symmetric matrix (S=I).
     fn orthonormal(n: usize, seed: u64) -> Matrix {
-        crate::linalg::symmetric_eigen_jacobi(&sym(n, seed), 1.0e-12, 100)
+        crate::linalg::symmetric_eigen(&sym(n, seed))
             .unwrap()
             .vectors
     }

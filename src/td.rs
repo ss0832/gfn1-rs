@@ -31,7 +31,7 @@ use crate::electronic::{ElectronicOptions, ElectronicResult};
 use crate::error::{Gfn1Error, Result};
 use crate::gradient::{analytic_gradient, AnalyticGradientOptions};
 use crate::linalg::{
-    lowdin_solve_generalized, matrix_vector_product, symmetric_eigen_jacobi, Matrix,
+    lowdin_solve_generalized, matrix_vector_product, symmetric_eigen, Matrix,
 };
 use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
@@ -96,11 +96,30 @@ pub struct TdaResult {
 }
 
 /// Solve the closed-shell TD-GFN1 TDA problem for a (non-periodic) converged SCC.
+///
+/// The excitation energies and oscillator strengths are independent of the
+/// eigensolver's arbitrary per-orbital sign; the returned **amplitude signs** are
+/// not (see [`phase_align_mos_to_reference`]). Anything that compares amplitudes
+/// across geometries must therefore go through
+/// [`solve_tda_with_reference_mos`].
 pub fn solve_tda(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     electronic: &ElectronicResult,
     options: TdaOptions,
+) -> Result<TdaResult> {
+    solve_tda_with_reference_mos(system, params, electronic, options, None)
+}
+
+/// [`solve_tda`] with the MO phase gauge pinned to a reference MO coefficient
+/// matrix, so the returned amplitudes are directly comparable (by overlap, sign
+/// included) to amplitudes obtained at the reference geometry.
+fn solve_tda_with_reference_mos(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &ElectronicResult,
+    options: TdaOptions,
+    reference_mos: Option<&Matrix>,
 ) -> Result<TdaResult> {
     let _profile = crate::profile::scope("td.tda.total");
     if system.lattice.is_some() {
@@ -111,12 +130,16 @@ pub fn solve_tda(
     let basis = &electronic.basis;
     let overlap = &electronic.integrals.overlap;
     let eig = lowdin_solve_generalized(&electronic.fock, overlap, 1.0e-12)?;
+    let mut mos = eig.vectors;
+    if let Some(reference) = reference_mos {
+        phase_align_mos_to_reference(&mut mos, reference, overlap)?;
+    }
     let kernel = response_shell_scc_kernel(system, params, electronic)?;
     dense_tda_core(
         system,
         basis,
         &kernel,
-        &eig.vectors,
+        &mos,
         &eig.values,
         &electronic.occupations,
         overlap,
@@ -290,7 +313,7 @@ pub(crate) fn dense_tda_core(
         }
     }
 
-    let solved = symmetric_eigen_jacobi(&a, 1.0e-12, 100 * n.max(1))?;
+    let solved = symmetric_eigen(&a)?;
     let n_states = options.n_states.min(n);
 
     let atom_positions: Vec<[f64; 3]> = system
@@ -614,7 +637,7 @@ pub fn solve_tda_kpoint(
             a[(j, i)] = avg;
         }
     }
-    let solved = symmetric_eigen_jacobi(&a, 1.0e-12, 100 * ntrans.max(1))?;
+    let solved = symmetric_eigen(&a)?;
     let n_states = options.n_states.min(ntrans);
     let mut states = Vec::with_capacity(n_states);
     for s in 0..n_states {
@@ -679,12 +702,13 @@ fn td_for_system(
     params: &Gfn1Parameters,
     electronic_options: &crate::electronic::ElectronicOptions,
     options: TdaOptions,
+    reference_mos: Option<&Matrix>,
 ) -> Result<(f64, TdaResult)> {
     let ground = crate::run_electronic(system, params, electronic_options.clone())?;
     let td = if system.lattice.is_some() {
         solve_tda_pbc_gamma(system, params, electronic_options, options)?
     } else {
-        solve_tda(system, params, &ground, options)?
+        solve_tda_with_reference_mos(system, params, &ground, options, reference_mos)?
     };
     Ok((ground.total_free, td))
 }
@@ -695,8 +719,10 @@ fn matched_excited_energy(
     electronic_options: &crate::electronic::ElectronicOptions,
     options: TdaOptions,
     reference_amplitudes: &[f64],
+    reference_mos: Option<&Matrix>,
 ) -> Result<f64> {
-    let (ground_energy, td) = td_for_system(system, params, electronic_options, options)?;
+    let (ground_energy, td) =
+        td_for_system(system, params, electronic_options, options, reference_mos)?;
     let mut best = 0usize;
     let mut best_overlap = -1.0_f64;
     for (idx, state) in td.states.iter().enumerate() {
@@ -716,11 +742,19 @@ fn matched_excited_energy(
 }
 
 /// TD-GFN1 excited-state **gradient** by central finite difference of the
-/// analytic TDA excitation energy (plus the ground-state energy), tracking the
-/// target root by amplitude overlap. Non-periodic.
+/// re-diagonalised TDA excitation energy (plus the ground-state energy), tracking
+/// the target root by amplitude overlap. Non-periodic **and** Gamma-point
+/// periodic — the only method that supports both.
 ///
-/// This is numerically the exact excited-state gradient; the analytic Lagrangian
-/// (Z-vector) gradient is the performance optimization (see the README roadmap).
+/// This is the numerically exact excited-state gradient and the finite-difference
+/// ground truth the analytic paths are gated against; it costs `6N` SCC + TDA
+/// solves, so [`solve_tda_gradient_analytic`] is the production route. Because
+/// the root is followed by amplitude overlap it degrades near a genuine state
+/// crossing: within a near-degenerate pair the two roots' amplitudes are an
+/// arbitrary mixture of the same subspace and the tracking is ill-posed. For the
+/// non-periodic path the displaced MOs are phase-aligned to the reference gauge
+/// so the overlap is meaningful; the periodic path re-diagonalises without that
+/// alignment (see `docs/td.md`).
 pub fn solve_tda_gradient(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -736,7 +770,7 @@ pub fn solve_tda_gradient(
         ));
     }
     // Reference TDA at the input geometry (non-PBC or Gamma-point periodic).
-    let (ground_energy, td) = td_for_system(system, params, electronic_options, options)?;
+    let (ground_energy, td) = td_for_system(system, params, electronic_options, options, None)?;
     if state_index >= td.states.len() {
         return Err(Gfn1Error::InvalidInput(format!(
             "requested TD-GFN1 state {state_index} but only {} are available",
@@ -746,6 +780,17 @@ pub fn solve_tda_gradient(
     let omega = td.states[state_index].excitation_energy;
     let reference = td.states[state_index].amplitudes.clone();
     let total_energy = ground_energy + omega;
+    // Pin the MO gauge of every displaced solve to the reference geometry, so the
+    // amplitude-overlap root tracking compares like with like.
+    let reference_mos = if system.lattice.is_some() {
+        None
+    } else {
+        Some(reference_mo_coefficients(&crate::run_electronic(
+            system,
+            params,
+            electronic_options.clone(),
+        )?)?)
+    };
 
     let nat = system.atoms.len();
     let inv = 1.0 / (2.0 * step);
@@ -756,10 +801,22 @@ pub fn solve_tda_gradient(
             let mut minus = system.clone();
             shift_atom(&mut plus, atom, axis, step);
             shift_atom(&mut minus, atom, axis, -step);
-            let ep =
-                matched_excited_energy(&plus, params, electronic_options, options, &reference)?;
-            let em =
-                matched_excited_energy(&minus, params, electronic_options, options, &reference)?;
+            let ep = matched_excited_energy(
+                &plus,
+                params,
+                electronic_options,
+                options,
+                &reference,
+                reference_mos.as_ref(),
+            )?;
+            let em = matched_excited_energy(
+                &minus,
+                params,
+                electronic_options,
+                options,
+                &reference,
+                reference_mos.as_ref(),
+            )?;
             let d = (ep - em) * inv;
             match axis {
                 0 => gradient[atom].x = d,
@@ -1022,6 +1079,11 @@ pub fn solve_tda_gradient_seminumerical(
     }
     let omega = td.states[state_index].excitation_energy;
     let amplitudes = td.states[state_index].amplitudes.clone();
+    // MO gauge the amplitudes are expressed in. Every displaced geometry is
+    // phase-aligned to it, otherwise the eigensolver's arbitrary per-orbital
+    // sign makes the frozen Rayleigh quotient discontinuous and the finite
+    // difference diverges as 1/h for any state with transition charge.
+    let reference_mos = reference_mo_coefficients(&ground.electronic_result)?;
 
     // Central finite difference of the frozen-amplitude excitation energy gives
     // domega/dR exactly (amplitude stationarity); add it to the analytic ground gradient.
@@ -1034,19 +1096,21 @@ pub fn solve_tda_gradient_seminumerical(
             let mut minus = system.clone();
             shift_atom(&mut plus, atom, axis, step);
             shift_atom(&mut minus, atom, axis, -step);
-            let wp = tda_frozen_excitation_energy(
+            let wp = tda_frozen_excitation_energy_with_mos(
                 &plus,
                 params,
                 electronic_options,
                 &amplitudes,
                 options.spin,
+                Some(&reference_mos),
             )?;
-            let wm = tda_frozen_excitation_energy(
+            let wm = tda_frozen_excitation_energy_with_mos(
                 &minus,
                 params,
                 electronic_options,
                 &amplitudes,
                 options.spin,
+                Some(&reference_mos),
             )?;
             let d = (wp - wm) * inv;
             match axis {
@@ -1531,6 +1595,77 @@ fn transition_shell_charge_derivative_for_mo_pair(
     out
 }
 
+/// Per-**shell** weights `w_s` of the on-site third-order kernel-derivative term of
+/// the TDA coupling gradient, so that
+///
+/// ```text
+/// c * P^T (dK^onsite/dR) P = sum_s w_s (dq_s/dR)
+/// ```
+///
+/// The SCC response kernel `K` is *not* purely geometric: its on-site block carries
+/// the anharmonic charge curvature `d^2E_onsite/dq_A^2 = 2 Gamma_A q_A + …` at the
+/// **ground-state** atomic charge `q_A` (DFTB3 third order, plus the Linear
+/// Breathing-Radius orders when `charge_order > 3`). That block has no explicit
+/// position dependence, but `q_A` moves with the nuclei, so
+///
+/// ```text
+/// d/dR [ c P^T K^onsite P ] = c sum_A (d^3 E_onsite/dq_A^3) (dq_A/dR) P_A^2,
+/// ```
+///
+/// with `P_A = sum_{s in A} P_s`. Folding the atomic weight onto every shell of the
+/// atom turns it into a linear functional of the shell-charge response, which is
+/// exactly what the CPHF already delivers per Cartesian degree of freedom.
+///
+/// Omitting this term is a *silent* error: it vanishes identically for triplets
+/// (`c = 0`), for dark states (`P = 0` — including the lowest roots of symmetric
+/// water) and for `Gamma_A = 0`, so only a bright state with third-order
+/// electrostatics exposes it. Measured on the jittered-formaldehyde `S3` root it was
+/// a `3.35e-6` Hartree/bohr constant offset that did **not** shrink with the
+/// finite-difference step (residual `3.44e-6 -> 3.35e-6` for `h = 2e-3 -> 1e-3`,
+/// ladder ratio 1.03 instead of 4); zeroing `Gamma` in both the analytic path and
+/// the finite-difference oracle collapsed it to `6.29e-7 -> 1.57e-7`, ratio 4.00.
+fn onsite_third_order_coupling_weights(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    basis: &crate::basis::BasisSet,
+    shell_charges: &[f64],
+    charge_order: usize,
+    p_shell: &[f64],
+    coupling: f64,
+) -> Result<Vec<f64>> {
+    let nshell = basis.shells.len();
+    let mut weights = vec![0.0_f64; nshell];
+    if coupling == 0.0 {
+        return Ok(weights);
+    }
+    let mut model = crate::coulomb::ShellChargeModel::build(system, basis, params)?;
+    model.charge_order = charge_order.max(3);
+    let atomic_charges = model.atomic_charges(basis, shell_charges);
+    let nat = atomic_charges.len();
+    let mut p_atom = vec![0.0_f64; nat];
+    for (ish, shell) in basis.shells.iter().enumerate() {
+        p_atom[shell.atom_index] += p_shell[ish];
+    }
+    let mut per_atom = vec![0.0_f64; nat];
+    for (atom, &qat) in atomic_charges.iter().enumerate() {
+        if model.atom_shell_counts[atom] == 0 {
+            continue;
+        }
+        let offset = model.atom_offsets[atom];
+        let (_, _, third, _) = crate::coulomb::onsite_charge_anharmonic_derivatives(
+            model.hardness[offset],
+            model.hubbard_derivs[offset],
+            model.charge_order,
+            qat,
+        );
+        per_atom[atom] = coupling * third * p_atom[atom] * p_atom[atom];
+    }
+    for (ish, shell) in basis.shells.iter().enumerate() {
+        weights[ish] = per_atom[shell.atom_index];
+    }
+    Ok(weights)
+}
+
 /// Fully analytic TD-GFN1 (TDA) excited-state **gradient** by direct differentiation
 /// of the TDA excitation energy through the ground-state coupled-perturbed (CPHF)
 /// orbital response.
@@ -1547,12 +1682,19 @@ fn transition_shell_charge_derivative_for_mo_pair(
 /// `d eps_p/dR = (C^T (dH0 + dF^scc) C)_pp - eps_p (C^T dS C)_pp`, where `dF^scc`
 /// is the SCC response Fock built from the ground-state density response `dD/dR`
 /// (the CPHF solution `solve_nonpbc_cpxtb_hessian_response`). The explicit
-/// transition-transition coupling derivative `c d(P^T K P)/dR` is split into the
-/// charge-independent kernel-derivative piece (`coupling_kernel_gradient`) and the
-/// transition-charge-derivative piece (using the CPHF orbital-rotation amplitudes
-/// `U` to differentiate the transition shell charges). This reproduces the
-/// finite-difference gradient to FD precision because it is the exact analytic
-/// derivative of the same frozen-amplitude excitation energy used by
+/// transition-transition coupling derivative `c d(P^T K P)/dR` is split into three
+/// pieces:
+///  * the geometric second-order kernel derivative `c P^T (dgamma/dR) P`
+///    (`coupling_kernel_gradient`);
+///  * the **on-site third-order** kernel derivative
+///    `c sum_A (d^3E_onsite/dq_A^3)(dq_A/dR) P_A^2`
+///    ([`onsite_third_order_coupling_weights`]) — the on-site block of `K` has no
+///    explicit position dependence but does depend on the ground-state charge;
+///  * the transition-charge derivative `2c (dP/dR)^T K P`, using the CPHF
+///    orbital-rotation amplitudes `U`.
+///
+/// This reproduces the finite-difference gradient to FD precision because it is the
+/// exact analytic derivative of the same frozen-amplitude excitation energy used by
 /// [`tda_frozen_excitation_energy`]; it requires one ground-state CPHF solve over
 /// the `3N` Cartesian perturbations.
 fn tda_direct_excitation_gradient(
@@ -1673,6 +1815,19 @@ fn tda_direct_excitation_gradient(
             out[atom] += coupling_grad[atom];
         }
 
+        // On-site third-order (charge-dependent) part of the same kernel derivative,
+        // which `coupling_kernel_gradient` cannot see: it has no explicit position
+        // dependence, only the ground-charge chain `dq_A/dR` the CPHF supplies.
+        let onsite_weights = onsite_third_order_coupling_weights(
+            system,
+            params,
+            basis,
+            &electronic.shell_charges,
+            electronic.charge_order,
+            &p_shell,
+            coupling,
+        )?;
+
         // Transition-charge-derivative piece: 2c * sum (dP_shell/dR) . (K P).
         let nmo = mos.cols();
         let is_occ = |p: usize| space.occupied.contains(&p);
@@ -1757,7 +1912,8 @@ fn tda_direct_excitation_gradient(
                     dp_shell[s] += amp * q;
                 }
             }
-            let value = 2.0 * coupling * dot(&dp_shell, &p_potential);
+            let value = 2.0 * coupling * dot(&dp_shell, &p_potential)
+                + dot(&onsite_weights, &shell_response);
             let atom = coord / 3;
             match coord % 3 {
                 0 => out[atom].x += value,
@@ -1913,7 +2069,7 @@ fn solve_tda_gradient_analytic_pbc_gamma(
     )?;
     let mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
 
-    let excitation_grad = crate::pbc::hessian::pbc_gamma_tda_excitation_gradient(
+    let mut excitation_grad = crate::pbc::hessian::pbc_gamma_tda_excitation_gradient(
         system,
         params,
         &scf,
@@ -1926,6 +2082,65 @@ fn solve_tda_gradient_analytic_pbc_gamma(
     )?;
 
     let nat = system.atoms.len();
+    // The periodic kernel-derivative helper differentiates the Ewald `gamma` only.
+    // Add the on-site third-order (ground-charge chain) part of the same kernel
+    // derivative — see `onsite_third_order_coupling_weights`.
+    let transition = transition_shell_charges(
+        &scf.basis,
+        &mos.coeff,
+        &mos.occupations,
+        &mos.overlap,
+    )?;
+    let mut p_shell = vec![0.0_f64; scf.basis.shells.len()];
+    for (qia, &amp) in transition.iter().zip(amplitudes.iter()) {
+        for (s, &q) in qia.iter().enumerate() {
+            p_shell[s] += amp * q;
+        }
+    }
+    // The periodic response kernel carries the DFTB3 `2 Gamma q` on-site block only
+    // (charge_order 3), so match it here.
+    let onsite_weights = onsite_third_order_coupling_weights(
+        system,
+        params,
+        &scf.basis,
+        &scf.shell_charges,
+        3,
+        &p_shell,
+        coupling,
+    )?;
+    if onsite_weights.iter().any(|&w| w != 0.0) {
+        let (density_responses, _) =
+            crate::pbc::hessian::gamma_cpxtb_density_responses(&scf, &skeleton, &mos)?;
+        let n = scf.basis.len();
+        let mut ground_density = Matrix::zeros(n, n);
+        for p in 0..mos.occupations.len() {
+            let occ = mos.occupations[p];
+            if occ <= 1.0e-14 {
+                continue;
+            }
+            for mu in 0..n {
+                for nu in 0..n {
+                    ground_density[(mu, nu)] += occ * mos.coeff[(mu, p)] * mos.coeff[(nu, p)];
+                }
+            }
+        }
+        for coord in 0..3 * nat {
+            let shell_response = response_shell_charges_from_density(
+                &scf.basis,
+                &mos.overlap,
+                &ground_density,
+                &density_responses[coord],
+                &skeleton.overlap[coord],
+            )?;
+            let value = dot(&onsite_weights, &shell_response);
+            match coord % 3 {
+                0 => excitation_grad[coord / 3].x += value,
+                1 => excitation_grad[coord / 3].y += value,
+                _ => excitation_grad[coord / 3].z += value,
+            }
+        }
+    }
+
     let mut gradient = ground.gradient.clone();
     for atom in 0..nat {
         gradient[atom] += excitation_grad[atom];
@@ -1993,7 +2208,7 @@ pub fn solve_tda_kpoint_gradient_analytic(
     let labels = td.pairs.clone();
     let coupling = options.spin.coupling_scale();
 
-    let excitation_grad = crate::pbc::hessian::pbc_kpoint_tda_excitation_gradient(
+    let mut excitation_grad = crate::pbc::hessian::pbc_kpoint_tda_excitation_gradient(
         system,
         params,
         &scf,
@@ -2005,6 +2220,37 @@ pub fn solve_tda_kpoint_gradient_analytic(
     )?;
 
     let nat = system.atoms.len();
+    // On-site third-order kernel-derivative term, as for the Gamma path.
+    let p_shell =
+        kpoint_state_transition_shell_charges(&scf, electronic_options, &amplitudes, &labels)?;
+    let onsite_weights = onsite_third_order_coupling_weights(
+        system,
+        params,
+        &scf.basis,
+        &scf.shell_charges,
+        3,
+        &p_shell,
+        coupling,
+    )?;
+    if onsite_weights.iter().any(|&w| w != 0.0) {
+        let (_, _, charge_responses) = crate::pbc::hessian::kpoint_cpxtb_density_responses(
+            system,
+            params,
+            &scf,
+            electronic_options,
+            &pbc,
+            true,
+        )?;
+        for coord in 0..3 * nat {
+            let value = dot(&onsite_weights, &charge_responses[coord]);
+            match coord % 3 {
+                0 => excitation_grad[coord / 3].x += value,
+                1 => excitation_grad[coord / 3].y += value,
+                _ => excitation_grad[coord / 3].z += value,
+            }
+        }
+    }
+
     let mut gradient = ground.gradient.clone();
     for atom in 0..nat {
         gradient[atom] += excitation_grad[atom];
@@ -2019,21 +2265,172 @@ pub fn solve_tda_kpoint_gradient_analytic(
     })
 }
 
+/// Brillouin-zone-summed real transition shell charges of a k-mesh TDA state,
+/// `P_s = sum_I X_I sqrt(w_k) q^I_s`, rebuilt from the converged SCC with exactly
+/// the band gauge and `sqrt(w_k)` weighting [`solve_tda_kpoint`] used to define the
+/// amplitudes. `labels[I] = (ik, i*n + a)`.
+fn kpoint_state_transition_shell_charges(
+    scf: &crate::pbc::PbcSccResult,
+    electronic_options: &ElectronicOptions,
+    amplitudes: &[f64],
+    labels: &[(usize, usize)],
+) -> Result<Vec<f64>> {
+    let basis = &scf.basis;
+    let n = basis.len();
+    let mut p_shell = vec![0.0_f64; basis.shells.len()];
+    if amplitudes.iter().all(|&x| x == 0.0) {
+        return Ok(p_shell);
+    }
+    let mut vao = vec![0.0_f64; n];
+    for (ish, shell) in basis.shells.iter().enumerate() {
+        for iao in shell.first_ao..shell.first_ao + shell.nao {
+            vao[iao] = scf.shell_scc_potential[ish];
+        }
+    }
+    let eigen_tol = electronic_options.eigen_tolerance.max(1.0e-12);
+    let mut bands_per_k: Vec<Vec<(Vec<f64>, Vec<f64>)>> = Vec::with_capacity(scf.hs_k.len());
+    for (h0k, sk) in scf.hs_k.iter() {
+        let fock = crate::pbc::scf::fock_at_k(h0k, sk, &vao);
+        let eig = crate::pbc::complex::hermitian_generalized_eigen(&fock, sk, eigen_tol)?;
+        bands_per_k.push((0..n).map(|b| gauge_fixed_band(&eig, b, n)).collect());
+    }
+    for (idx, &(ik, ia)) in labels.iter().enumerate() {
+        let amp = amplitudes[idx];
+        if amp == 0.0 {
+            continue;
+        }
+        let (i, a) = (ia / n, ia % n);
+        if ik >= bands_per_k.len() || i >= n || a >= n {
+            return Err(Gfn1Error::InvalidInput(
+                "k-mesh TDA transition label out of range".to_string(),
+            ));
+        }
+        let sk = &scf.hs_k[ik].1;
+        let bands = &bands_per_k[ik];
+        let q = kpoint_transition_shell_charge(
+            basis,
+            sk,
+            &bands[i].0,
+            &bands[i].1,
+            &bands[a].0,
+            &bands[a].1,
+        )?;
+        let scale = amp * scf.kpoints[ik].weight.sqrt();
+        for (s, &v) in q.iter().enumerate() {
+            p_shell[s] += scale * v;
+        }
+    }
+    Ok(p_shell)
+}
+
+/// Reference MO coefficients of a converged non-periodic SCC — the same
+/// `lowdin_solve_generalized` eigenvectors [`solve_tda`] builds its amplitudes
+/// from, so an amplitude vector returned by `solve_tda` is expressed in exactly
+/// this MO gauge.
+fn reference_mo_coefficients(electronic: &ElectronicResult) -> Result<Matrix> {
+    Ok(lowdin_solve_generalized(&electronic.fock, &electronic.integrals.overlap, 1.0e-12)?.vectors)
+}
+
+/// **Fix the MO phase gauge** of `mos` (the eigenvectors at the *current*
+/// geometry) against a `reference` MO set, by flipping the sign of every column
+/// whose overlap `<C^ref_p | S | C_p>` with its reference partner is negative.
+///
+/// A symmetric eigensolver fixes each eigenvector only up to a sign, and the
+/// sign it happens to return is *not* a continuous function of the geometry. The
+/// TDA excitation energy is gauge invariant (a sign flip of MO `p` is a diagonal
+/// similarity transform `D A D` of the TDA matrix, `D = diag(+-1)`, which leaves
+/// the eigenvalues alone and only relabels the amplitude signs) — but the
+/// *frozen-amplitude* Rayleigh quotient `X^T A(R) X` at a **fixed** `X` is not:
+/// the transition shell charges `q^{ia} ~ C_i S C_a` flip sign with either
+/// orbital, so a phase flip somewhere along a displaced geometry changes the
+/// sign of the transition-charge Coulomb coupling `c (sum_ia X_ia q^ia)^T K
+/// (sum_jb X_jb q^jb)` cross terms and puts a step discontinuity into the
+/// frozen excitation energy. Aligning to the reference removes it; the states
+/// with vanishing transition charge (dark roots, e.g. water `S0`) are accidentally
+/// immune, which is why the defect stayed hidden.
+fn phase_align_mos_to_reference(
+    mos: &mut Matrix,
+    reference: &Matrix,
+    overlap: &Matrix,
+) -> Result<()> {
+    let n = mos.rows();
+    let nmo = mos.cols();
+    if reference.rows() != n
+        || reference.cols() != nmo
+        || overlap.rows() != n
+        || overlap.cols() != n
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "TD-GFN1 MO phase alignment shape mismatch".to_string(),
+        ));
+    }
+    let sc = overlap.matmul(mos)?;
+    for p in 0..nmo {
+        let mut t = 0.0;
+        for mu in 0..n {
+            t += reference[(mu, p)] * sc[(mu, p)];
+        }
+        if t < 0.0 {
+            for mu in 0..n {
+                mos[(mu, p)] = -mos[(mu, p)];
+            }
+        }
+    }
+    Ok(())
+}
+
 /// TDA excitation energy evaluated with a **fixed** amplitude vector at the
 /// current geometry (the SCC, orbital energies, transition charges and response
 /// kernel are recomputed; only `amplitudes` is frozen). This Rayleigh quotient
 /// `X^T A(R) X / X^T X` reproduces the variational excitation energy at the
-/// reference geometry, and its nuclear derivative is exactly the analytic
-/// excited-state gradient contribution (including orbital relaxation through the
-/// re-converged SCC) without the root-tracking ambiguity of a re-diagonalised
-/// finite difference. Non-periodic; intended for verifying
-/// [`solve_tda_gradient_analytic`].
+/// reference geometry, and its nuclear derivative is exactly `domega/dR` for the
+/// tracked adiabatic state (amplitude stationarity, the `2n+1` rule), including
+/// orbital relaxation through the re-converged SCC and without the root-tracking
+/// ambiguity of a re-diagonalised finite difference.
+///
+/// `reference` is the converged SCC that `amplitudes` came from. **Pass it
+/// whenever `system` is not exactly the geometry where the amplitudes were
+/// determined** — i.e. for every finite-difference use. It fixes the MO phase
+/// gauge (see [`phase_align_mos_to_reference`]); without it the eigensolver's
+/// arbitrary per-orbital sign makes this quantity discontinuous in the geometry
+/// for any state with non-vanishing transition charge, and a central difference
+/// of it returns garbage that diverges as `1/h` (measured: `14 Hartree/bohr` on
+/// the water `S3` root at `h = 1e-3`, against a true gradient of `~1e-2`).
+/// Passing `None` is only correct at the reference geometry itself.
+///
+/// Non-periodic.
 pub fn tda_frozen_excitation_energy(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     electronic_options: &ElectronicOptions,
     amplitudes: &[f64],
     spin: TdaSpin,
+    reference: Option<&ElectronicResult>,
+) -> Result<f64> {
+    let reference_mos = match reference {
+        Some(electronic) => Some(reference_mo_coefficients(electronic)?),
+        None => None,
+    };
+    tda_frozen_excitation_energy_with_mos(
+        system,
+        params,
+        electronic_options,
+        amplitudes,
+        spin,
+        reference_mos.as_ref(),
+    )
+}
+
+/// [`tda_frozen_excitation_energy`] against pre-computed reference MO
+/// coefficients, so a finite-difference sweep re-uses one reference
+/// diagonalisation instead of repeating it at every displacement.
+fn tda_frozen_excitation_energy_with_mos(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic_options: &ElectronicOptions,
+    amplitudes: &[f64],
+    spin: TdaSpin,
+    reference_mos: Option<&Matrix>,
 ) -> Result<f64> {
     if system.lattice.is_some() {
         return Err(Gfn1Error::InvalidInput(
@@ -2049,18 +2446,18 @@ pub fn tda_frozen_excitation_energy(
             "tda_frozen_excitation_energy amplitude length mismatch".to_string(),
         ));
     }
+    let mut mos = eig.vectors;
+    if let Some(reference) = reference_mos {
+        phase_align_mos_to_reference(&mut mos, reference, overlap)?;
+    }
     let gaps = space
         .pairs
         .iter()
         .map(|&(i, a)| eig.values[a] - eig.values[i])
         .collect::<Vec<_>>();
     let kernel = response_shell_scc_kernel(system, params, &electronic)?;
-    let transition = transition_shell_charges(
-        &electronic.basis,
-        &eig.vectors,
-        &electronic.occupations,
-        overlap,
-    )?;
+    let transition =
+        transition_shell_charges(&electronic.basis, &mos, &electronic.occupations, overlap)?;
     let sigma = tda_sigma(
         &gaps,
         &kernel,
@@ -2112,8 +2509,7 @@ mod tests {
     use crate::run_electronic;
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     /// Rotate columns (i,a) of an MO coefficient matrix by an exact orthogonal
@@ -2280,7 +2676,8 @@ mod tests {
             .clone();
         let total = |sys: &PeriodicSystem| -> f64 {
             run_electronic(sys, &params, eo.clone()).unwrap().total_free
-                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin).unwrap()
+                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin, Some(&el))
+                    .unwrap()
         };
         let h = 1.0e-4;
         let mut maxdiff = 0.0_f64;
@@ -2335,7 +2732,8 @@ mod tests {
             .clone();
         let total = |sys: &PeriodicSystem| -> f64 {
             run_electronic(sys, params, eo.clone()).unwrap().total_free
-                + tda_frozen_excitation_energy(sys, params, &eo, &amps, opts.spin).unwrap()
+                + tda_frozen_excitation_energy(sys, params, &eo, &amps, opts.spin, Some(&el))
+                    .unwrap()
         };
         let h = 1.0e-4;
         let mut maxdiff = 0.0_f64;
@@ -2393,7 +2791,8 @@ mod tests {
             .clone();
         let total = |sys: &PeriodicSystem| -> f64 {
             run_electronic(sys, &params, eo.clone()).unwrap().total_free
-                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin).unwrap()
+                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin, Some(&el))
+                    .unwrap()
         };
         let mut maxdiff = 0.0_f64;
         for atom in 0..system.atoms.len() {
@@ -2692,19 +3091,14 @@ mod tests {
             charge_tolerance: 1.0e-9,
             ..ElectronicOptions::default()
         };
-        let amps = solve_tda(
-            &system,
-            &params,
-            &run_electronic(&system, &params, eo.clone()).unwrap(),
-            opts,
-        )
-        .unwrap()
-        .states[0]
+        let el = run_electronic(&system, &params, eo.clone()).unwrap();
+        let amps = solve_tda(&system, &params, &el, opts).unwrap().states[0]
             .amplitudes
             .clone();
         let total = |sys: &PeriodicSystem| -> f64 {
             run_electronic(sys, &params, eo.clone()).unwrap().total_free
-                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin).unwrap()
+                + tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin, Some(&el))
+                    .unwrap()
         };
         let h = 1.0e-4;
         // precompute FD oracle gradient
@@ -3734,7 +4128,15 @@ mod tests {
             run_electronic(sys, &params0, eo.clone())
                 .unwrap()
                 .total_free
-                + tda_frozen_excitation_energy(sys, &params0, &eo, &amplitudes, opts.spin).unwrap()
+                + tda_frozen_excitation_energy(
+                    sys,
+                    &params0,
+                    &eo,
+                    &amplitudes,
+                    opts.spin,
+                    Some(&electronic),
+                )
+                .unwrap()
         };
         let mut max_fdz = 0.0_f64;
         let mut max_codez = 0.0_f64;
@@ -4330,7 +4732,7 @@ mod tests {
             tf - ws
         };
         let frozen = |sys: &PeriodicSystem| -> f64 {
-            tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin).unwrap()
+            tda_frozen_excitation_energy(sys, &params, &eo, &amps, opts.spin, Some(&el0)).unwrap()
         };
         let ground = analytic_gradient(
             &system,

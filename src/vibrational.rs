@@ -14,7 +14,7 @@
 
 use crate::data_tables::relative_atomic_mass;
 use crate::error::Result;
-use crate::linalg::{symmetric_eigen_jacobi, Matrix};
+use crate::linalg::{symmetric_eigen, Matrix};
 
 /// Wavenumber (cm^-1) per `sqrt(Hartree / (Bohr^2 * amu))`.
 pub const WAVENUMBER_PER_SQRT_AU: f64 = 5140.4843;
@@ -58,7 +58,7 @@ pub fn vibrational_analysis(hessian: &Matrix, atomic_numbers: &[u8]) -> Result<V
         }
     }
 
-    let eig = symmetric_eigen_jacobi(&mw, 1.0e-12, 100 * ndof.max(1) * ndof.max(1))?;
+    let eig = symmetric_eigen(&mw)?;
 
     let mut wavenumbers = Vec::with_capacity(ndof);
     let mut modes = Vec::with_capacity(ndof);

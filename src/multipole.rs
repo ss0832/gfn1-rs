@@ -3557,8 +3557,9 @@ mod tests {
     }
 
     fn load_params() -> Option<crate::params::Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        crate::params::Gfn1Parameters::from_file(path).ok()
+        let params = crate::params::Gfn1Parameters::resolve(None)
+            .expect("GFN1 parameter resolution failed");
+        Some(params)
     }
 
     /// A free closed-shell atom has a spherical density, so its mDFTB atomic dipole and

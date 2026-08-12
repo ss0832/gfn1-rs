@@ -2,19 +2,30 @@
 //! Classical GFN1 halogen-bond correction.
 //!
 //! This follows the non-periodic branch of tblite's `classical/halogen.f90`.
+//!
+//! The model values come from the GFN1 parameter file: the damping fraction is
+//! the global `xbdamp`, the radius scaling is the global `xbrad`, and the
+//! per-element bond strength is the element `CXB` entry (times the 0.1 GFN1
+//! internal scaling). Before v0.5.0 these were hardcoded copies of the builtin
+//! parametrization, so edited parameter files were silently ignored and
+//! parameter derivatives w.r.t. them were zero; fixed in v0.5.0. The remaining
+//! constants below ([`ALP`], [`LJ`], [`CUTOFF`], [`DIST_EPS`]) are model
+//! structure, not parameter-file entries.
 
 use crate::data_tables::atomic_radius_bohr;
-use crate::error::Result;
+use crate::dispersion::MAX_FOURTH_DERIVATIVE_NDOF;
+use crate::error::{Gfn1Error, Result};
+use crate::jets::{Jet1, Jet2, Jet3, Jet4};
 use crate::linalg::Matrix;
 use crate::math::Vec3;
 use crate::pairlist::center_short_range_neighbors;
+use crate::params::Gfn1Parameters;
 use crate::system::PeriodicSystem;
 
-const DAMPING: f64 = 0.44;
-const RAD_SCALE: f64 = 1.3;
 const ALP: f64 = 6.0;
 const LJ: f64 = 12.0;
 const LJ2: f64 = 0.5 * LJ;
+/// Halogen-bond pair cutoff in Bohr; 20 bohr follows tblite's `classical/halogen.f90`.
 const CUTOFF: f64 = 20.0;
 const DIST_EPS: f64 = 1.0e-18;
 
@@ -46,11 +57,16 @@ pub struct HalogenHessianResult {
     pub stress: Option<Matrix>,
 }
 
-pub fn halogen_energy(system: &PeriodicSystem) -> Result<f64> {
-    Ok(halogen_energy_gradient(system)?.energy)
+pub fn halogen_energy(system: &PeriodicSystem, params: &Gfn1Parameters) -> Result<f64> {
+    Ok(halogen_energy_gradient(system, params)?.energy)
 }
 
-pub fn halogen_energy_gradient(system: &PeriodicSystem) -> Result<HalogenResult> {
+pub fn halogen_energy_gradient(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<HalogenResult> {
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
     let triples = halogen_triples(system)?;
     let mut energy = 0.0;
     let mut gradient = vec![Vec3::zero(); system.atoms.len()];
@@ -61,11 +77,11 @@ pub fn halogen_energy_gradient(system: &PeriodicSystem) -> Result<HalogenResult>
         let neighbor = triple.neighbor;
         let xzp = system.atoms[donor].z;
         let jzp = system.atoms[acceptor].z;
-        let cc = bond_strength(xzp);
+        let cc = bond_strength(params, xzp);
         if cc == 0.0 {
             continue;
         }
-        let r0jx = RAD_SCALE * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
 
         let dxj = image_vector(
             system,
@@ -107,16 +123,16 @@ pub fn halogen_energy_gradient(system: &PeriodicSystem) -> Result<HalogenResult>
 
         let t13 = r0jx / rjx;
         let t14_lj = t13.powf(LJ);
-        let term_energy = aterm * cc * (t14_lj - DAMPING * t13.powf(LJ2)) / (1.0 + t14_lj);
+        let term_energy = aterm * cc * (t14_lj - damping * t13.powf(LJ2)) / (1.0 + t14_lj);
         energy += term_energy;
 
         let t14 = (r0jx / rjx).powf(LJ2);
-        let numerator = t14 * t14 - DAMPING * t14;
+        let numerator = t14 * t14 - damping * t14;
         let denominator = 1.0 + t14 * t14;
         let term_lj = numerator / denominator;
 
         let mut dtermlj = 2.0 * LJ2 * numerator * t14 * t14 / (rjx * denominator * denominator);
-        dtermlj += LJ2 * t14 * (DAMPING - 2.0 * t14) / (rjx * denominator);
+        dtermlj += LJ2 * t14 * (damping - 2.0 * t14) / (rjx * denominator);
         dtermlj *= aterm * cc / rjx;
         gradient[acceptor] += dxj * dtermlj;
         gradient[donor] -= dxj * dtermlj;
@@ -135,7 +151,7 @@ pub fn halogen_energy_gradient(system: &PeriodicSystem) -> Result<HalogenResult>
         gradient[neighbor] += dkj * dcosterm_jk;
     }
 
-    let stress = halogen_stress(system)?;
+    let stress = halogen_stress(system, params)?;
     Ok(HalogenResult {
         energy,
         gradient,
@@ -143,7 +159,12 @@ pub fn halogen_energy_gradient(system: &PeriodicSystem) -> Result<HalogenResult>
     })
 }
 
-pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<HalogenHessianResult> {
+pub fn halogen_energy_gradient_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<HalogenHessianResult> {
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     let mut total = Jet2::constant(0.0, ndof);
@@ -154,12 +175,12 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
         let neighbor = triple.neighbor;
         let xzp = system.atoms[donor].z;
         let jzp = system.atoms[acceptor].z;
-        let cc = bond_strength(xzp);
+        let cc = bond_strength(params, xzp);
         if cc == 0.0 {
             continue;
         }
-        let r0jx = RAD_SCALE * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
-        let dxj = jet_vec_image_sub(
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let dxj = jet_image_sub::<Jet2>(
             system,
             acceptor,
             triple.acceptor_translation,
@@ -167,7 +188,7 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
             Vec3::zero(),
             ndof,
         );
-        let dxk = jet_vec_image_sub(
+        let dxk = jet_image_sub::<Jet2>(
             system,
             neighbor,
             triple.neighbor_translation,
@@ -175,7 +196,7 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
             Vec3::zero(),
             ndof,
         );
-        let dkj = jet_vec_image_sub(
+        let dkj = jet_image_sub::<Jet2>(
             system,
             acceptor,
             triple.acceptor_translation,
@@ -183,7 +204,8 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
             triple.neighbor_translation,
             ndof,
         );
-        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, ndof) {
+        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
+        {
             total = total.add(&term_energy);
         }
     }
@@ -198,7 +220,7 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
         }
     }
     let hessian = Matrix::from_vec(ndof, ndof, total.hessian)?;
-    let stress = halogen_stress(system)?;
+    let stress = halogen_stress(system, params)?;
     Ok(HalogenHessianResult {
         energy: total.value,
         gradient,
@@ -207,10 +229,15 @@ pub fn halogen_energy_gradient_hessian(system: &PeriodicSystem) -> Result<Haloge
     })
 }
 
-pub fn halogen_stress(system: &PeriodicSystem) -> Result<Option<Matrix>> {
+pub fn halogen_stress(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<Option<Matrix>> {
     let Some(lattice) = system.lattice.as_ref() else {
         return Ok(None);
     };
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
     let ndof = 9;
     let mut total = Jet2::constant(0.0, ndof);
     for triple in halogen_triples(system)? {
@@ -219,11 +246,11 @@ pub fn halogen_stress(system: &PeriodicSystem) -> Result<Option<Matrix>> {
         let neighbor = triple.neighbor;
         let xzp = system.atoms[donor].z;
         let jzp = system.atoms[acceptor].z;
-        let cc = bond_strength(xzp);
+        let cc = bond_strength(params, xzp);
         if cc == 0.0 {
             continue;
         }
-        let r0jx = RAD_SCALE * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
         let dxj = strain_vector_jets(
             image_vector(
                 system,
@@ -254,7 +281,8 @@ pub fn halogen_stress(system: &PeriodicSystem) -> Result<Option<Matrix>> {
             ),
             ndof,
         );
-        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, ndof) {
+        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
+        {
             total = total.add(&term_energy);
         }
     }
@@ -273,7 +301,12 @@ pub fn halogen_stress(system: &PeriodicSystem) -> Result<Option<Matrix>> {
 /// classical 3-body function with no electronic response, so it is obtained by third-order
 /// forward AD ([`Jet3`]) of the same per-triple energy used for the gradient/Hessian, and
 /// FD-validates in isolation against [`halogen_energy_gradient_hessian`].
-pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> {
+pub fn halogen_third_derivative(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<Vec<Matrix>> {
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     let mut total = Jet3::constant(0.0, ndof);
@@ -283,12 +316,12 @@ pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> 
         let neighbor = triple.neighbor;
         let xzp = system.atoms[donor].z;
         let jzp = system.atoms[acceptor].z;
-        let cc = bond_strength(xzp);
+        let cc = bond_strength(params, xzp);
         if cc == 0.0 {
             continue;
         }
-        let r0jx = RAD_SCALE * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
-        let dxj = jet3_image_sub(
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let dxj = jet_image_sub::<Jet3>(
             system,
             acceptor,
             triple.acceptor_translation,
@@ -296,7 +329,7 @@ pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> 
             Vec3::zero(),
             ndof,
         );
-        let dxk = jet3_image_sub(
+        let dxk = jet_image_sub::<Jet3>(
             system,
             neighbor,
             triple.neighbor_translation,
@@ -304,7 +337,7 @@ pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> 
             Vec3::zero(),
             ndof,
         );
-        let dkj = jet3_image_sub(
+        let dkj = jet_image_sub::<Jet3>(
             system,
             acceptor,
             triple.acceptor_translation,
@@ -312,7 +345,7 @@ pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> 
             triple.neighbor_translation,
             ndof,
         );
-        if let Some(term) = halogen_term_energy_jet3(&dxj, &dxk, &dkj, r0jx, cc, ndof) {
+        if let Some(term) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof) {
             total = total.add(&term);
         }
     }
@@ -327,366 +360,342 @@ pub fn halogen_third_derivative(system: &PeriodicSystem) -> Result<Vec<Matrix>> 
     Ok(tensor)
 }
 
+/// Result of the analytic halogen-bond **fourth** derivative.
 #[derive(Clone, Debug)]
-struct Jet2 {
-    value: f64,
-    gradient: Vec<f64>,
-    hessian: Vec<f64>,
+pub struct HalogenFourthResult {
+    pub energy: f64,
+    /// Dense `ndof⁴` fourth derivative `∂⁴E_halogen/∂R⁴`, row-major
+    /// `((a·ndof+b)·ndof+c)·ndof+d`.
+    pub fourth: Vec<f64>,
+    pub ndof: usize,
 }
 
-impl Jet2 {
-    fn constant(value: f64, ndof: usize) -> Self {
-        Self {
-            value,
-            gradient: vec![0.0; ndof],
-            hessian: vec![0.0; ndof * ndof],
+/// Analytic fourth Cartesian derivative `∂⁴E_halogen/∂R⁴` (quartic force constants), via the
+/// [`Jet4`] promotion of the per-triple energy that already feeds the gradient, Hessian and
+/// [`halogen_third_derivative`]. Like the third derivative this is a purely geometric,
+/// response-free block of a smooth classical 3-body function, so it FD-isolates against
+/// [`halogen_third_derivative`] and satisfies the acoustic sum rule exactly.
+///
+/// Seeding matches the lower orders: full `3·nat` coordinate space rather than per-triple
+/// 9-DOF jets, which keeps the tensor assembly a plain accumulation. A full-space [`Jet4`]
+/// stores `ndof⁴` doubles, so the same [`MAX_FOURTH_DERIVATIVE_NDOF`] cap the dispersion path
+/// uses guards this one.
+pub fn halogen_fourth_derivative(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<HalogenFourthResult> {
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
+    let nat = system.atoms.len();
+    let ndof = 3 * nat;
+    if ndof > MAX_FOURTH_DERIVATIVE_NDOF {
+        let per_jet_mb = (ndof as f64).powi(4) * 8.0 / (1024.0 * 1024.0);
+        return Err(Gfn1Error::InvalidInput(format!(
+            "analytic halogen-bond fourth derivative is capped at {MAX_FOURTH_DERIVATIVE_NDOF} \
+             degrees of freedom ({} atoms); got {ndof} ({nat} atoms). A full-space Jet4 stores \
+             ndof^4 doubles ({per_jet_mb:.0} MB each at this size) and the per-triple assembly \
+             keeps several of them alive at once. Use a smaller system or raise \
+             `MAX_FOURTH_DERIVATIVE_NDOF` deliberately",
+            MAX_FOURTH_DERIVATIVE_NDOF / 3
+        )));
+    }
+    let mut total = Jet4::constant(0.0, ndof);
+    for triple in halogen_triples(system)? {
+        let donor = triple.donor;
+        let acceptor = triple.acceptor;
+        let neighbor = triple.neighbor;
+        let xzp = system.atoms[donor].z;
+        let jzp = system.atoms[acceptor].z;
+        let cc = bond_strength(params, xzp);
+        if cc == 0.0 {
+            continue;
+        }
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let dxj = jet_image_sub::<Jet4>(
+            system,
+            acceptor,
+            triple.acceptor_translation,
+            donor,
+            Vec3::zero(),
+            ndof,
+        );
+        let dxk = jet_image_sub::<Jet4>(
+            system,
+            neighbor,
+            triple.neighbor_translation,
+            donor,
+            Vec3::zero(),
+            ndof,
+        );
+        let dkj = jet_image_sub::<Jet4>(
+            system,
+            acceptor,
+            triple.acceptor_translation,
+            neighbor,
+            triple.neighbor_translation,
+            ndof,
+        );
+        if let Some(term) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof) {
+            total = total.add(&term);
         }
     }
+    Ok(HalogenFourthResult {
+        energy: total.value,
+        fourth: total.fourth,
+        ndof,
+    })
+}
 
-    fn variable(value: f64, ndof: usize, dof: usize) -> Self {
-        let mut out = Self::constant(value, ndof);
-        out.gradient[dof] = 1.0;
-        out
+/// **Directional** analytic halogen-bond fourth derivative
+/// `e⁗[v] = Σ_abcd v_a v_b v_c v_d ∂⁴E_halogen/∂R_a∂R_b∂R_c∂R_d` — the same per-triple energy
+/// [`halogen_fourth_derivative`] differentiates, instantiated on the univariate [`Jet1`].
+///
+/// A directional fourth derivative is the 4th Taylor coefficient of `E(R + t·v)`, so one
+/// differentiation variable suffices: each jet costs five doubles instead of `ndof⁴`, and this
+/// route therefore carries **no** [`MAX_FOURTH_DERIVATIVE_NDOF`] cap. Gated against
+/// `contract_vvvv` of the full tensor on systems small enough for both by
+/// `halogen_fourth_directional_matches_full_tensor`.
+pub fn halogen_fourth_directional(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    v: &[f64],
+) -> Result<f64> {
+    let nat = system.atoms.len();
+    let ndof = 3 * nat;
+    if v.len() != ndof {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "halogen_fourth_directional: direction length {} != 3*natoms {ndof}",
+            v.len()
+        )));
     }
+    let damping = params.required_global("xbdamp")?;
+    let rad_scale = params.required_global("xbrad")?;
+    let _direction = crate::jets::DirectionScope::install(v);
+    let mut total = <Jet1 as HalJet>::constant(0.0, ndof);
+    for triple in halogen_triples(system)? {
+        let donor = triple.donor;
+        let acceptor = triple.acceptor;
+        let neighbor = triple.neighbor;
+        let xzp = system.atoms[donor].z;
+        let jzp = system.atoms[acceptor].z;
+        let cc = bond_strength(params, xzp);
+        if cc == 0.0 {
+            continue;
+        }
+        let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
+        let dxj = jet_image_sub::<Jet1>(
+            system,
+            acceptor,
+            triple.acceptor_translation,
+            donor,
+            Vec3::zero(),
+            ndof,
+        );
+        let dxk = jet_image_sub::<Jet1>(
+            system,
+            neighbor,
+            triple.neighbor_translation,
+            donor,
+            Vec3::zero(),
+            ndof,
+        );
+        let dkj = jet_image_sub::<Jet1>(
+            system,
+            acceptor,
+            triple.acceptor_translation,
+            neighbor,
+            triple.neighbor_translation,
+            ndof,
+        );
+        if let Some(term) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof) {
+            total = HalJet::add(&total, &term);
+        }
+    }
+    Ok(total.d4)
+}
 
+// --- Order-generic forward-AD plumbing -----------------------------------------------------
+//
+// The per-triple halogen energy (angular factor x LJ-like radial factor) is written **once**
+// against this op set and instantiated at second ([`Jet2`]: Hessian and strain derivatives),
+// third ([`Jet3`]) and fourth ([`Jet4`]) order, so every order differentiates the *same*
+// expression through the *same* operation sequence. The jets themselves are the shared
+// [`crate::jets`] implementations; halogen carried private copies before v0.5.0.
+
+/// The shared-jet operations the halogen term energy needs.
+trait HalJet: Clone {
+    fn constant(value: f64, n: usize) -> Self;
+    fn variable(value: f64, n: usize, dof: usize) -> Self;
+    fn value(&self) -> f64;
+    fn add(&self, rhs: &Self) -> Self;
+    fn sub(&self, rhs: &Self) -> Self;
+    fn add_scalar(&self, rhs: f64) -> Self;
+    fn scale(&self, s: f64) -> Self;
+    fn mul(&self, rhs: &Self) -> Self;
+    fn div(&self, rhs: &Self) -> Self;
+    fn powf(&self, p: f64) -> Self;
+}
+
+macro_rules! impl_hal_jet {
+    ($ty:ty) => {
+        impl HalJet for $ty {
+            #[inline]
+            fn constant(value: f64, n: usize) -> Self {
+                <$ty>::constant(value, n)
+            }
+            #[inline]
+            fn variable(value: f64, n: usize, dof: usize) -> Self {
+                <$ty>::variable(value, n, dof)
+            }
+            #[inline]
+            fn value(&self) -> f64 {
+                self.value
+            }
+            #[inline]
+            fn add(&self, rhs: &Self) -> Self {
+                <$ty>::add(self, rhs)
+            }
+            #[inline]
+            fn sub(&self, rhs: &Self) -> Self {
+                <$ty>::sub(self, rhs)
+            }
+            #[inline]
+            fn add_scalar(&self, rhs: f64) -> Self {
+                <$ty>::add_scalar(self, rhs)
+            }
+            #[inline]
+            fn scale(&self, s: f64) -> Self {
+                <$ty>::scale(self, s)
+            }
+            #[inline]
+            fn mul(&self, rhs: &Self) -> Self {
+                <$ty>::mul(self, rhs)
+            }
+            #[inline]
+            fn div(&self, rhs: &Self) -> Self {
+                <$ty>::div(self, rhs)
+            }
+            #[inline]
+            fn powf(&self, p: f64) -> Self {
+                <$ty>::powf(self, p)
+            }
+        }
+    };
+}
+
+impl_hal_jet!(Jet2);
+impl_hal_jet!(Jet3);
+impl_hal_jet!(Jet4);
+
+/// The DIRECTIONAL instantiation of the halogen op set: [`Jet1`] carries the univariate Taylor of
+/// `E(R + t·v)`, so [`halogen_term_energy_jet`] — written once, order-generic — yields
+/// `e⁗[v]` at `O(1)` storage per jet instead of `O(ndof⁴)`.
+///
+/// `variable(value, _n, dof)` seeds `dR_dof/dt = v_dof` from the direction installed by
+/// [`crate::jets::DirectionScope`], which is the ONLY place geometry enters the per-triple
+/// expression.
+impl HalJet for Jet1 {
+    #[inline]
+    fn constant(value: f64, _n: usize) -> Self {
+        Jet1::constant(value)
+    }
+    #[inline]
+    fn variable(value: f64, _n: usize, dof: usize) -> Self {
+        Jet1::variable(value, dof)
+    }
+    #[inline]
+    fn value(&self) -> f64 {
+        self.value
+    }
+    #[inline]
     fn add(&self, rhs: &Self) -> Self {
-        let mut out = Self::constant(self.value + rhs.value, self.gradient.len());
-        for i in 0..self.gradient.len() {
-            out.gradient[i] = self.gradient[i] + rhs.gradient[i];
-        }
-        for i in 0..self.hessian.len() {
-            out.hessian[i] = self.hessian[i] + rhs.hessian[i];
-        }
-        out
+        Jet1::add(self, rhs)
     }
-
-    fn add_scalar(&self, rhs: f64) -> Self {
-        let mut out = self.clone();
-        out.value += rhs;
-        out
-    }
-
+    #[inline]
     fn sub(&self, rhs: &Self) -> Self {
-        self.add(&rhs.scale(-1.0))
+        Jet1::sub(self, rhs)
     }
-
-    fn scale(&self, scale: f64) -> Self {
-        let mut out = Self::constant(self.value * scale, self.gradient.len());
-        for i in 0..self.gradient.len() {
-            out.gradient[i] = self.gradient[i] * scale;
-        }
-        for i in 0..self.hessian.len() {
-            out.hessian[i] = self.hessian[i] * scale;
-        }
-        out
-    }
-
-    fn mul(&self, rhs: &Self) -> Self {
-        let n = self.gradient.len();
-        let mut out = Self::constant(self.value * rhs.value, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] * rhs.value + rhs.gradient[i] * self.value;
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] = self.hessian[i * n + j] * rhs.value
-                    + rhs.hessian[i * n + j] * self.value
-                    + self.gradient[i] * rhs.gradient[j]
-                    + rhs.gradient[i] * self.gradient[j];
-            }
-        }
-        out
-    }
-
-    fn div(&self, rhs: &Self) -> Self {
-        self.mul(&rhs.powf(-1.0))
-    }
-
-    fn powf(&self, power: f64) -> Self {
-        let n = self.gradient.len();
-        let value = self.value.powf(power);
-        let first = power * self.value.powf(power - 1.0);
-        let second = power * (power - 1.0) * self.value.powf(power - 2.0);
-        let mut out = Self::constant(value, n);
-        for i in 0..n {
-            out.gradient[i] = first * self.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] =
-                    first * self.hessian[i * n + j] + second * self.gradient[i] * self.gradient[j];
-            }
-        }
-        out
-    }
-}
-
-/// Third-order forward-AD dual number: value, gradient, Hessian (`n×n`), and third
-/// derivative (`n×n×n`, index `(i·n+j)·n+k`). Mirrors [`Jet2`] one order higher.
-#[derive(Clone, Debug)]
-struct Jet3 {
-    value: f64,
-    gradient: Vec<f64>,
-    hessian: Vec<f64>,
-    third: Vec<f64>,
-    n: usize,
-}
-
-impl Jet3 {
-    fn constant(value: f64, n: usize) -> Self {
-        Self {
-            value,
-            gradient: vec![0.0; n],
-            hessian: vec![0.0; n * n],
-            third: vec![0.0; n * n * n],
-            n,
-        }
-    }
-
-    fn variable(value: f64, n: usize, dof: usize) -> Self {
-        let mut out = Self::constant(value, n);
-        out.gradient[dof] = 1.0;
-        out
-    }
-
-    fn add(&self, rhs: &Self) -> Self {
-        let n = self.n;
-        let mut out = Self::constant(self.value + rhs.value, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] + rhs.gradient[i];
-        }
-        for i in 0..n * n {
-            out.hessian[i] = self.hessian[i] + rhs.hessian[i];
-        }
-        for i in 0..n * n * n {
-            out.third[i] = self.third[i] + rhs.third[i];
-        }
-        out
-    }
-
+    #[inline]
     fn add_scalar(&self, rhs: f64) -> Self {
-        let mut out = self.clone();
-        out.value += rhs;
-        out
+        Jet1::add_scalar(self, rhs)
     }
-
+    #[inline]
     fn scale(&self, s: f64) -> Self {
-        let n = self.n;
-        let mut out = Self::constant(self.value * s, n);
-        for i in 0..n {
-            out.gradient[i] = self.gradient[i] * s;
-        }
-        for i in 0..n * n {
-            out.hessian[i] = self.hessian[i] * s;
-        }
-        for i in 0..n * n * n {
-            out.third[i] = self.third[i] * s;
-        }
-        out
+        Jet1::scale(self, s)
     }
-
-    fn sub(&self, rhs: &Self) -> Self {
-        self.add(&rhs.scale(-1.0))
-    }
-
+    #[inline]
     fn mul(&self, rhs: &Self) -> Self {
-        let n = self.n;
-        let (a, b) = (self, rhs);
-        let mut out = Self::constant(a.value * b.value, n);
-        for i in 0..n {
-            out.gradient[i] = a.gradient[i] * b.value + a.value * b.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] = a.hessian[i * n + j] * b.value
-                    + a.value * b.hessian[i * n + j]
-                    + a.gradient[i] * b.gradient[j]
-                    + a.gradient[j] * b.gradient[i];
-            }
-        }
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    let idx = (i * n + j) * n + k;
-                    out.third[idx] = a.third[idx] * b.value
-                        + a.value * b.third[idx]
-                        + a.hessian[i * n + j] * b.gradient[k]
-                        + a.hessian[i * n + k] * b.gradient[j]
-                        + a.hessian[j * n + k] * b.gradient[i]
-                        + a.gradient[i] * b.hessian[j * n + k]
-                        + a.gradient[j] * b.hessian[i * n + k]
-                        + a.gradient[k] * b.hessian[i * n + j];
-                }
-            }
-        }
-        out
+        Jet1::mul(self, rhs)
     }
-
+    #[inline]
     fn div(&self, rhs: &Self) -> Self {
-        self.mul(&rhs.powf(-1.0))
+        Jet1::div(self, rhs)
     }
-
-    fn powf(&self, power: f64) -> Self {
-        let n = self.n;
-        let v = self.value;
-        let phi1 = power * v.powf(power - 1.0);
-        let phi2 = power * (power - 1.0) * v.powf(power - 2.0);
-        let phi3 = power * (power - 1.0) * (power - 2.0) * v.powf(power - 3.0);
-        let mut out = Self::constant(v.powf(power), n);
-        for i in 0..n {
-            out.gradient[i] = phi1 * self.gradient[i];
-        }
-        for i in 0..n {
-            for j in 0..n {
-                out.hessian[i * n + j] =
-                    phi2 * self.gradient[i] * self.gradient[j] + phi1 * self.hessian[i * n + j];
-            }
-        }
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    let idx = (i * n + j) * n + k;
-                    out.third[idx] = phi3 * self.gradient[i] * self.gradient[j] * self.gradient[k]
-                        + phi2
-                            * (self.hessian[i * n + j] * self.gradient[k]
-                                + self.hessian[i * n + k] * self.gradient[j]
-                                + self.hessian[j * n + k] * self.gradient[i])
-                        + phi1 * self.third[idx];
-                }
-            }
-        }
-        out
+    #[inline]
+    fn powf(&self, p: f64) -> Self {
+        Jet1::powf(self, p)
     }
 }
 
-fn jet3_image_sub(
+/// Seeded jets of the (image-shifted) separation `r_lhs - r_rhs`, one per Cartesian component,
+/// over the full `n = 3*nat` coordinate space.
+fn jet_image_sub<J: HalJet>(
     system: &PeriodicSystem,
     lhs: usize,
     lhs_translation: Vec3,
     rhs: usize,
     rhs_translation: Vec3,
     n: usize,
-) -> [Jet3; 3] {
+) -> [J; 3] {
     let lp = system.atoms[lhs].position + lhs_translation;
     let rp = system.atoms[rhs].position + rhs_translation;
     [
-        Jet3::variable(lp.x, n, 3 * lhs).sub(&Jet3::variable(rp.x, n, 3 * rhs)),
-        Jet3::variable(lp.y, n, 3 * lhs + 1).sub(&Jet3::variable(rp.y, n, 3 * rhs + 1)),
-        Jet3::variable(lp.z, n, 3 * lhs + 2).sub(&Jet3::variable(rp.z, n, 3 * rhs + 2)),
+        J::variable(lp.x, n, 3 * lhs).sub(&J::variable(rp.x, n, 3 * rhs)),
+        J::variable(lp.y, n, 3 * lhs + 1).sub(&J::variable(rp.y, n, 3 * rhs + 1)),
+        J::variable(lp.z, n, 3 * lhs + 2).sub(&J::variable(rp.z, n, 3 * rhs + 2)),
     ]
 }
 
-fn jet3_dot(lhs: &[Jet3; 3], rhs: &[Jet3; 3]) -> Jet3 {
+fn jet_dot<J: HalJet>(lhs: &[J; 3], rhs: &[J; 3]) -> J {
     lhs[0]
         .mul(&rhs[0])
         .add(&lhs[1].mul(&rhs[1]))
         .add(&lhs[2].mul(&rhs[2]))
 }
 
-fn halogen_term_energy_jet3(
-    dxj: &[Jet3; 3],
-    dxk: &[Jet3; 3],
-    dkj: &[Jet3; 3],
+/// Per-triple halogen-bond energy carried as a jet of whatever order `J` provides. Returns
+/// `None` for a degenerate triple (coincident sites), mirroring the closed-form path's guards.
+fn halogen_term_energy_jet<J: HalJet>(
+    dxj: &[J; 3],
+    dxk: &[J; 3],
+    dkj: &[J; 3],
     r0jx: f64,
     cc: f64,
+    damping: f64,
     n: usize,
-) -> Option<Jet3> {
-    let d2jx = jet3_dot(dxj, dxj);
-    let d2kx = jet3_dot(dxk, dxk);
-    let d2jk = jet3_dot(dkj, dkj);
-    if d2jx.value <= DIST_EPS || d2kx.value <= DIST_EPS {
-        return None;
-    }
-    let rjx = d2jx.powf(0.5).add_scalar(DIST_EPS);
-    let xy = d2kx.mul(&d2jx).powf(0.5);
-    if xy.value <= DIST_EPS {
-        return None;
-    }
-    let term = d2kx.add(&d2jx).sub(&d2jk).div(&xy);
-    let angle_base = Jet3::constant(0.5, n).sub(&term.scale(0.25));
-    let aterm = angle_base.powf(ALP);
-    let t13 = Jet3::constant(r0jx, n).div(&rjx);
-    let t14_lj = t13.powf(LJ);
-    Some(
-        aterm
-            .scale(cc)
-            .mul(&t14_lj.sub(&t13.powf(LJ2).scale(DAMPING)))
-            .div(&Jet3::constant(1.0, n).add(&t14_lj)),
-    )
-}
-
-fn halogen_term_energy_jet(
-    dxj: &[Jet2; 3],
-    dxk: &[Jet2; 3],
-    dkj: &[Jet2; 3],
-    r0jx: f64,
-    cc: f64,
-    ndof: usize,
-) -> Option<Jet2> {
+) -> Option<J> {
     let d2jx = jet_dot(dxj, dxj);
     let d2kx = jet_dot(dxk, dxk);
     let d2jk = jet_dot(dkj, dkj);
-    if d2jx.value <= DIST_EPS || d2kx.value <= DIST_EPS {
+    if d2jx.value() <= DIST_EPS || d2kx.value() <= DIST_EPS {
         return None;
     }
     let rjx = d2jx.powf(0.5).add_scalar(DIST_EPS);
     let xy = d2kx.mul(&d2jx).powf(0.5);
-    if xy.value <= DIST_EPS {
+    if xy.value() <= DIST_EPS {
         return None;
     }
     let term = d2kx.add(&d2jx).sub(&d2jk).div(&xy);
-    let angle_base = Jet2::constant(0.5, ndof).sub(&term.scale(0.25));
+    let angle_base = J::constant(0.5, n).sub(&term.scale(0.25));
     let aterm = angle_base.powf(ALP);
-    let t13 = Jet2::constant(r0jx, ndof).div(&rjx);
+    let t13 = J::constant(r0jx, n).div(&rjx);
     let t14_lj = t13.powf(LJ);
     Some(
         aterm
             .scale(cc)
-            .mul(&t14_lj.sub(&t13.powf(LJ2).scale(DAMPING)))
-            .div(&Jet2::constant(1.0, ndof).add(&t14_lj)),
+            .mul(&t14_lj.sub(&t13.powf(LJ2).scale(damping)))
+            .div(&J::constant(1.0, n).add(&t14_lj)),
     )
-}
-
-fn jet_vec_image_sub(
-    system: &PeriodicSystem,
-    lhs: usize,
-    lhs_translation: Vec3,
-    rhs: usize,
-    rhs_translation: Vec3,
-    ndof: usize,
-) -> [Jet2; 3] {
-    [
-        Jet2::variable(
-            system.atoms[lhs].position.x + lhs_translation.x,
-            ndof,
-            3 * lhs,
-        )
-        .sub(&Jet2::variable(
-            system.atoms[rhs].position.x + rhs_translation.x,
-            ndof,
-            3 * rhs,
-        )),
-        Jet2::variable(
-            system.atoms[lhs].position.y + lhs_translation.y,
-            ndof,
-            3 * lhs + 1,
-        )
-        .sub(&Jet2::variable(
-            system.atoms[rhs].position.y + rhs_translation.y,
-            ndof,
-            3 * rhs + 1,
-        )),
-        Jet2::variable(
-            system.atoms[lhs].position.z + lhs_translation.z,
-            ndof,
-            3 * lhs + 2,
-        )
-        .sub(&Jet2::variable(
-            system.atoms[rhs].position.z + rhs_translation.z,
-            ndof,
-            3 * rhs + 2,
-        )),
-    ]
 }
 
 fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
@@ -702,13 +711,6 @@ fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
         }
     }
     out
-}
-
-fn jet_dot(lhs: &[Jet2; 3], rhs: &[Jet2; 3]) -> Jet2 {
-    lhs[0]
-        .mul(&rhs[0])
-        .add(&lhs[1].mul(&rhs[1]))
-        .add(&lhs[2].mul(&rhs[2]))
 }
 
 fn halogen_triples(system: &PeriodicSystem) -> Result<Vec<HalogenTriple>> {
@@ -767,13 +769,18 @@ fn is_acceptor(z: u8) -> bool {
     matches!(z, 7 | 8 | 15 | 16)
 }
 
-fn bond_strength(z: u8) -> f64 {
-    match z {
-        35 => 0.381_742 * 0.1,
-        53 => 0.321_944 * 0.1,
-        85 => 0.220_000 * 0.1,
-        _ => 0.0,
-    }
+/// Per-element halogen-bond strength: the parameter file's `CXB` entry times the
+/// 0.1 GFN1 internal scaling. Elements without a `CXB` entry (including Cl and F
+/// in the official parametrization) get 0.0, which skips the term.
+fn bond_strength(params: &Gfn1Parameters, z: u8) -> f64 {
+    params
+        .elements
+        .get(&z)
+        .and_then(|e| e.raw.get("CXB"))
+        .and_then(|v| v.first())
+        .copied()
+        .unwrap_or(0.0)
+        * 0.1
 }
 
 #[cfg(test)]
@@ -781,14 +788,20 @@ mod tests {
     use super::{halogen_energy, halogen_energy_gradient, halogen_energy_gradient_hessian};
     use crate::lattice::Lattice;
     use crate::math::{Mat3, Vec3};
+    use crate::params::{Gfn1Parameters, ParameterTarget};
     use crate::system::PeriodicSystem;
+
+    fn builtin_params() -> Gfn1Parameters {
+        Gfn1Parameters::builtin().unwrap()
+    }
 
     #[test]
     fn fluorine_and_chlorine_have_no_gfn1_halogen_correction() {
+        let params = builtin_params();
         let system =
             PeriodicSystem::from_xyz_str("2\nHF\nH 0.0 0.0 0.0\nF 0.917 0.0 0.0\n", 0.0, false)
                 .unwrap();
-        assert_eq!(halogen_energy(&system).unwrap(), 0.0);
+        assert_eq!(halogen_energy(&system, &params).unwrap(), 0.0);
 
         let system = PeriodicSystem::from_xyz_str(
             "4\nCCl...O\nC 0.0 0.0 0.0\nCl 1.8 0.0 0.0\nO 4.3 0.2 0.0\nH 4.7 0.8 0.0\n",
@@ -796,29 +809,98 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(halogen_energy(&system).unwrap(), 0.0);
+        assert_eq!(halogen_energy(&system, &params).unwrap(), 0.0);
     }
 
     #[test]
     fn bromine_halogen_correction_is_active() {
+        let params = builtin_params();
         let system = PeriodicSystem::from_xyz_str(
             "4\nCBr...O\nC 0.0 0.0 0.0\nBr 1.9 0.0 0.0\nO 4.6 0.2 0.0\nH 5.0 0.8 0.0\n",
             0.0,
             false,
         )
         .unwrap();
-        assert!(halogen_energy(&system).unwrap() < -1.0e-6);
+        assert!(halogen_energy(&system, &params).unwrap() < -1.0e-6);
+    }
+
+    fn ch3br_water_system() -> PeriodicSystem {
+        PeriodicSystem::from_xyz_str(
+            "8\nCH3Br...OH2 halogen bond\n\
+             C 0.0 0.0 0.0\n\
+             Br 0.0 0.0 1.95\n\
+             H 1.03 0.0 -0.33\n\
+             H -0.515 0.892 -0.33\n\
+             H -0.515 -0.892 -0.33\n\
+             O 0.0 0.1 4.9\n\
+             H 0.76 0.1 5.47\n\
+             H -0.76 0.1 5.47\n",
+            0.0,
+            false,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn halogen_energy_responds_to_xbdamp() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let base = halogen_energy(&system, &params).unwrap();
+        assert!(
+            base != 0.0,
+            "reference CH3Br...OH2 halogen energy must be nonzero"
+        );
+
+        for (target, value) in [
+            ("glob:xbdamp", 0.5),
+            ("glob:xbrad", 1.5),
+            ("elem:35:CXB", 0.5),
+        ] {
+            let modified = params
+                .with_parameter(&ParameterTarget::parse(target).unwrap(), value)
+                .unwrap();
+            let energy = halogen_energy(&system, &modified).unwrap();
+            assert!(
+                (energy - base).abs() > 1.0e-10,
+                "halogen energy must respond to {target}: base {base} modified {energy}"
+            );
+        }
+    }
+
+    #[test]
+    fn halogen_param_derivative_nonzero() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let target = ParameterTarget::parse("glob:xbdamp").unwrap();
+        let base = params.parameter_value(&target).unwrap();
+        let h = 1.0e-4;
+        let plus = halogen_energy(
+            &system,
+            &params.with_parameter(&target, base + h).unwrap(),
+        )
+        .unwrap();
+        let minus = halogen_energy(
+            &system,
+            &params.with_parameter(&target, base - h).unwrap(),
+        )
+        .unwrap();
+        let derivative = (plus - minus) / (2.0 * h);
+        assert!(
+            derivative.abs() > 1.0e-10,
+            "dE_halogen/d(xbdamp) must be nonzero, got {derivative}"
+        );
     }
 
     #[test]
     fn analytic_gradient_matches_finite_difference() {
+        let params = builtin_params();
         let system = PeriodicSystem::from_xyz_str(
             "4\nCBr...O\nC 0.0 0.0 0.0\nBr 1.9 0.0 0.0\nO 4.6 0.2 0.0\nH 5.0 0.8 0.0\n",
             0.0,
             false,
         )
         .unwrap();
-        let result = halogen_energy_gradient(&system).unwrap();
+        let result = halogen_energy_gradient(&system, &params).unwrap();
         let h = 1.0e-4;
         for atom in 0..system.atoms.len() {
             for component in 0..3 {
@@ -826,8 +908,9 @@ mod tests {
                 let mut minus = system.clone();
                 shift(&mut plus, atom, component, h);
                 shift(&mut minus, atom, component, -h);
-                let fd =
-                    (halogen_energy(&plus).unwrap() - halogen_energy(&minus).unwrap()) / (2.0 * h);
+                let fd = (halogen_energy(&plus, &params).unwrap()
+                    - halogen_energy(&minus, &params).unwrap())
+                    / (2.0 * h);
                 let an = match component {
                     0 => result.gradient[atom].x,
                     1 => result.gradient[atom].y,
@@ -843,14 +926,15 @@ mod tests {
 
     #[test]
     fn analytic_hessian_matches_gradient_finite_difference() {
+        let params = builtin_params();
         let system = PeriodicSystem::from_xyz_str(
             "4\nCBr...O\nC 0.0 0.0 0.0\nBr 1.9 0.0 0.0\nO 4.6 0.2 0.0\nH 5.0 0.8 0.0\n",
             0.0,
             false,
         )
         .unwrap();
-        let result = halogen_energy_gradient_hessian(&system).unwrap();
-        let grad = halogen_energy_gradient(&system).unwrap();
+        let result = halogen_energy_gradient_hessian(&system, &params).unwrap();
+        let grad = halogen_energy_gradient(&system, &params).unwrap();
         for atom in 0..system.atoms.len() {
             assert!((result.gradient[atom].x - grad.gradient[atom].x).abs() < 1.0e-10);
             assert!((result.gradient[atom].y - grad.gradient[atom].y).abs() < 1.0e-10);
@@ -864,8 +948,8 @@ mod tests {
             let mut minus = system.clone();
             shift(&mut plus, col / 3, col % 3, h);
             shift(&mut minus, col / 3, col % 3, -h);
-            let gp = halogen_energy_gradient(&plus).unwrap().gradient;
-            let gm = halogen_energy_gradient(&minus).unwrap().gradient;
+            let gp = halogen_energy_gradient(&plus, &params).unwrap().gradient;
+            let gm = halogen_energy_gradient(&minus, &params).unwrap().gradient;
             for row in 0..ndof {
                 let fd = (component(&gp, row) - component(&gm, row)) / (2.0 * h);
                 max_delta = max_delta.max((result.hessian[(row, col)] - fd).abs());
@@ -879,13 +963,14 @@ mod tests {
 
     #[test]
     fn halogen_third_derivative_matches_hessian_finite_difference() {
+        let params = builtin_params();
         let system = PeriodicSystem::from_xyz_str(
             "4\nCBr...O\nC 0.0 0.0 0.0\nBr 1.9 0.0 0.0\nO 4.6 0.2 0.0\nH 5.0 0.8 0.0\n",
             0.0,
             false,
         )
         .unwrap();
-        let third = super::halogen_third_derivative(&system).unwrap();
+        let third = super::halogen_third_derivative(&system, &params).unwrap();
         let h = 1.0e-4;
         let ndof = 3 * system.atoms.len();
         let mut max_delta = 0.0_f64;
@@ -894,8 +979,12 @@ mod tests {
             let mut minus = system.clone();
             shift(&mut plus, slab / 3, slab % 3, h);
             shift(&mut minus, slab / 3, slab % 3, -h);
-            let hp = halogen_energy_gradient_hessian(&plus).unwrap().hessian;
-            let hm = halogen_energy_gradient_hessian(&minus).unwrap().hessian;
+            let hp = halogen_energy_gradient_hessian(&plus, &params)
+                .unwrap()
+                .hessian;
+            let hm = halogen_energy_gradient_hessian(&minus, &params)
+                .unwrap()
+                .hessian;
             for row in 0..ndof {
                 for col in 0..ndof {
                     let fd = (hp[(row, col)] - hm[(row, col)]) / (2.0 * h);
@@ -909,10 +998,190 @@ mod tests {
         );
     }
 
+    /// Σ_A Q_{Aα,bcd} over atoms — the fourth-order acoustic sum rule residual. The halogen
+    /// correction depends only on interatomic separations, so a rigid translation cannot change
+    /// any derivative: this must vanish to numerical precision.
+    fn fourth_acoustic_residual(fourth: &[f64], ndof: usize) -> f64 {
+        let nat = ndof / 3;
+        let mut max = 0.0_f64;
+        for alpha in 0..3 {
+            for b in 0..ndof {
+                for c in 0..ndof {
+                    for d in 0..ndof {
+                        let sum: f64 = (0..nat)
+                            .map(|atom| {
+                                fourth[(((3 * atom + alpha) * ndof + b) * ndof + c) * ndof + d]
+                            })
+                            .sum();
+                        max = max.max(sum.abs());
+                    }
+                }
+            }
+        }
+        max
+    }
+
+    /// Largest deviation of the flat `ndof⁴` tensor from full permutation symmetry.
+    fn fourth_permutation_residual(fourth: &[f64], n: usize) -> f64 {
+        let idx = |a: usize, b: usize, c: usize, d: usize| ((a * n + b) * n + c) * n + d;
+        let mut max = 0.0_f64;
+        for a in 0..n {
+            for b in 0..n {
+                for c in 0..n {
+                    for d in 0..n {
+                        let v = fourth[idx(a, b, c, d)];
+                        for &(w, x, y, z) in &[
+                            (b, a, c, d),
+                            (a, c, b, d),
+                            (a, b, d, c),
+                            (d, c, b, a),
+                            (c, d, a, b),
+                        ] {
+                            max = max.max((v - fourth[idx(w, x, y, z)]).abs());
+                        }
+                    }
+                }
+            }
+        }
+        max
+    }
+
+    // FD-fourth gate: the Jet4 promotion must reproduce a central finite difference of the
+    // analytic third derivative on a genuine halogen-bonded complex (CH3Br...OH2, 24 DOF).
+    #[test]
+    fn halogen_fourth_derivative_matches_third_finite_difference() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let analytic = super::halogen_fourth_derivative(&system, &params).unwrap();
+        let ndof = analytic.ndof;
+        assert_eq!(ndof, 3 * system.atoms.len());
+        // The Jet4 value must reproduce the closed-form energy (same expression).
+        let energy = halogen_energy(&system, &params).unwrap();
+        assert!(
+            energy.abs() > 1.0e-9,
+            "reference CH3Br...OH2 halogen energy must be nonzero, got {energy}"
+        );
+        assert!(
+            (analytic.energy - energy).abs() < 1.0e-12,
+            "Jet4 energy {} vs closed-form energy {energy}",
+            analytic.energy
+        );
+        let h = 1.0e-4;
+        let mut max_delta = 0.0_f64;
+        for d in 0..ndof {
+            let mut plus = system.clone();
+            let mut minus = system.clone();
+            shift(&mut plus, d / 3, d % 3, h);
+            shift(&mut minus, d / 3, d % 3, -h);
+            let tp = super::halogen_third_derivative(&plus, &params).unwrap();
+            let tm = super::halogen_third_derivative(&minus, &params).unwrap();
+            for a in 0..ndof {
+                for b in 0..ndof {
+                    for c in 0..ndof {
+                        let fd = (tp[c][(a, b)] - tm[c][(a, b)]) / (2.0 * h);
+                        let an = analytic.fourth[((a * ndof + b) * ndof + c) * ndof + d];
+                        max_delta = max_delta.max((an - fd).abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            max_delta < 1.0e-6,
+            "halogen fourth-derivative FD-vs-third max delta {max_delta:.3e}"
+        );
+    }
+
+    #[test]
+    fn halogen_fourth_derivative_acoustic_sum_rule() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let analytic = super::halogen_fourth_derivative(&system, &params).unwrap();
+        let max = fourth_acoustic_residual(&analytic.fourth, analytic.ndof);
+        assert!(
+            max < 1.0e-9,
+            "halogen fourth-derivative acoustic sum rule violated: max {max:.3e}"
+        );
+    }
+
+    /// **The directional 1-D-jet gate.** [`super::halogen_fourth_directional`] must reproduce the
+    /// `vvvv` contraction of the full `ndof⁴` tensor to machine precision: both differentiate the
+    /// same per-triple expression through the same operation sequence, only the jet width differs
+    /// (one variable `t` along `v` versus the full `3·nat` coordinate space). A mismatch here
+    /// means the `Jet1` Leibniz/Faà-di-Bruno rules or the directional seeding are wrong.
+    #[test]
+    fn halogen_fourth_directional_matches_full_tensor() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let ndof = 3 * system.atoms.len();
+        // Generic skew direction: no zero components, no accidental symmetry.
+        let v: Vec<f64> = (0..ndof)
+            .map(|k| 0.11 + 0.07 * ((k * 13 % 7) as f64) - 0.15 * ((k % 3) as f64))
+            .collect();
+        let full = super::halogen_fourth_derivative(&system, &params).unwrap();
+        let mut want = 0.0;
+        for a in 0..ndof {
+            for b in 0..ndof {
+                for c in 0..ndof {
+                    let base = ((a * ndof + b) * ndof + c) * ndof;
+                    for d in 0..ndof {
+                        want += v[a] * v[b] * v[c] * v[d] * full.fourth[base + d];
+                    }
+                }
+            }
+        }
+        let got = super::halogen_fourth_directional(&system, &params, &v).unwrap();
+        let delta = (got - want).abs();
+        eprintln!(
+            "halogen directional fourth: 1-D jet {got:.17e} vs full-tensor vvvv {want:.17e} \
+             (delta {delta:.3e})"
+        );
+        assert!(
+            want.abs() > 1.0e-9,
+            "the full-tensor reference is numerically zero — the gate is vacuous"
+        );
+        assert!(
+            delta <= 1.0e-12 * want.abs(),
+            "halogen directional fourth deviates from the full-tensor contraction: \
+             got {got:.17e} want {want:.17e} delta {delta:.3e}"
+        );
+    }
+
+    #[test]
+    fn halogen_fourth_derivative_is_permutation_symmetric() {
+        let params = builtin_params();
+        let system = ch3br_water_system();
+        let analytic = super::halogen_fourth_derivative(&system, &params).unwrap();
+        let max = fourth_permutation_residual(&analytic.fourth, analytic.ndof);
+        assert!(
+            max < 1.0e-12,
+            "halogen fourth derivative is not permutation symmetric: {max:.3e}"
+        );
+    }
+
+    // Memory guard: a full-space Jet4 costs ndof^4 doubles, so oversized systems must be
+    // rejected up front with an actionable message rather than exhausting memory.
+    #[test]
+    fn halogen_fourth_derivative_rejects_oversized_systems() {
+        let params = builtin_params();
+        let nat = crate::dispersion::MAX_FOURTH_DERIVATIVE_NDOF / 3 + 2;
+        let mut xyz = format!("{nat}\nchain\n");
+        for i in 0..nat {
+            xyz.push_str(&format!("H {:.6} 0.000000 0.000000\n", 1.2 * i as f64));
+        }
+        let system = PeriodicSystem::from_xyz_str(&xyz, 0.0, false).unwrap();
+        let err = super::halogen_fourth_derivative(&system, &params).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("fourth derivative") && message.contains("degrees of freedom"),
+            "unexpected guard message: {message}"
+        );
+    }
+
     #[test]
     fn periodic_bromine_halogen_image_correction_is_active() {
+        let params = builtin_params();
         let system = periodic_halogen_system();
-        let energy = halogen_energy(&system).unwrap();
+        let energy = halogen_energy(&system, &params).unwrap();
         assert!(energy.is_finite());
         assert!(
             energy.abs() > 1.0e-9,
@@ -922,8 +1191,9 @@ mod tests {
 
     #[test]
     fn periodic_gradient_matches_finite_difference() {
+        let params = builtin_params();
         let system = periodic_halogen_system();
-        let result = halogen_energy_gradient(&system).unwrap();
+        let result = halogen_energy_gradient(&system, &params).unwrap();
         assert!(result.stress.is_some());
         let h = 1.0e-4;
         for atom in 0..system.atoms.len() {
@@ -932,8 +1202,9 @@ mod tests {
                 let mut minus = system.clone();
                 shift(&mut plus, atom, component, h);
                 shift(&mut minus, atom, component, -h);
-                let fd =
-                    (halogen_energy(&plus).unwrap() - halogen_energy(&minus).unwrap()) / (2.0 * h);
+                let fd = (halogen_energy(&plus, &params).unwrap()
+                    - halogen_energy(&minus, &params).unwrap())
+                    / (2.0 * h);
                 let an = match component {
                     0 => result.gradient[atom].x,
                     1 => result.gradient[atom].y,
@@ -949,10 +1220,11 @@ mod tests {
 
     #[test]
     fn periodic_hessian_matches_gradient_finite_difference() {
+        let params = builtin_params();
         let system = periodic_halogen_system();
-        let result = halogen_energy_gradient_hessian(&system).unwrap();
+        let result = halogen_energy_gradient_hessian(&system, &params).unwrap();
         assert!(result.stress.is_some());
-        let grad = halogen_energy_gradient(&system).unwrap();
+        let grad = halogen_energy_gradient(&system, &params).unwrap();
         for atom in 0..system.atoms.len() {
             assert!((result.gradient[atom].x - grad.gradient[atom].x).abs() < 1.0e-10);
             assert!((result.gradient[atom].y - grad.gradient[atom].y).abs() < 1.0e-10);
@@ -966,8 +1238,8 @@ mod tests {
             let mut minus = system.clone();
             shift(&mut plus, col / 3, col % 3, h);
             shift(&mut minus, col / 3, col % 3, -h);
-            let gp = halogen_energy_gradient(&plus).unwrap().gradient;
-            let gm = halogen_energy_gradient(&minus).unwrap().gradient;
+            let gp = halogen_energy_gradient(&plus, &params).unwrap().gradient;
+            let gm = halogen_energy_gradient(&minus, &params).unwrap().gradient;
             for row in 0..ndof {
                 let fd = (component(&gp, row) - component(&gm, row)) / (2.0 * h);
                 max_delta = max_delta.max((result.hessian[(row, col)] - fd).abs());
@@ -981,8 +1253,9 @@ mod tests {
 
     #[test]
     fn periodic_stress_matches_strain_finite_difference() {
+        let params = builtin_params();
         let system = periodic_halogen_system();
-        let result = halogen_energy_gradient(&system).unwrap();
+        let result = halogen_energy_gradient(&system, &params).unwrap();
         let stress = result.stress.as_ref().unwrap();
         let volume = system.lattice.as_ref().unwrap().volume();
         let h = 1.0e-5;
@@ -991,7 +1264,8 @@ mod tests {
             for col in 0..3 {
                 let plus = strained_system(&system, row, col, h);
                 let minus = strained_system(&system, row, col, -h);
-                let fd = (halogen_energy(&plus).unwrap() - halogen_energy(&minus).unwrap())
+                let fd = (halogen_energy(&plus, &params).unwrap()
+                    - halogen_energy(&minus, &params).unwrap())
                     / (2.0 * h * volume);
                 max_delta = max_delta.max((stress[(row, col)] - fd).abs());
             }

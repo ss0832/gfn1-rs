@@ -4,14 +4,21 @@ use crate::lattice::ImageOffset;
 use crate::math::Vec3;
 use crate::system::PeriodicSystem;
 
+/// Real-space cutoffs (in Bohr) shared by the terms that consume them.
+///
+/// Only the cutoffs that are actually wired into a term live here. Before
+/// v0.5.0 this struct also carried `coulomb`, `dispersion` and `halogen`
+/// fields that no code ever read — the Coulomb, dispersion and halogen terms
+/// carry their own cutoffs (e.g. [`crate::halogen`]'s tblite-faithful 20 bohr),
+/// so the unused entries only advertised limits that were never enforced.
 #[derive(Clone, Copy, Debug)]
 pub struct Cutoffs {
     pub repulsion: f64,
+    /// Coordination-number cutoff. [`crate::coordination::CoordinationOptions`]'s
+    /// default must match this so the standalone CN helper and the CN the
+    /// Hamiltonian builds agree.
     pub coordination: f64,
-    pub coulomb: f64,
     pub integral: f64,
-    pub dispersion: f64,
-    pub halogen: f64,
 }
 
 impl Default for Cutoffs {
@@ -19,10 +26,7 @@ impl Default for Cutoffs {
         Self {
             repulsion: 25.0,
             coordination: 30.0,
-            coulomb: 30.0,
             integral: 30.0,
-            dispersion: 60.0,
-            halogen: 30.0,
         }
     }
 }

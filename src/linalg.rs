@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::error::{Gfn1Error, Result};
-use faer::{Mat as FaerMat, Side};
+use faer::{Accum, MatMut as FaerMatMut, MatRef as FaerMatRef, Side};
 use std::ops::{Index, IndexMut};
 use std::sync::OnceLock;
 
@@ -136,12 +136,21 @@ impl IndexMut<(usize, usize)> for Matrix {
     }
 }
 
+/// Deprecated alias for [`symmetric_eigen`]. The `tol` and `max_sweeps`
+/// arguments were never used: this has delegated to a direct (faer) symmetric
+/// eigendecomposition rather than a Jacobi sweep loop since well before v0.5.0.
+#[deprecated(since = "0.5.0", note = "use symmetric_eigen; tol/max_sweeps were ignored")]
 pub fn symmetric_eigen_jacobi(
     input: &Matrix,
     tol: f64,
     max_sweeps: usize,
 ) -> Result<EigenDecomposition> {
     let _ = (tol, max_sweeps);
+    symmetric_eigen(input)
+}
+
+/// Eigenvalues (ascending) and eigenvectors of a real symmetric matrix.
+pub fn symmetric_eigen(input: &Matrix) -> Result<EigenDecomposition> {
     if input.rows != input.cols {
         return Err(Gfn1Error::InvalidInput(
             "symmetric eigensolver requires a square matrix".to_string(),
@@ -162,7 +171,8 @@ pub fn symmetric_eigen_jacobi(
     }
 
     ensure_parallelism();
-    let faer_input = matrix_to_faer(input);
+    // Zero-copy strided view over the row-major buffer — no O(N²) conversion.
+    let faer_input = FaerMatRef::from_row_major_slice(input.as_slice(), n, n);
     let eig = faer_input.self_adjoint_eigen(Side::Lower).map_err(|err| {
         Gfn1Error::InvalidInput(format!("faer symmetric eigensolver failed: {err:?}"))
     })?;
@@ -187,7 +197,7 @@ pub fn lowdin_orthogonalizer(s: &Matrix, tol: f64) -> Result<LowdinOrthogonalize
         ));
     }
     let n = s.rows;
-    let seig = symmetric_eigen_jacobi(s, tol, 100 * n.max(1) * n.max(1))?;
+    let seig = symmetric_eigen(s)?;
     let mut scaled_vectors = Matrix::zeros(n, n);
     for a in 0..n {
         let lambda = seig.values[a];
@@ -211,14 +221,18 @@ pub fn lowdin_solve_with_orthogonalizer(
     orth: &LowdinOrthogonalizer,
     tol: f64,
 ) -> Result<EigenDecomposition> {
+    // `tol` is kept for signature compatibility with `lowdin_solve_generalized`
+    // (where it does gate the overlap positive-definiteness check); the
+    // orthogonalizer is already built here, and the symmetric eigensolver takes
+    // no tolerance.
+    let _ = tol;
     if h.rows != h.cols || h.rows != orth.x.rows || h.cols != orth.x.cols {
         return Err(Gfn1Error::InvalidInput(
             "generalized eigensolver/orthogonalizer shape mismatch".to_string(),
         ));
     }
-    let n = h.rows;
     let h_orth = lowdin_congruence_transform(h, orth)?;
-    let eig = symmetric_eigen_jacobi(&h_orth, tol, 100 * n.max(1) * n.max(1))?;
+    let eig = symmetric_eigen(&h_orth)?;
     let coeff = matmul_dense(&orth.x, &eig.vectors)?;
     Ok(EigenDecomposition {
         values: eig.values,
@@ -270,14 +284,13 @@ pub fn matrix_vector_product(a: &Matrix, x: &[f64]) -> Result<Vec<f64>> {
     if a.rows == 0 {
         return Ok(Vec::new());
     }
-    let faer_a = matrix_to_faer(a);
-    let faer_x = FaerMat::from_fn(x.len(), 1, |i, _| x[i]);
-    let product = &faer_a * &faer_x;
-    let mut out = Vec::with_capacity(a.rows);
-    for i in 0..a.rows {
-        out.push(product[(i, 0)]);
-    }
-    Ok(out)
+    // Direct row-major dot products: BLAS-2 is memory-bound, and the row-major
+    // layout makes each row contiguous — no faer matrix rebuild per call (this
+    // runs every SCC iteration on the nsh×nsh Coulomb matrix).
+    Ok(a.data
+        .chunks_exact(a.cols)
+        .map(|row| row.iter().zip(x.iter()).map(|(aij, xj)| aij * xj).sum())
+        .collect())
 }
 
 pub fn row_gram(rows: &[Vec<f64>]) -> Result<Matrix> {
@@ -311,6 +324,37 @@ fn lowdin_congruence_transform(h: &Matrix, orth: &LowdinOrthogonalizer) -> Resul
     matmul_dense(&orth.xt, &hx)
 }
 
+/// `Aᵀ · B` for two row-major matrices sharing their **row** count, without ever
+/// materializing `Aᵀ`.
+///
+/// A faer `MatRef::transpose()` only swaps the strides, so the transposed operand
+/// costs nothing; the explicit [`Matrix::transpose`] would pay an `O(rows·cols)`
+/// copy (and, for the tall-skinny shapes this exists for — `npair × nsh` transition
+/// charge blocks with `npair ≫ nsh` — a second full-size allocation). Numerically
+/// this is the same GEMM as `a.transpose().matmul(b)`.
+pub fn matmul_transpose_a(a: &Matrix, b: &Matrix) -> Result<Matrix> {
+    if a.rows() != b.rows() {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "transpose-multiply shape mismatch: {}x{} transposed times {}x{}",
+            a.rows(),
+            a.cols(),
+            b.rows(),
+            b.cols()
+        )));
+    }
+    ensure_parallelism();
+    let (rows, cols) = (a.cols(), b.cols());
+    let mut out = Matrix::zeros(rows, cols);
+    if rows == 0 || cols == 0 || a.rows() == 0 {
+        return Ok(out);
+    }
+    let lhs = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows(), a.cols()).transpose();
+    let rhs = FaerMatRef::from_row_major_slice(b.as_slice(), b.rows(), b.cols());
+    let dst = FaerMatMut::from_row_major_slice_mut(out.as_mut_slice(), rows, cols);
+    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, 1.0, faer::get_global_parallelism());
+    Ok(out)
+}
+
 fn matmul_dense(a: &Matrix, b: &Matrix) -> Result<Matrix> {
     if a.cols != b.rows {
         return Err(Gfn1Error::InvalidInput(format!(
@@ -319,26 +363,54 @@ fn matmul_dense(a: &Matrix, b: &Matrix) -> Result<Matrix> {
         )));
     }
     ensure_parallelism();
-    let faer_a = matrix_to_faer(a);
-    let faer_b = matrix_to_faer(b);
-    let product = &faer_a * &faer_b;
-    Ok(matrix_from_faer(&product))
-}
-
-fn matrix_to_faer(input: &Matrix) -> FaerMat<f64> {
-    FaerMat::from_fn(input.rows, input.cols, |i, j| input[(i, j)])
-}
-
-fn matrix_from_faer(input: &FaerMat<f64>) -> Matrix {
-    let rows = input.nrows();
-    let cols = input.ncols();
+    // Zero-copy GEMM: strided views over the row-major inputs, writing straight
+    // into the row-major output. This removes the three O(N²) layout copies the
+    // old Mat conversions paid on every multiply (~11 per SCC iteration).
+    let (rows, cols) = (a.rows, b.cols);
     let mut out = Matrix::zeros(rows, cols);
-    for i in 0..rows {
-        for j in 0..cols {
-            out[(i, j)] = input[(i, j)];
+    let lhs = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows, a.cols);
+    let rhs = FaerMatRef::from_row_major_slice(b.as_slice(), b.rows, b.cols);
+    let dst = FaerMatMut::from_row_major_slice_mut(out.as_mut_slice(), rows, cols);
+    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, 1.0, faer::get_global_parallelism());
+    Ok(out)
+}
+
+/// Dense LU factorization (partial pivoting) of a square matrix, reusable for
+/// many right-hand sides — the workhorse behind the charge-space dielectric
+/// solve, where one nsh×nsh factorization serves all first- and second-order
+/// response right-hand sides.
+pub struct DenseLu {
+    n: usize,
+    lu: faer::linalg::solvers::PartialPivLu<f64>,
+}
+
+impl DenseLu {
+    pub fn factor(a: &Matrix) -> Result<Self> {
+        if a.rows != a.cols {
+            return Err(Gfn1Error::InvalidInput(
+                "DenseLu requires a square matrix".to_string(),
+            ));
         }
+        ensure_parallelism();
+        let view = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows, a.cols);
+        Ok(Self {
+            n: a.rows,
+            lu: faer::linalg::solvers::PartialPivLu::new(view),
+        })
     }
-    out
+
+    pub fn solve_vec(&self, rhs: &[f64]) -> Result<Vec<f64>> {
+        if rhs.len() != self.n {
+            return Err(Gfn1Error::InvalidInput(format!(
+                "DenseLu rhs length {} != n {}",
+                rhs.len(),
+                self.n
+            )));
+        }
+        let rhs_view = FaerMatRef::from_column_major_slice(rhs, self.n, 1);
+        let solution = faer::linalg::solvers::Solve::solve(&self.lu, rhs_view);
+        Ok((0..self.n).map(|i| solution[(i, 0)]).collect())
+    }
 }
 
 pub fn lowdin_solve_generalized(h: &Matrix, s: &Matrix, tol: f64) -> Result<EigenDecomposition> {

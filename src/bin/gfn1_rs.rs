@@ -3,7 +3,7 @@
 use gfn1_rs::math::Vec3;
 use gfn1_rs::{
     active_targets_for_system, analytic_gradient, analytic_hessian, ir_spectrum, optimize_geometry,
-    parameter_finite_difference, pbc_stress, raman_spectrum, resolve_param_path, run_electronic,
+    parameter_finite_difference, pbc_stress, raman_spectrum, run_electronic,
     solve_tda, solve_tda_gradient_method, static_polarizability, AnalyticGradientOptions,
     AnalyticHessianOptions, ElectronicOptions, GeometryOptimizationOptions, Gfn1Parameters,
     ParamDerivativeOptions, ParameterTarget, PbcOptions, PeriodicSystem, Result, SccAccelerator,
@@ -656,8 +656,8 @@ fn run() -> Result<()> {
 
     let xyz =
         xyz.ok_or_else(|| gfn1_rs::Gfn1Error::InvalidInput("missing XYZ file".to_string()))?;
-    let param_path = resolve_param_path(param.as_deref())?;
-    let params = Gfn1Parameters::from_file(param_path)?;
+    let params = Gfn1Parameters::resolve(param.as_deref())?;
+    println!("parameters: {}", params.source_description());
     let system = PeriodicSystem::from_xyz_file(&xyz, charge.unwrap_or(0.0), bohr)?;
     let mut options = ElectronicOptions::default();
     options.charge = charge;
@@ -1141,7 +1141,10 @@ fn print_help() {
   gfn1_rs_cli [OPTIONS] molecule.xyz
 
 Input and electronic state:
-  --param FILE                    GFN1-xTB parameter file (or GFN1_XTB_PARAM).
+  --param FILE                    GFN1-xTB parameter file. Also accepts the
+                                  builtin specs `builtin` (GFN1-xTB) and
+                                  `builtin:si` (GFN1(Si)-xTB). Resolution:
+                                  --param > GFN1_XTB_PARAM > builtin.
   --charge Q                      Total molecular charge.
   --multiplicity M, --spin-multiplicity M
                                   Spin multiplicity for occupations.

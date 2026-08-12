@@ -27,7 +27,7 @@ use crate::repulsion::repulsion_energy;
 use crate::secondary_basis::SecondaryBasis;
 use crate::system::PeriodicSystem;
 
-const BOLTZMANN_HARTREE_PER_K: f64 = 3.166_808_578_545_117e-6;
+const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
 const ELECTRON_COUNT_TOLERANCE: f64 = 1.0e-8;
 
 /// SCC charge-convergence accelerator.
@@ -78,19 +78,20 @@ impl Default for MultipoleModel {
 /// `s_onsite`; the older presets return an empty override list (single global `s_onsite`).
 ///
 /// Provenance: the κ + s_onsite values come from the full-data multi-regime optimization in
-/// `scripts/optimize_kappa.py` / `scripts/optimize_sigma_hole.py` (coordinate descent over ALL
-/// per-element κ + the on-site penalty scale `s_onsite`; `s_AES` fixed at 1.0; no element pinning).
+/// historical fitting scripts (coordinate descent over ALL per-element κ + the on-site penalty
+/// scale `s_onsite`; `s_AES` fixed at 1.0; no element pinning). The fit tooling is not part of
+/// this repository — the resulting constants below are the record.
 /// CAMM is regime-dependent — for transition-metal reaction *energies* none helps; use plain GFN1:
 /// - `"polar"`: H-bonds / salt bridges / dispersion — fit on S66 + A24 + SSI energies + NCI geometry.
 /// - `"halogen"`: σ-hole / halogen bonds — fit on HAL59 (energy + geometry) with S66/A24 guards and
 ///   MOR41 geometry; `s_onsite ≪ 1` tempers the on-site over-penalty that `κ` alone cannot fix.
 /// - `"sigma-hole"` (v0.4.4): the unified σ-hole preset — per-element κ AND **per-element s_onsite**
 ///   (halogen wants s_onsite≈0, tetrel/Si wants ≈1, a split a single global scalar cannot express),
-///   fit across HAL59/A24/S66/SSI energies + MOR41/NBPRC gradients (`optimize_sigma_hole.py`, obj
+///   fit across HAL59/A24/S66/SSI energies + MOR41/NBPRC gradients (historical fitting run, obj
 ///   6.54). σ-hole NCI oriented; geometry-neutral on TM covalent frameworks (see the module note).
 pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8, f64)>)> {
     // (Z, κ): H=1 B=5 C=6 N=7 O=8 F=9 Si=14 P=15 S=16 Cl=17 Br=35 I=53.
-    // From the full-data, GFN1-normalized, all-element fit (scripts/optimize_kappa.py).
+    // From the full-data, GFN1-normalized, all-element fit (historical fitting run).
     match name {
         // H-bonds / salt bridges / dispersion: NCI interaction energies (S66+A24+SSI) plus NCI and
         // SSI geometry gradients (the all-grad fit; richer gradient info than the energy-only fit,
@@ -135,7 +136,7 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
             0.02,
             vec![],
         )),
-        // v0.4.4 unified σ-hole preset (scripts/optimize_sigma_hole.py, obj 6.54): per-element κ +
+        // v0.4.4 unified σ-hole preset (historical fitting run, obj 6.54): per-element κ +
         // per-element s_onsite. The per-element s_onsite resolves the halogen(≈0)/tetrel(≈1) split
         // no single global scalar can express. Global s_onsite=0.05 is the off-list fallback (e.g.
         // TM); global κ=1.0. σ-hole/halogen + tetrel oriented; geometry-neutral on TM frameworks.
@@ -607,6 +608,10 @@ pub struct ElectronicResult {
     pub occupations: Vec<f64>,
     pub electronic_temperature: f64,
     pub fermi_level: f64,
+    /// The on-site charge-expansion order actually used (`options.charge_order.max(3)`;
+    /// 3 = stock GFN1/DFTB3). Response kernels read this so that the CPXTB/Hessian/
+    /// third-derivative machinery stays consistent with the energy expression.
+    pub charge_order: usize,
     pub shell_charges: Vec<f64>,
     pub atomic_charges: Vec<f64>,
     pub shell_scc_potential: Vec<f64>,
@@ -617,6 +622,17 @@ pub struct ElectronicResult {
     pub third_order_energy: f64,
     pub dispersion_energy: f64,
     pub halogen_energy: f64,
+    /// 4th-and-higher on-site charge-order energy (0 unless `charge_order > 3`).
+    pub higher_order_energy: f64,
+    /// mDFTB2/CAMM multipole electrostatic energy (0 unless `multipole`).
+    pub multipole_energy: f64,
+    /// Long-range Fock exchange energy (0 unless `lr_exchange`).
+    pub exchange_energy: f64,
+    /// spGFN1 spin-polarization energy `½ Σ W m·m` (0 on the restricted path;
+    /// also mirrored in `spin.as_ref().unwrap().spin_energy`).
+    pub spin_polarization_energy: f64,
+    /// DFT+U / +U+V energy (0 unless `plus_u`; spin path only).
+    pub plus_u_energy: f64,
     /// External electric-field interaction energy `sum_i q_i v_ext_i` (0 when no
     /// field is applied).
     pub external_field_energy: f64,
@@ -645,14 +661,19 @@ pub struct EnergyTerms {
     pub electronic: f64,
     pub isotropic_scc: f64,
     pub third_order: f64,
+    pub higher_order: f64,
     pub dispersion: f64,
     pub halogen: f64,
+    pub multipole: f64,
+    pub exchange: f64,
+    pub spin_polarization: f64,
+    pub plus_u: f64,
     pub external_field: f64,
     pub electronic_entropy: f64,
 }
 
 impl EnergyTerms {
-    pub fn named_values(&self) -> [(&'static str, f64); 10] {
+    pub fn named_values(&self) -> [(&'static str, f64); 15] {
         [
             ("total_free", self.total_free),
             ("total_internal", self.total_internal),
@@ -660,11 +681,33 @@ impl EnergyTerms {
             ("electronic", self.electronic),
             ("isotropic_scc", self.isotropic_scc),
             ("third_order", self.third_order),
+            ("higher_order", self.higher_order),
             ("dispersion", self.dispersion),
             ("halogen", self.halogen),
+            ("multipole", self.multipole),
+            ("exchange", self.exchange),
+            ("spin_polarization", self.spin_polarization),
+            ("plus_u", self.plus_u),
             ("external_field", self.external_field),
             ("electronic_entropy", self.electronic_entropy),
         ]
+    }
+
+    /// The component terms whose sum is `total_internal` (everything except the
+    /// two totals and the entropy term, which belongs to `total_free`).
+    pub fn component_sum(&self) -> f64 {
+        self.repulsion
+            + self.electronic
+            + self.isotropic_scc
+            + self.third_order
+            + self.higher_order
+            + self.dispersion
+            + self.halogen
+            + self.multipole
+            + self.exchange
+            + self.spin_polarization
+            + self.plus_u
+            + self.external_field
     }
 }
 
@@ -677,8 +720,13 @@ impl ElectronicResult {
             electronic: self.electronic_energy,
             isotropic_scc: self.isotropic_scc_energy,
             third_order: self.third_order_energy,
+            higher_order: self.higher_order_energy,
             dispersion: self.dispersion_energy,
             halogen: self.halogen_energy,
+            multipole: self.multipole_energy,
+            exchange: self.exchange_energy,
+            spin_polarization: self.spin_polarization_energy,
+            plus_u: self.plus_u_energy,
             external_field: self.external_field_energy,
             electronic_entropy: self.electronic_entropy_term,
         }
@@ -875,7 +923,7 @@ fn run_scc_with_core(
     };
     let halogen = {
         let _profile = crate::profile::scope("electronic.halogen_energy");
-        halogen_energy(system)?
+        halogen_energy(system, params)?
     };
 
     if options.external_field.magnetic_field.is_some() {
@@ -1216,10 +1264,12 @@ fn run_scc_with_core(
             other => other,
         }
     };
-    // Per-attempt SCC controls (the robust-fallback ladder below overwrites these on a stall).
+    // Per-attempt SCC controls. `accelerator`/`cur_level_shift` are (re)assigned
+    // at every rung entry of the robust-fallback ladder before any read, so they
+    // are declared without dead initial values.
     let mut mixing = base_mixing;
-    let mut accelerator = base_accelerator;
-    let mut cur_level_shift = options.level_shift;
+    let mut accelerator;
+    let mut cur_level_shift;
     let mut cur_etemp = options.electronic_temperature;
     let mut broyden = BroydenMixer::new(mix_len, options.scc_broyden_size.max(2), mixing);
     let mut cdiis = CdiisMixer::new(options.scc_broyden_size.max(2).min(20));
@@ -1975,6 +2025,7 @@ fn run_scc_with_core(
         // had to raise it on its last rung to converge an otherwise-divergent small-gap system).
         electronic_temperature: cur_etemp,
         fermi_level: step.fermi_level,
+        charge_order: options.charge_order.max(3),
         shell_charges: step.shell_charges,
         atomic_charges: scc.atomic_charges,
         shell_scc_potential: final_shell_scc_potential,
@@ -1985,6 +2036,11 @@ fn run_scc_with_core(
         third_order_energy: scc.third_order,
         dispersion_energy: dispersion,
         halogen_energy: halogen,
+        higher_order_energy: scc.higher_order,
+        multipole_energy: mp_energy,
+        exchange_energy,
+        spin_polarization_energy: 0.0,
+        plus_u_energy: 0.0,
         external_field_energy,
         electronic_entropy_term: step.entropy_term,
         total_internal,
@@ -3788,7 +3844,8 @@ fn aufbau_occupations(orbital_energies: &[f64], nelec: f64) -> OccupationResult 
         .unwrap_or(0);
     OccupationResult {
         occupations,
-        fermi_level: orbital_energies[homo],
+        // Guard the empty-basis / zero-electron edge instead of panicking on [0].
+        fermi_level: orbital_energies.get(homo).copied().unwrap_or(0.0),
         entropy_term: 0.0,
     }
 }
@@ -3820,17 +3877,24 @@ fn fermi_occupations(orbital_energies: &[f64], nelec: f64, kt: f64) -> Occupatio
         .fold(f64::NEG_INFINITY, f64::max);
     let mut lo = min_e - 100.0 * kt - 10.0;
     let mut hi = max_e + 100.0 * kt + 10.0;
+    // Bisect to the f64 FIXED POINT instead of for a fixed 200 rounds: once an
+    // update leaves `(lo, hi)` unchanged, every later round recomputes the same
+    // midpoint, the same electron count and the same unchanged bracket — so
+    // stopping there returns the BIT-IDENTICAL `mu` the 200-round loop produced
+    // while skipping the ~two thirds of rounds that ran past f64 resolution.
+    // The 200 cap stays as the safety bound.
     for _ in 0..200 {
         let mu = 0.5 * (lo + hi);
         let sum = orbital_energies
             .iter()
             .map(|eps| fermi_occ(*eps, mu, kt))
             .sum::<f64>();
-        if sum < nelec {
-            lo = mu;
-        } else {
-            hi = mu;
+        let (next_lo, next_hi) = if sum < nelec { (mu, hi) } else { (lo, mu) };
+        if next_lo == lo && next_hi == hi {
+            break;
         }
+        lo = next_lo;
+        hi = next_hi;
     }
     let mu = 0.5 * (lo + hi);
     let occupations = orbital_energies
@@ -3940,17 +4004,20 @@ fn fermi_spin_channel(orbital_energies: &[f64], electrons: f64, kt: f64) -> Spin
         .fold(f64::NEG_INFINITY, f64::max);
     let mut lo = min_e - 100.0 * kt - 10.0;
     let mut hi = max_e + 100.0 * kt + 10.0;
+    // Same f64 fixed-point exit as [`fermi_occupations`]: bit-identical `mu`,
+    // without the rounds that bisect below f64 resolution.
     for _ in 0..200 {
         let mu = 0.5 * (lo + hi);
         let sum = orbital_energies
             .iter()
             .map(|eps| fermi_occ_spin(*eps, mu, kt))
             .sum::<f64>();
-        if sum < electrons {
-            lo = mu;
-        } else {
-            hi = mu;
+        let (next_lo, next_hi) = if sum < electrons { (mu, hi) } else { (lo, mu) };
+        if next_lo == lo && next_hi == hi {
+            break;
         }
+        lo = next_lo;
+        hi = next_hi;
     }
     let mu = 0.5 * (lo + hi);
     let occupations = orbital_energies
@@ -3982,6 +4049,81 @@ fn spin_entropy_term(occupation: f64, kt: f64) -> f64 {
 mod tests {
     use super::*;
 
+    /// The named energy components must sum EXACTLY to `total_internal` (and
+    /// `total_free = total_internal + entropy`) for every option set — before
+    /// v0.5.0 the higher-order/multipole/exchange/spin/+U terms entered the
+    /// totals but were missing from `EnergyTerms`, so consumers could not
+    /// reconcile the breakdown with the total.
+    #[test]
+    fn energy_terms_components_sum_to_total_internal() {
+        let params = crate::params::Gfn1Parameters::builtin().unwrap();
+        let system = crate::system::PeriodicSystem::from_xyz_str(
+            "3\nwater\nO 0.0 0.0 0.119262\nH 0.0 0.763239 -0.477047\nH 0.0 -0.763239 -0.477047\n",
+            0.0,
+            false,
+        )
+        .unwrap();
+        let cases: Vec<(&str, ElectronicOptions)> = vec![
+            ("default", ElectronicOptions::default()),
+            (
+                "multipole",
+                ElectronicOptions {
+                    multipole: true,
+                    ..ElectronicOptions::default()
+                },
+            ),
+            (
+                "lr_exchange",
+                ElectronicOptions {
+                    lr_exchange: true,
+                    ..ElectronicOptions::default()
+                },
+            ),
+            (
+                "charge_order_4",
+                ElectronicOptions {
+                    charge_order: 4,
+                    ..ElectronicOptions::default()
+                },
+            ),
+        ];
+        for (label, options) in cases {
+            let result = run_electronic(&system, &params, options).unwrap();
+            let terms = result.energy_terms();
+            let sum = terms.component_sum();
+            assert!(
+                (sum - terms.total_internal).abs() < 1.0e-12,
+                "{label}: component sum {sum:.15} != total_internal {:.15}",
+                terms.total_internal
+            );
+            assert!(
+                (terms.total_internal + terms.electronic_entropy - terms.total_free).abs()
+                    < 1.0e-12,
+                "{label}: total_free inconsistent"
+            );
+        }
+        // Spin-polarized open-shell path (OH radical): spin/+U channels populated.
+        let oh = crate::system::PeriodicSystem::from_xyz_str(
+            "2\nOH radical\nO 0.0 0.0 0.0\nH 0.0 0.0 0.970\n",
+            0.0,
+            false,
+        )
+        .unwrap();
+        let options = ElectronicOptions {
+            spin_polarization: true,
+            spin_multiplicity: Some(2),
+            ..ElectronicOptions::default()
+        };
+        let result = run_electronic(&oh, &params, options).unwrap();
+        let terms = result.energy_terms();
+        let sum = terms.component_sum();
+        assert!(
+            (sum - terms.total_internal).abs() < 1.0e-12,
+            "spin path: component sum {sum:.15} != total_internal {:.15}",
+            terms.total_internal
+        );
+    }
+
     /// `CommutatorDiis` correctness: at an SCF fixed point the AO commutator `F P S − S P F`
     /// vanishes, so the DIIS error is ~0 and the extrapolation returns the (already-converged)
     /// density unchanged. With `S = I` and `P` a spectral projector of a symmetric `F`, `[F,P]=0`.
@@ -4003,7 +4145,7 @@ mod tests {
             s[(i, i)] = 1.0;
         }
         // P = projector onto the lowest eigenvector of F (so F and P commute).
-        let eig = crate::linalg::symmetric_eigen_jacobi(&f, 1.0e-13, 100).unwrap();
+        let eig = crate::linalg::symmetric_eigen(&f).unwrap();
         let mut p = Matrix::zeros(3, 3);
         let c0 = eig.vectors.column(0);
         for i in 0..3 {
@@ -4056,10 +4198,7 @@ mod tests {
         use crate::params::Gfn1Parameters;
         use crate::system::PeriodicSystem;
 
-        let Ok(path) = std::env::var(crate::params::GFN1_PARAM_ENV) else {
-            return;
-        };
-        let params = Gfn1Parameters::from_file(path).unwrap();
+        let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(
             "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",
             0.0,

@@ -40,7 +40,7 @@ use crate::pbc::PbcOptions;
 use crate::repulsion::repulsion_energy;
 use crate::system::PeriodicSystem;
 
-const BOLTZMANN_HARTREE_PER_K: f64 = 3.166_808_578_545_117e-6;
+const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
 
 /// Rich result of a periodic SCC calculation, carrying everything the gradient
 /// module needs (per-k densities, Bloch blocks, Ewald matrix).
@@ -226,7 +226,7 @@ pub fn run_pbc_scc_with_guess(
     };
     let halogen = {
         let _p = crate::profile::scope("pbc.scf.halogen_energy");
-        halogen_energy(system)?
+        halogen_energy(system, params)?
     };
 
     if options.external_field.magnetic_field.is_some() {
@@ -647,6 +647,7 @@ pub fn pbc_electronic_result(
         occupations: Vec::new(),
         electronic_temperature: scf.electronic_temperature,
         fermi_level: scf.fermi_level,
+        charge_order: scf.shell_model.charge_order,
         shell_charges: scf.shell_charges,
         atomic_charges: scf.atomic_charges,
         shell_scc_potential: scf.shell_scc_potential,
@@ -657,6 +658,13 @@ pub fn pbc_electronic_result(
         third_order_energy: scf.third_order_energy,
         dispersion_energy: scf.dispersion_energy,
         halogen_energy: scf.halogen_energy,
+        // The PBC SCC rejects charge_order>3, lr_exchange, spin_polarization,
+        // and plus_u, so only the periodic multipole term carries over.
+        higher_order_energy: 0.0,
+        multipole_energy: scf.multipole_energy,
+        exchange_energy: 0.0,
+        spin_polarization_energy: 0.0,
+        plus_u_energy: 0.0,
         external_field_energy: scf.external_field_energy,
         electronic_entropy_term: scf.electronic_entropy_term,
         total_internal: scf.total_internal,
@@ -1112,8 +1120,7 @@ mod tests {
     use crate::pbc::{EwaldOptions, KMesh, PbcOptions};
 
     fn load_params() -> Option<Gfn1Parameters> {
-        let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-        Gfn1Parameters::from_file(path).ok()
+        Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
     }
 
     const WATER: &str = "3\nwater\nO 0.000000 0.000000 0.117300\nH 0.000000 0.757200 -0.469200\nH 0.000000 -0.757200 -0.469200\n";

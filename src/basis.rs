@@ -9,6 +9,12 @@ use crate::system::PeriodicSystem;
 // ("for consistency"); the GFN1 self-energies and CN shifts were fit against it,
 // so reproducing GFN1 requires the same factor (a ~4.4e-8 relative offset
 // otherwise propagates into every H0 diagonal and CN shift).
+//
+// This is intentionally NOT `crate::constants::EV_TO_HARTREE`, which tracks
+// CODATA 2018 and is used for unit reporting only. Do not "unify" the two:
+// putting CODATA 2018 here was measured to move the GFN1 total energy by
+// +2.6e-7 Eh on water and +2.0e-6 Eh on caffeine, i.e. past the 1e-6 tblite
+// parity tolerance in tests/tblite_parity.rs.
 pub const EV_TO_HARTREE: f64 = 1.0 / 27.211_385_05;
 
 /// `nprim = 0` means: use the standard GFN1-xTB primitive-count rule.

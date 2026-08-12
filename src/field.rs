@@ -28,11 +28,16 @@ use crate::system::PeriodicSystem;
 pub struct ExternalFieldOptions {
     /// Uniform external electric field `E` in atomic units (Hartree / (e * a0)).
     pub electric_field: Option<Vec3>,
-    /// Uniform external magnetic field `B` in atomic units. Foothold only — the
-    /// SCC rejects an enabled magnetic field until a physical term is wired up
-    /// (see [`crate::magnetic`]).
+    /// Uniform external magnetic field `B` in atomic units. Consumed by the
+    /// GFN1-xTB-M0/M1 London-orbital SCC in [`crate::magnetic`]
+    /// ([`crate::magnetic::run_magnetic_scc`] and friends); the ordinary field-free
+    /// SCC in [`crate::electronic`] ignores it.
     pub magnetic_field: Option<Vec3>,
     /// Gauge / reference origin for the position operator `r` used by the fields.
+    /// The electric-field site potential and the Mulliken dipole are measured from
+    /// it. The magnetic energy is **independent** of it — London orbitals make
+    /// `S(B)` and `H0(B)` depend only on `A_mu - A_nu` (see [`crate::magnetic`]) —
+    /// but the common-gauge-origin NMR shielding does depend on it.
     pub origin: Vec3,
 }
 

@@ -174,6 +174,15 @@ pub const PAULING_EN: [f64; 119] = [
 ];
 
 pub fn pauling_en(z: u8) -> Result<f64> {
+    // Entries above Rn (Z = 86) are 1.50 placeholders, not data. The GFN1
+    // parametrization ends at Z = 86 anyway, so reject instead of silently
+    // feeding fabricated electronegativities into the H0 scaling.
+    if z > 86 {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "no Pauling electronegativity for Z={z}: the GFN1 parametrization and its \
+             electronegativity table end at Rn (Z=86)"
+        )));
+    }
     let value = PAULING_EN.get(z as usize).copied().unwrap_or(-1.0);
     if value < 0.0 {
         return Err(Gfn1Error::InvalidInput(format!(
@@ -387,5 +396,23 @@ pub fn gfn_spin_constant(l1: usize, l2: usize, z: u8) -> f64 {
     match spin_constant_pair_index(l1, l2) {
         Some(idx) => GFN_SPIN_CONSTANTS[(z - 1) as usize][idx],
         None => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pauling_en;
+
+    #[test]
+    fn pauling_en_rejects_above_radon() {
+        // Rn (Z = 86) is the last real entry; everything above it is a 1.50
+        // placeholder, so it must be rejected rather than silently returned.
+        assert!(pauling_en(86).is_ok(), "Rn (Z=86) must still be accepted");
+        let err = pauling_en(87).expect_err("Z=87 must be rejected");
+        let message = err.to_string();
+        assert!(
+            message.contains("Z=87") || message.contains("Rn"),
+            "error message should name the offending Z or the Rn cutoff, got: {message}"
+        );
     }
 }

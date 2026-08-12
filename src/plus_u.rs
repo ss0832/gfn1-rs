@@ -908,7 +908,8 @@ mod tests {
         assert!(u[0].is_finite() && (0.0..=1.0).contains(&u[0]), "U {}", u[0]);
         assert!(v[0][0].is_finite());
         // A genuinely singular (all-zero) response → uncorrected (zero), not NaN.
-        let (uz, _) = extract_uv_from_response(&vec![vec![0.0]], &vec![vec![0.0]]);
+        let zero_response = [vec![0.0]];
+        let (uz, _) = extract_uv_from_response(&zero_response, &zero_response);
         assert!(uz[0].is_finite());
     }
 

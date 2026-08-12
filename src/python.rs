@@ -21,8 +21,9 @@ use crate::param_deriv::{
 };
 use crate::params::{Gfn1Parameters, ParameterTarget};
 use crate::pbc::{
-    pbc_electronic_result, pbc_gamma_hessian, pbc_gradient_from_scc, pbc_kpoint_hessian,
-    pbc_stress_from_scc, run_pbc_scc_with_guess, KMesh, PbcOptions, PbcSccGuess,
+    pbc_electronic_result, pbc_gamma_hessian, pbc_gradient_from_scc, pbc_gruneisen,
+    pbc_kpoint_hessian, pbc_stress_from_scc, run_pbc_scc_with_guess, GruneisenOptions, KMesh,
+    PbcOptions, PbcSccGuess, SecondOrderStencil,
 };
 use crate::properties::{dipole_derivatives, ir_spectrum, raman_spectrum, static_polarizability};
 use crate::system::{Atom, PeriodicSystem};
@@ -114,7 +115,7 @@ pub struct PyGfn1NativeCalculator {
 impl PyGfn1NativeCalculator {
     #[new]
     #[pyo3(signature = (
-        param_path,
+        param_path = None,
         charge = 0.0,
         multiplicity = None,
         spin_polarization = false,
@@ -167,7 +168,7 @@ impl PyGfn1NativeCalculator {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        param_path: String,
+        param_path: Option<String>,
         charge: f64,
         multiplicity: Option<usize>,
         spin_polarization: bool,
@@ -218,7 +219,9 @@ impl PyGfn1NativeCalculator {
         hubbard_u_linear_response: bool,
         plus_u_all_d: bool,
     ) -> PyResult<Self> {
-        let params = Gfn1Parameters::from_file(&param_path).map_err(to_py_err)?;
+        // Resolution order: explicit param_path (a file path or the builtin
+        // specs "builtin" / "builtin:si") > GFN1_XTB_PARAM > bundled builtin.
+        let params = Gfn1Parameters::resolve(param_path.as_deref()).map_err(to_py_err)?;
         let mut electronic = ElectronicOptions::default();
         electronic.charge = Some(charge);
         electronic.spin_multiplicity = multiplicity;
@@ -317,6 +320,20 @@ impl PyGfn1NativeCalculator {
             rank_ladder_base: multipole_rank_ladder_base,
             pbc_guess: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// One-line description of the loaded parametrization and where it came
+    /// from, e.g. ``"GFN1-xTB (builtin, grimme-lab/xtb@2b5cd48, LGPL-3.0-or-later)"``
+    /// or ``"GFN1-xTB (C:\\path\\param_gfn1-xtb.txt (via GFN1_XTB_PARAM))"``.
+    fn param_source(&self) -> String {
+        self.params.source_description()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Gfn1NativeCalculator(parameters: {})",
+            self.params.source_description()
+        )
     }
 
     #[pyo3(signature = (numbers, positions, unit = "angstrom", compute_gradient = false))]
@@ -2020,6 +2037,793 @@ impl PyGfn1NativeCalculator {
         }
         Ok((dofs, out))
     }
+
+    // -----------------------------------------------------------------------
+    // v0.5.0: semi-numerical + finite-temperature cubic force constants (FC3),
+    // the quartic ladder (FC4), and the periodic third-derivative / Grueneisen
+    // stack. Every value below is in ATOMIC UNITS (Hartree / bohr^n); the ASE
+    // layer (`gfn1_rs.ase.GFN1RSCalculator`) is the only unit boundary.
+    // -----------------------------------------------------------------------
+
+    /// **Semi-numerical Dense mode** of the cubic force constants: the full tensor
+    /// `T_abc = ∂³E/∂R_a∂R_b∂R_c` (Hartree / bohr³) built by central finite difference of the
+    /// *analytic* Hessian along each Cartesian DOF (`2·3N` analytic-Hessian evaluations).
+    ///
+    /// Returned **expanded** as an `ndof³` nested list `out[c][a][b] = T_abc`; the tensor is
+    /// fully symmetric, so the index order is immaterial. Memory is `8·(3N)³` bytes
+    /// (30 DOF → 216 kB, 90 DOF → 5.8 MB) — the packed Rust store is ~6x smaller, so prefer
+    /// [`Self::third_derivative_along`] (Vector) or [`Self::third_derivative_seminumerical_block`]
+    /// for large systems.
+    ///
+    /// Unlike the closed-form [`Self::third_derivative`] this route supports **Fermi smearing**
+    /// (`electronic_temperature > 0` with fractional occupations) and then returns the
+    /// free-energy cubic force constants. Non-periodic; `step` is the displacement in **bohr**.
+    #[pyo3(signature = (numbers, positions, unit = "angstrom", step = 1.0e-3))]
+    fn third_derivative_seminumerical(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        unit: &str,
+        step: f64,
+    ) -> PyResult<Vec<Vec<Vec<f64>>>> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let store = crate::third_derivative::third_derivative_seminumerical_dense(
+            &system,
+            &self.params,
+            self.hessian_options(),
+            step,
+        )
+        .map_err(to_py_err)?;
+        Ok(symmetric_third_to_nested(&store))
+    }
+
+    /// **Semi-numerical Block mode** of the cubic force constants over the Cartesian DOFs of the
+    /// chosen `atoms` (atom indices). Returns `(dofs, slabs)` with the global DOF indices
+    /// (`3*atom + axis`) and `slabs[ci][ai][bi] = T[dofs[ai]][dofs[bi]][dofs[ci]]`
+    /// (Hartree / bohr³) — **bit-for-bit** the sub-block of
+    /// [`Self::third_derivative_seminumerical`], but only `|dofs|` central Hessian pairs are
+    /// taken, so both cost and memory scale with the subset rather than with `N`.
+    /// Supports Fermi smearing. Non-periodic; `step` is in **bohr**.
+    #[pyo3(signature = (numbers, positions, atoms, unit = "angstrom", step = 1.0e-3))]
+    fn third_derivative_seminumerical_block(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        atoms: Vec<usize>,
+        unit: &str,
+        step: f64,
+    ) -> PyResult<(Vec<usize>, Vec<Vec<Vec<f64>>>)> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let (dofs, slabs) = crate::third_derivative::third_derivative_seminumerical_block(
+            &system,
+            &self.params,
+            self.hessian_options(),
+            &atoms,
+            step,
+        )
+        .map_err(to_py_err)?;
+        Ok((dofs, slabs.iter().map(matrix_to_nested).collect()))
+    }
+
+    /// **Finite-temperature analytic directional third derivative** — the single contracted
+    /// scalar `e³[v] = Σ_abc T_abc v_a v_b v_c` (Hartree / bohr³ for a dimensionless `direction`),
+    /// assembled by the product rule over the directional Hessian's composition.
+    ///
+    /// Every ingredient is occupation-agnostic, so ONE code path serves `T_elec = 0` and
+    /// **Fermi-smeared** systems alike; at `T_elec = 0` it is equality-gated against the
+    /// adjoint-assembled [`Self::third_derivative_vector`] contracted `vvv`. No finite
+    /// differences anywhere. `direction` is a flat `3N` vector. Non-periodic.
+    ///
+    /// Exactly degenerate *fractionally occupied* blocks are **supported** — the second-order
+    /// charge-space solver takes the frame-free resolvent (Daleckii–Krein) form there, gated
+    /// on symmetry-exact NiO at 3000 K. The quartic sibling still rejects them.
+    #[pyo3(signature = (numbers, positions, direction, unit = "angstrom"))]
+    fn third_derivative_finite_t_directional(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        unit: &str,
+    ) -> PyResult<f64> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        crate::third_derivative::finite_t::directional_third_finite_t(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+            &direction,
+        )
+        .map_err(to_py_err)
+    }
+
+    /// **Finite-temperature analytic Dense mode**: the full `T_abc` (Hartree / bohr³) recovered
+    /// from shared-reference directional evaluations of
+    /// [`Self::third_derivative_finite_t_directional`] by the cubic polarization identity.
+    ///
+    /// Returned **expanded** as an `ndof³` nested list `out[c][a][b] = T_abc` (fully symmetric,
+    /// so the index order is immaterial); memory is `8·(3N)³` bytes. Cost scales as
+    /// `~C(3N+2, 3)` directional evaluations against ONE shared SCF/CPXTB reference, so this is
+    /// the expensive mode — prefer the directional route, or
+    /// [`Self::third_derivative_finite_t_block`] for a subregion. Supports Fermi smearing.
+    /// Non-periodic.
+    #[pyo3(signature = (numbers, positions, unit = "angstrom"))]
+    fn third_derivative_finite_t(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        unit: &str,
+    ) -> PyResult<Vec<Vec<Vec<f64>>>> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        let store = crate::third_derivative::finite_t::third_derivative_finite_t_dense(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+        )
+        .map_err(to_py_err)?;
+        Ok(symmetric_third_to_nested(&store))
+    }
+
+    /// **Finite-temperature analytic Block mode**: the `|dofs|³` sub-tensor of
+    /// [`Self::third_derivative_finite_t`] over the given **global DOF indices** `dofs`
+    /// (`3*atom + axis`, unlike the atom-indexed seminumerical block). Returns `(dofs, slabs)`
+    /// with `slabs[ci][ai][bi] = T[dofs[ai]][dofs[bi]][dofs[ci]]` (Hartree / bohr³) — only the
+    /// polarization directions the requested triples need are evaluated. Supports Fermi
+    /// smearing. Non-periodic.
+    #[pyo3(signature = (numbers, positions, dofs, unit = "angstrom"))]
+    fn third_derivative_finite_t_block(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        dofs: Vec<usize>,
+        unit: &str,
+    ) -> PyResult<(Vec<usize>, Vec<Vec<Vec<f64>>>)> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        let store = crate::third_derivative::finite_t::third_derivative_finite_t_block(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+            &dofs,
+        )
+        .map_err(to_py_err)?;
+        Ok((dofs, symmetric_third_to_nested(&store)))
+    }
+
+    /// **The analytic directional fourth derivative** `e⁗[v] = Σ_abcd Q_abcd v_a v_b v_c v_d`
+    /// (Hartree / bohr⁴ for a dimensionless `direction`) — one SCF, one CPXTB solve, one
+    /// charge-space first-order solve and one second-order solve along `v`, then the five gated
+    /// stages summed. No finite differences.
+    ///
+    /// Guards (both raised as `ValueError`): every active term must support analytic order 4
+    /// (e.g. `multipole=True` blocks it), and the converged occupations must be **integers** —
+    /// for a Fermi-smeared system use [`Self::fourth_derivative_directional_seminumerical`].
+    /// `direction` is a flat `3N` vector. Non-periodic.
+    #[pyo3(signature = (numbers, positions, direction, unit = "angstrom"))]
+    fn fourth_derivative_directional(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        unit: &str,
+    ) -> PyResult<f64> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        crate::fourth_derivative::directional_fourth_derivative(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+            &direction,
+        )
+        .map_err(to_py_err)
+    }
+
+    /// **Seminumerical directional fourth derivative** (Hartree / bohr⁴): the central finite
+    /// difference along `v`, with everything reconverged at `R ± step·v`, of the analytic
+    /// directional THIRD derivative. This is the verification reference of
+    /// [`Self::fourth_derivative_directional`] and the production fallback where the analytic
+    /// quartic is unavailable.
+    ///
+    /// The finite-differenced reference is the occupation-agnostic
+    /// [`Self::third_derivative_finite_t_directional`], so this route ALSO serves
+    /// **Fermi-smeared** systems. `step` is the displacement in **bohr** (`1e-3` is a good
+    /// default: the `h²` truncation error meets the SCF/CPXTB noise floor there for a tight SCF).
+    /// Non-periodic.
+    #[pyo3(signature = (numbers, positions, direction, unit = "angstrom", step = 1.0e-3))]
+    fn fourth_derivative_directional_seminumerical(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        unit: &str,
+        step: f64,
+    ) -> PyResult<f64> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        crate::fourth_derivative::directional_fourth_seminumerical(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+            &direction,
+            step,
+        )
+        .map_err(to_py_err)
+    }
+
+    /// **Analytic Dense mode** of the quartic force constants `Q_abcd = ∂⁴E/∂R_a∂R_b∂R_c∂R_d`
+    /// (Hartree / bohr⁴), every element recovered from the directional quartic by the
+    /// polarization identity against ONE shared SCF/CPXTB reference.
+    ///
+    /// Returned **expanded** as an `ndof⁴` nested list `out[a][b][c][d] = Q_abcd`; the tensor is
+    /// fully symmetric, so the index order is immaterial. **Small systems only**: the expansion
+    /// stores `8·(3N)⁴` bytes (9 DOF → 52 kB, 30 DOF → 6.5 MB) and the assembly costs
+    /// `~(3N)⁴/24` directional evaluations. The binding therefore enforces the crate cap
+    /// `MAX_FOURTH_DERIVATIVE_NDOF` (= 30 DOF / 10 atoms, exported by this module and shared
+    /// with the analytic D3 quartic) and raises `ValueError` above it — use
+    /// [`Self::fourth_derivative_block`] or the directional mode instead.
+    ///
+    /// Same guards as [`Self::fourth_derivative_directional`] (analytic order 4 for every active
+    /// term; integer occupations). Non-periodic.
+    #[pyo3(signature = (numbers, positions, unit = "angstrom"))]
+    fn fourth_derivative(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        unit: &str,
+    ) -> PyResult<Vec<Vec<Vec<Vec<f64>>>>> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        check_fourth_dense_size(3 * system.atoms.len(), "fourth_derivative")?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        let store = crate::fourth_derivative::fourth_derivative_analytic_dense(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+        )
+        .map_err(to_py_err)?;
+        Ok(symmetric_fourth_to_nested(&store))
+    }
+
+    /// **Analytic Block mode** of the quartic force constants: the `|dofs|⁴` sub-tensor over the
+    /// given **global DOF indices** `dofs` (`3*atom + axis`). Returns `(dofs, q_block)` with
+    /// `q_block[ai][bi][ci][di] = Q[dofs[ai]][dofs[bi]][dofs[ci]][dofs[di]]` (Hartree / bohr⁴)
+    /// — the production interface when only a few modes/atoms matter, since the
+    /// directional-evaluation count drops to `O(|dofs|⁴/24)`.
+    ///
+    /// The same `MAX_FOURTH_DERIVATIVE_NDOF` cap is applied to `|dofs|` (not to `3N`), so a
+    /// small block of a large molecule is fine. Same guards as
+    /// [`Self::fourth_derivative_directional`]. Non-periodic.
+    #[pyo3(signature = (numbers, positions, dofs, unit = "angstrom"))]
+    fn fourth_derivative_block(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        dofs: Vec<usize>,
+        unit: &str,
+    ) -> PyResult<(Vec<usize>, Vec<Vec<Vec<Vec<f64>>>>)> {
+        let system = build_system(
+            numbers,
+            positions,
+            unit,
+            self.electronic.charge.unwrap_or(0.0),
+        )?;
+        check_fourth_dense_size(dofs.len(), "fourth_derivative_block")?;
+        let options = self.hessian_options();
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+        let store = crate::fourth_derivative::fourth_derivative_analytic_block(
+            &system,
+            &self.params,
+            &options,
+            cutoff,
+            &dofs,
+        )
+        .map_err(to_py_err)?;
+        Ok((dofs, symmetric_fourth_to_nested(&store)))
+    }
+
+    /// **Periodic (Γ-point) semi-numerical third derivative, Dense mode**: `3N` slabs
+    /// `out[c][a][b] = ∂(H_ab)/∂R_c ≈ ∂³E/∂R_a∂R_b∂R_c` (Hartree / bohr³), each a central finite
+    /// difference of the analytic Γ-point PBC Hessian along the atomic Cartesian DOF `c` with
+    /// the **lattice held fixed**.
+    ///
+    /// Cost: `2·3N` analytic periodic Hessians (each re-runs the periodic SCC). Every slab is
+    /// `(a,b)`-symmetric, but the tensor is deliberately **not** re-symmetrised across `c`, so
+    /// invariance checks (e.g. the acoustic sum rule) stay genuine tests.
+    ///
+    /// `cell` is 3 lattice vectors (rows a, b, c) in the chosen unit and `step` is in **bohr**.
+    /// `ao_cutoff` / `ewald_real_cutoff` / `ewald_sr_cutoff` (bohr) override the library defaults
+    /// (30 / 40 / 10) — lowering them is the standard speed lever. Keep
+    /// `electronic_temperature = 0` (integer occupations): the periodic finite-temperature CPXTB
+    /// can return unconverged responses without erroring, which would poison every difference.
+    #[pyo3(signature = (
+        numbers, positions, cell, pbc = (true, true, true), unit = "angstrom", step = 1.0e-3,
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        step: f64,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Vec<Vec<Vec<f64>>>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options = pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        let slabs = crate::pbc::pbc_third_derivative_seminumerical_dense(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+            step,
+        )
+        .map_err(to_py_err)?;
+        Ok(slabs.iter().map(matrix_to_nested).collect())
+    }
+
+    /// **Periodic (Γ-point) semi-numerical third derivative, Vector mode**: the directional
+    /// contraction `K[a][b] = Σ_c v_c ∂(H_ab)/∂R_c` as a single `3N x 3N` matrix
+    /// (Hartree / bohr³ for a dimensionless `direction`).
+    ///
+    /// This is an **exact** contraction of the same per-DOF central differences
+    /// [`Self::third_derivative_periodic`] builds — bit-for-bit equal to contracting the dense
+    /// slabs, not merely equal to finite-difference truncation order. DOFs with `v_c == 0` are
+    /// skipped, so the cost is `2·nnz(v)` analytic periodic Hessians and the peak memory is one
+    /// matrix instead of `3N`. Arguments as in [`Self::third_derivative_periodic`].
+    #[pyo3(signature = (
+        numbers, positions, cell, direction, pbc = (true, true, true), unit = "angstrom",
+        step = 1.0e-3, ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic_vector(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        step: f64,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Vec<Vec<f64>>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options = pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        let k = crate::pbc::pbc_third_derivative_seminumerical_vector(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+            step,
+            &direction,
+        )
+        .map_err(to_py_err)?;
+        Ok(matrix_to_nested(&k))
+    }
+
+    /// **Analytic Γ-point periodic third derivative, Dense mode**: the fully symmetric cubic
+    /// force constants `T_abc = ∂³E/∂R_a∂R_b∂R_c` as an `(3N, 3N, 3N)` nested list
+    /// (Hartree / bohr³), `out[c][a][b] = T_abc`.
+    ///
+    /// **No finite differences anywhere** — unlike [`Self::third_derivative_periodic`], which
+    /// differences the analytic periodic Hessian. The assembly differentiates the periodic CPXTB
+    /// response chain analytically through the Ewald-split Klopman–Ohno γ, and is gated against
+    /// the seminumerical route at `~1e-7` absolute on distorted diamond and BN cells (see
+    /// `docs/pbc.md`). Positions are in `unit`; the tensor is in **atomic units**.
+    ///
+    /// Γ-point only, and it says so: a Monkhorst–Pack mesh, fractional (Fermi-smeared)
+    /// occupations, or any model option without analytic third derivatives (multipole,
+    /// long-range exchange, DFT+U, spin polarization, external field, experimental D4) all raise
+    /// rather than silently returning a different quantity — use
+    /// [`Self::third_derivative_periodic`] there.
+    ///
+    /// Cost is `~C(3N+2, 3)` directional evaluations (56 for a 2-atom cell, 816 for 8 atoms),
+    /// evaluated in parallel against one shared reference; it grows as `N³`, so prefer
+    /// [`Self::third_derivative_periodic_analytic_vector`] when one direction suffices.
+    /// `ao_cutoff` / `ewald_real_cutoff` / `ewald_sr_cutoff` (bohr) override the library
+    /// defaults (30 / 40 / 10).
+    #[pyo3(signature = (
+        numbers, positions, cell, pbc = (true, true, true), unit = "angstrom",
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic_analytic(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Vec<Vec<Vec<f64>>>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options = pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        let store = crate::pbc::pbc_gamma_third_analytic_dense(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+        )
+        .map_err(to_py_err)?;
+        Ok(symmetric_third_to_nested(&store))
+    }
+
+    /// **Analytic Γ-point periodic third derivative, Vector mode**: the single contracted scalar
+    /// `e³[v] = Σ_abc T_abc v_a v_b v_c` along one direction (Hartree / bohr³ for a
+    /// dimensionless `direction`) — the cubic anharmonicity along e.g. a normal mode.
+    ///
+    /// The cheapest analytic output mode by far: one periodic SCC and one directional assembly,
+    /// where [`Self::third_derivative_periodic_analytic`] needs `~C(3N+2, 3)` of them and
+    /// [`Self::third_derivative_periodic_vector`] needs `2·nnz(v)` periodic Hessians. No finite
+    /// differences. `direction` is a flat `3N` vector; guards and cutoffs as in
+    /// [`Self::third_derivative_periodic_analytic`].
+    #[pyo3(signature = (
+        numbers, positions, cell, direction, pbc = (true, true, true), unit = "angstrom",
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic_analytic_vector(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<f64> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options = pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        crate::pbc::pbc_gamma_third_analytic_vector(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+            &direction,
+        )
+        .map_err(to_py_err)
+    }
+
+    /// **Analytic Brillouin-zone-sampled periodic third derivative, Dense mode**: the fully
+    /// symmetric cubic force constants `T_abc = ∂³E/∂R_a∂R_b∂R_c` as an `(3N, 3N, 3N)` nested
+    /// list (Hartree / bohr³), `out[c][a][b] = T_abc`, over the Monkhorst–Pack mesh `kgrid`.
+    ///
+    /// **No finite differences anywhere**, and — unlike
+    /// [`Self::third_derivative_periodic_analytic`] — **no Γ-only restriction**: that is the
+    /// point of this entry point. The assembly is the same five-group closed form, fed a
+    /// first-order response from the complex k-point CPXTB and a second-order response from the
+    /// complex resolvent (Daleckii–Krein) form; the frozen and response paths consume the
+    /// Brillouin-zone inverse transform of those, which is real. On `kgrid = (1,1,1)` it
+    /// reproduces the Γ path to `~1e-17` relative (`docs/pbc.md` §2d).
+    ///
+    /// Fractional (Fermi-smeared) occupations at any k-point, and any model option without
+    /// analytic third derivatives (multipole, long-range exchange, DFT+U, spin polarization,
+    /// external field, experimental D4), raise rather than silently returning a different
+    /// quantity — the seminumerical k-point route
+    /// (`gfn1_rs::pbc_kpoint_third_derivative_seminumerical_dense`, Rust-only) covers those.
+    ///
+    /// Cost is `~C(3N+2, 3)` directional evaluations, each `n_k` times an already substantial
+    /// per-direction cost; prefer [`Self::third_derivative_periodic_kpoint_analytic_vector`]
+    /// whenever one direction suffices. `ao_cutoff` / `ewald_real_cutoff` / `ewald_sr_cutoff`
+    /// (bohr) override the library defaults (30 / 40 / 10).
+    #[pyo3(signature = (
+        numbers, positions, cell, pbc = (true, true, true), kgrid = None, unit = "angstrom",
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic_kpoint_analytic(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        pbc: (bool, bool, bool),
+        kgrid: Option<(usize, usize, usize)>,
+        unit: &str,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Vec<Vec<Vec<f64>>>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options =
+            pbc_kmesh_options(kgrid, ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        let store = crate::pbc::pbc_kpoint_third_analytic_dense(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+        )
+        .map_err(to_py_err)?;
+        Ok(symmetric_third_to_nested(&store))
+    }
+
+    /// **Analytic Brillouin-zone-sampled periodic third derivative, Vector mode**: the single
+    /// contracted scalar `e³[v] = Σ_abc T_abc v_a v_b v_c` along one direction (Hartree / bohr³
+    /// for a dimensionless `direction`) — the cubic anharmonicity along e.g. a normal mode, with
+    /// the k-mesh convergence that a Γ-only cell cannot give you.
+    ///
+    /// By far the cheapest way to get a k-sampled cubic force constant: one periodic SCC, one
+    /// per-DOF CPXTB sweep and one directional assembly, where the seminumerical route
+    /// (`gfn1_rs::pbc_kpoint_third_derivative_seminumerical_vector`) needs `2·nnz(v)` full
+    /// k-point Hessians and [`Self::third_derivative_periodic_kpoint_analytic`] needs
+    /// `~C(3N+2, 3)` assemblies. No
+    /// finite differences. `direction` is a flat `3N` vector; guards, mesh and cutoffs as in
+    /// [`Self::third_derivative_periodic_kpoint_analytic`].
+    #[pyo3(signature = (
+        numbers, positions, cell, direction, pbc = (true, true, true), kgrid = None,
+        unit = "angstrom", ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn third_derivative_periodic_kpoint_analytic_vector(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        direction: Vec<f64>,
+        pbc: (bool, bool, bool),
+        kgrid: Option<(usize, usize, usize)>,
+        unit: &str,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<f64> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options =
+            pbc_kmesh_options(kgrid, ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        crate::pbc::pbc_kpoint_third_analytic_vector(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+            &direction,
+        )
+        .map_err(to_py_err)
+    }
+
+    /// **Strain-mixed third derivative** `∂(H_ab)/∂(ln V)` as a `3N x 3N` matrix
+    /// (Hartree / bohr², since `ln V` is dimensionless), by a central difference of the analytic
+    /// Γ-point PBC Hessian under **isotropic frozen-ion** volumetric strain: the two displaced
+    /// cells are `V(1 ± delta)`, reached by scaling all three lattice vectors by
+    /// `(1 ± delta)^(1/3)` with the fractional coordinates frozen. The denominator is the exact
+    /// log-volume separation `ln((1+delta)/(1-delta))`, so the estimator is `O(delta²)`-accurate.
+    ///
+    /// Contracting this with a mass-weighted normal mode gives that mode's Grüneisen parameter
+    /// directly; [`Self::gruneisen`] instead re-diagonalises at both volumes, which additionally
+    /// resolves mode crossings. Cost: exactly **2** analytic periodic Hessians. `delta` must be
+    /// in `(0, 1)`; cutoffs as in [`Self::third_derivative_periodic`].
+    #[pyo3(signature = (
+        numbers, positions, cell, pbc = (true, true, true), unit = "angstrom", delta = 5.0e-3,
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn strain_hessian_derivative(
+        &self,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        delta: f64,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Vec<Vec<f64>>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let pbc_options = pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff);
+        let m = crate::pbc::pbc_strain_hessian_derivative(
+            &system,
+            &self.params,
+            &self.electronic,
+            &pbc_options,
+            delta,
+        )
+        .map_err(to_py_err)?;
+        Ok(matrix_to_nested(&m))
+    }
+
+    /// Mode and thermodynamic **Grüneisen parameters** of a periodic system at the Γ point, from
+    /// three analytic PBC Hessians (`V0`, `V0(1±delta)`) under isotropic frozen-ion volumetric
+    /// strain, with the strained modes matched onto the reference ordering by maximum overlap and
+    /// degenerate subspaces averaged.
+    ///
+    /// With `second_order = True` the curvature `gamma2_i = d²ln ω_i / d(ln V)²` is fitted on its
+    /// own `ln V` nodes at `V(1 ± delta_second)`; `stencil` is `"three_point"` (default) or
+    /// `"five_point"` (adds `V(1±2·delta_second)`: two more Hessians, `O(delta⁴)` truncation,
+    /// needs `delta_second < 0.5`).
+    ///
+    /// **`delta_second` is deliberately larger than `delta`** (default `2e-2` vs `5e-3`): a second
+    /// difference amplifies phonon noise by `delta⁻²` where the first-order `gamma` only suffers
+    /// `delta⁻¹`, so one shared step cannot serve both orders. Passing `delta_second = delta`
+    /// restores the historical behaviour where the curvature cost no extra Hessian — and with it
+    /// the noise that made the three- and five-point stencils disagree by more than the value.
+    ///
+    /// Returns a dict — `mode_gamma`, `mode_gamma2`, `mode_gamma_refit`, `mode_q`,
+    /// `thermodynamic_gamma`, `thermodynamic_gamma2`, `thermodynamic_gamma2_full` and
+    /// `match_overlaps` are **dimensionless**; `frequencies_cm1` (+ `_expanded` / `_compressed`,
+    /// permuted onto the reference ordering, imaginary modes negative) are in **cm⁻¹**; `volume`
+    /// is in **bohr³**. The thermodynamic tables are lists of `[T_kelvin, value]`. Second-order
+    /// fields are `NaN` / empty unless `second_order = True`, and `second_order_stencil` is then
+    /// the stencil name (else `None`). Acoustic modes (the lowest `acoustic_modes`, default 3)
+    /// and unusable modes carry `NaN`.
+    ///
+    /// Keep `electronic_temperature = 0` on the calculator (integer occupations). Cutoffs as in
+    /// [`Self::third_derivative_periodic`].
+    #[pyo3(signature = (
+        numbers, positions, cell, pbc = (true, true, true), unit = "angstrom", delta = 5.0e-3,
+        temperatures = vec![300.0], acoustic_modes = 3, degeneracy_tolerance_cm1 = 1.0,
+        second_order = false, stencil = "three_point", delta_second = None,
+        ao_cutoff = None, ewald_real_cutoff = None, ewald_sr_cutoff = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn gruneisen(
+        &self,
+        py: Python<'_>,
+        numbers: Vec<u8>,
+        positions: Vec<Vec<f64>>,
+        cell: Vec<Vec<f64>>,
+        pbc: (bool, bool, bool),
+        unit: &str,
+        delta: f64,
+        temperatures: Vec<f64>,
+        acoustic_modes: usize,
+        degeneracy_tolerance_cm1: f64,
+        second_order: bool,
+        stencil: &str,
+        delta_second: Option<f64>,
+        ao_cutoff: Option<f64>,
+        ewald_real_cutoff: Option<f64>,
+        ewald_sr_cutoff: Option<f64>,
+    ) -> PyResult<Py<PyDict>> {
+        let charge = self.electronic.charge.unwrap_or(0.0);
+        let system = build_periodic_system(numbers, positions, cell, pbc, unit, charge)?;
+        let second_order_stencil = match stencil
+            .trim()
+            .to_ascii_lowercase()
+            .replace('-', "_")
+            .as_str()
+        {
+            "three_point" | "three" | "3" | "" => SecondOrderStencil::ThreePoint,
+            "five_point" | "five" | "5" => SecondOrderStencil::FivePoint,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown Grueneisen second-order stencil `{other}` \
+                     (use three_point or five_point)"
+                )))
+            }
+        };
+        let options = GruneisenOptions {
+            delta,
+            temperatures,
+            electronic: self.electronic.clone(),
+            pbc: pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff),
+            // The binding hardwires a Gamma-only mesh (`pbc_gamma_options`), so the
+            // k-point Hessian route would have nothing to sample. Exposing it needs a
+            // `kgrid` argument here first.
+            kpoint: false,
+            acoustic_modes,
+            degeneracy_tolerance_cm1,
+            second_order,
+            second_order_stencil,
+            // `None` here means "the library default", not "reuse `delta`":
+            // `gamma2` is a second difference and needs a wider step than
+            // `gamma` (pass `delta_second = delta` for the old shared-step
+            // behaviour, which is free but noise-dominated).
+            delta_second: Some(delta_second.unwrap_or(
+                crate::pbc::gruneisen::DEFAULT_GRUNEISEN_DELTA_SECOND,
+            )),
+        };
+        let g = pbc_gruneisen(&system, &self.params, &options).map_err(to_py_err)?;
+        let pairs = |table: &[(f64, f64)]| -> Vec<Vec<f64>> {
+            table.iter().map(|&(t, v)| vec![t, v]).collect()
+        };
+        let dict = PyDict::new(py);
+        dict.set_item("volume", g.volume)?;
+        dict.set_item("delta", g.delta)?;
+        dict.set_item("delta_second", g.delta_second)?;
+        dict.set_item("frequencies_cm1", g.frequencies_cm1.clone())?;
+        dict.set_item(
+            "frequencies_cm1_expanded",
+            g.frequencies_cm1_expanded.clone(),
+        )?;
+        dict.set_item(
+            "frequencies_cm1_compressed",
+            g.frequencies_cm1_compressed.clone(),
+        )?;
+        dict.set_item("mode_gamma", g.mode_gamma.clone())?;
+        dict.set_item("mode_gamma2", g.mode_gamma2.clone())?;
+        dict.set_item("mode_gamma_refit", g.mode_gamma_refit.clone())?;
+        dict.set_item("mode_q", g.mode_q())?;
+        dict.set_item("thermodynamic_gamma", pairs(&g.thermodynamic_gamma))?;
+        dict.set_item("thermodynamic_gamma2", pairs(&g.thermodynamic_gamma2))?;
+        dict.set_item(
+            "thermodynamic_gamma2_full",
+            pairs(&g.thermodynamic_gamma2_full),
+        )?;
+        dict.set_item(
+            "second_order_stencil",
+            g.second_order_stencil.map(|s| match s {
+                SecondOrderStencil::ThreePoint => "three_point",
+                SecondOrderStencil::FivePoint => "five_point",
+            }),
+        )?;
+        dict.set_item("match_overlaps", g.match_overlaps.clone())?;
+        dict.set_item("min_optical_overlap", g.min_optical_overlap())?;
+        dict.set_item("acoustic_modes", g.acoustic_modes)?;
+        dict.set_item(
+            "degenerate_groups",
+            g.degenerate_groups
+                .iter()
+                .map(|&(start, len)| vec![start, len])
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(dict.into())
+    }
 }
 
 impl PyGfn1NativeCalculator {
@@ -2288,6 +3092,12 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "HESSIAN_HARTREE_PER_BOHR2_TO_EV_PER_ANGSTROM2",
         HESSIAN_HARTREE_PER_BOHR2_TO_EV_PER_ANGSTROM2,
     )?;
+    // The degree-of-freedom cap the expanded n^4 quartic bindings enforce (shared with the
+    // analytic D3 fourth derivative). Exported so callers can size a block instead of failing.
+    m.add(
+        "MAX_FOURTH_DERIVATIVE_NDOF",
+        crate::MAX_FOURTH_DERIVATIVE_NDOF,
+    )?;
     m.add_function(pyo3::wrap_pyfunction!(roundtrip_param_file, m)?)?;
     Ok(())
 }
@@ -2298,6 +3108,109 @@ fn matrix_to_nested(m: &crate::linalg::Matrix) -> Vec<Vec<f64>> {
     (0..m.rows())
         .map(|i| (0..m.cols()).map(|j| m[(i, j)]).collect())
         .collect()
+}
+
+/// Expand the packed [`crate::third_derivative::SymmetricThird`] into the **`n³` nested list**
+/// Python receives, `out[c][a][b] = T_abc`.
+///
+/// The packed store keeps only the `n(n+1)(n+2)/6` canonical entries; expanding costs ~6x the
+/// memory but hands Python a plain rectangular nesting that `numpy.asarray` turns into an
+/// `(n, n, n)` array with no unpacking step. The tensor is fully symmetric, so the `[c][a][b]`
+/// layout (chosen to match the pre-existing dense-slab bindings) is the same data as `[a][b][c]`.
+fn symmetric_third_to_nested(t: &crate::third_derivative::SymmetricThird) -> Vec<Vec<Vec<f64>>> {
+    let n = t.n();
+    (0..n)
+        .map(|c| {
+            (0..n)
+                .map(|a| (0..n).map(|b| t.get(a, b, c)).collect())
+                .collect()
+        })
+        .collect()
+}
+
+/// Expand the packed [`crate::fourth_derivative::SymmetricFourth`] into the **`n⁴` nested list**
+/// Python receives, `out[a][b][c][d] = Q_abcd` (fully symmetric, so the index order is
+/// immaterial). Guarded by [`check_fourth_dense_size`] at every call site.
+fn symmetric_fourth_to_nested(
+    q: &crate::fourth_derivative::SymmetricFourth,
+) -> Vec<Vec<Vec<Vec<f64>>>> {
+    let n = q.n();
+    (0..n)
+        .map(|a| {
+            (0..n)
+                .map(|b| {
+                    (0..n)
+                        .map(|c| (0..n).map(|d| q.get(a, b, c, d)).collect())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Reject an expanded `n⁴` quartic above the crate cap [`crate::MAX_FOURTH_DERIVATIVE_NDOF`].
+///
+/// The cap is shared with the analytic D3 quartic (where it bounds the `ndof⁵` Jet4 working set);
+/// here it additionally bounds the `8·n⁴`-byte Python expansion and the `~n⁴/24` directional
+/// evaluations behind it. It is applied to `|dofs|` for the block mode, so a small block of a
+/// large molecule stays legal.
+fn check_fourth_dense_size(n: usize, who: &str) -> PyResult<()> {
+    if n > crate::MAX_FOURTH_DERIVATIVE_NDOF {
+        let mb = (n as f64).powi(4) * 8.0 / (1024.0 * 1024.0);
+        return Err(PyValueError::new_err(format!(
+            "{who}: the expanded n^4 quartic is capped at {} degrees of freedom ({} atoms); got \
+             {n}, which would materialize {mb:.0} MB of nested lists and cost ~{} directional \
+             evaluations. Use fourth_derivative_block over a DOF subset, or the directional mode",
+            crate::MAX_FOURTH_DERIVATIVE_NDOF,
+            crate::MAX_FOURTH_DERIVATIVE_NDOF / 3,
+            n.pow(4) / 24
+        )));
+    }
+    Ok(())
+}
+
+/// [`PbcOptions`] on an explicit Monkhorst-Pack mesh, cutoffs as in [`pbc_gamma_options`].
+/// `kgrid = None` or `(1,1,1)` collapses to the Γ-only mesh, which every k-point entry point
+/// accepts and reproduces the Γ path on.
+fn pbc_kmesh_options(
+    kgrid: Option<(usize, usize, usize)>,
+    ao_cutoff: Option<f64>,
+    ewald_real_cutoff: Option<f64>,
+    ewald_sr_cutoff: Option<f64>,
+) -> PbcOptions {
+    let kmesh = match kgrid {
+        None | Some((1, 1, 1)) => KMesh::gamma(),
+        Some((a, b, c)) => KMesh::monkhorst_pack([a.max(1), b.max(1), c.max(1)]),
+    };
+    PbcOptions {
+        kmesh,
+        ..pbc_gamma_options(ao_cutoff, ewald_real_cutoff, ewald_sr_cutoff)
+    }
+}
+
+/// Γ-point [`PbcOptions`] for the periodic third-derivative / Grüneisen entry points, with the
+/// three real-space cutoffs (bohr) optionally overridden. The library defaults (`ao_cutoff` 30,
+/// Ewald `real_cutoff` 40, `sr_cutoff` 10) are conservative; lowering them is the standard speed
+/// lever for these `O(N)`-Hessian sweeps.
+fn pbc_gamma_options(
+    ao_cutoff: Option<f64>,
+    ewald_real_cutoff: Option<f64>,
+    ewald_sr_cutoff: Option<f64>,
+) -> PbcOptions {
+    let mut options = PbcOptions {
+        kmesh: KMesh::gamma(),
+        ..PbcOptions::default()
+    };
+    if let Some(value) = ao_cutoff {
+        options.ao_cutoff = value;
+    }
+    if let Some(value) = ewald_real_cutoff {
+        options.ewald.real_cutoff = value;
+    }
+    if let Some(value) = ewald_sr_cutoff {
+        options.ewald.sr_cutoff = value;
+    }
+    options
 }
 
 fn build_system(

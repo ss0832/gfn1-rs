@@ -17,7 +17,13 @@ pub struct CoordinationOptions {
 impl Default for CoordinationOptions {
     fn default() -> Self {
         Self {
-            cutoff: 25.0,
+            // Must match `Cutoffs::default().coordination`: the Hamiltonian
+            // builds its CN with that cutoff, so a smaller default here would
+            // make the standalone `coordination_numbers()` helper (and
+            // `cphf::AoDerivativeOptions`, which inherits this default) return
+            // a slightly different CN than the one the SCC actually used.
+            // Enforced by `default_cutoff_matches_model_cutoffs` below.
+            cutoff: 30.0,
             kcn: 16.0,
         }
     }
@@ -97,4 +103,19 @@ pub fn exp_count_value_derivative(kcn: f64, r: f64, rc: f64) -> (f64, f64) {
         -kcn * rc * expterm / (r * r * (1.0 + expterm).powi(2))
     };
     (value, dvalue_dr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CoordinationOptions;
+    use crate::model::Cutoffs;
+
+    #[test]
+    fn default_cutoff_matches_model_cutoffs() {
+        assert_eq!(
+            CoordinationOptions::default().cutoff,
+            Cutoffs::default().coordination,
+            "the standalone CN default must match the cutoff the Hamiltonian builds its CN with"
+        );
+    }
 }

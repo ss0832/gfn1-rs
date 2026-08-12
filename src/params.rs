@@ -4,11 +4,51 @@ use crate::constants::EV_TO_HARTREE;
 use crate::error::{Gfn1Error, Result};
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::fs;
 use std::path::Path;
 
 pub const GFN1_PARAM_ENV: &str = "GFN1_XTB_PARAM";
 pub const GFN1_D3_REFERENCE_ENV: &str = "GFN1_D3_REFERENCE";
+
+/// The official GFN1-xTB parametrization, bundled verbatim from
+/// `grimme-lab/xtb` (LGPL-3.0-or-later). See `third_party/xtb/PROVENANCE.md`.
+pub const BUILTIN_GFN1_PARAM_TEXT: &str = include_str!("../third_party/xtb/param_gfn1-xtb.txt");
+/// The GFN1(Si)-xTB silicon reparametrization, bundled from the same source.
+pub const BUILTIN_GFN1_SI_PARAM_TEXT: &str =
+    include_str!("../third_party/xtb/param_gfn1-si-xtb.txt");
+/// One-line provenance tag for the bundled parameter files.
+pub const BUILTIN_PARAM_PROVENANCE: &str = "grimme-lab/xtb@2b5cd48, LGPL-3.0-or-later";
+
+/// Where a [`Gfn1Parameters`] instance came from, for user-facing reporting.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ParamSource {
+    /// Bundled GFN1-xTB parametrization (`third_party/xtb/param_gfn1-xtb.txt`).
+    Builtin,
+    /// Bundled GFN1(Si)-xTB reparametrization (`third_party/xtb/param_gfn1-si-xtb.txt`).
+    BuiltinSi,
+    /// File named by the `GFN1_XTB_PARAM` environment variable.
+    EnvVar(String),
+    /// File passed explicitly by the caller.
+    Explicit(String),
+    /// Parsed directly from text with no file identity (also used for
+    /// programmatically modified parameter sets).
+    #[default]
+    Inline,
+}
+
+impl fmt::Display for ParamSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Builtin | Self::BuiltinSi => {
+                write!(f, "builtin, {BUILTIN_PARAM_PROVENANCE}")
+            }
+            Self::EnvVar(path) => write!(f, "{path} (via {GFN1_PARAM_ENV})"),
+            Self::Explicit(path) => write!(f, "{path}"),
+            Self::Inline => write!(f, "inline text"),
+        }
+    }
+}
 
 pub fn resolve_param_path(explicit: Option<&str>) -> Result<String> {
     if let Some(path) = explicit {
@@ -124,6 +164,7 @@ impl ElementParam {
 #[derive(Clone, Debug, Default)]
 pub struct Gfn1Parameters {
     pub source_path: Option<String>,
+    pub source: ParamSource,
     pub info: HashMap<String, String>,
     pub globpar: HashMap<String, f64>,
     pub elements: HashMap<u8, ElementParam>,
@@ -134,8 +175,98 @@ impl Gfn1Parameters {
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let mut params = Self::from_str(&fs::read_to_string(path)?)?;
-        params.source_path = Some(path.to_string_lossy().to_string());
+        let display = path.to_string_lossy().to_string();
+        params.source_path = Some(display.clone());
+        params.source = ParamSource::Explicit(display);
         Ok(params)
+    }
+
+    /// The bundled GFN1-xTB parametrization (see [`BUILTIN_PARAM_PROVENANCE`]).
+    pub fn builtin() -> Result<Self> {
+        let mut params = Self::from_str(BUILTIN_GFN1_PARAM_TEXT)?;
+        params.source = ParamSource::Builtin;
+        Ok(params)
+    }
+
+    /// The bundled GFN1(Si)-xTB silicon reparametrization.
+    pub fn builtin_si() -> Result<Self> {
+        let mut params = Self::from_str(BUILTIN_GFN1_SI_PARAM_TEXT)?;
+        params.source = ParamSource::BuiltinSi;
+        Ok(params)
+    }
+
+    /// Resolve a parameter set with the standard precedence:
+    /// explicit spec > `GFN1_XTB_PARAM` environment variable > builtin.
+    ///
+    /// `explicit` may be a file path or one of the builtin specifiers
+    /// `"builtin"` / `"builtin:gfn1"` (GFN1-xTB) and
+    /// `"builtin:si"` / `"builtin:gfn1-si"` (GFN1(Si)-xTB).
+    pub fn resolve(explicit: Option<&str>) -> Result<Self> {
+        if let Some(spec) = explicit {
+            let spec = spec.trim();
+            if !spec.is_empty() {
+                return match spec.to_ascii_lowercase().as_str() {
+                    "builtin" | "builtin:gfn1" => Self::builtin(),
+                    "builtin:si" | "builtin:gfn1-si" | "builtin-si" => Self::builtin_si(),
+                    _ => Self::from_file(spec),
+                };
+            }
+        }
+        if let Ok(path) = env::var(GFN1_PARAM_ENV) {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                let mut params = Self::from_file(trimmed)?;
+                params.source = ParamSource::EnvVar(trimmed.to_string());
+                return Ok(params);
+            }
+        }
+        Self::builtin()
+    }
+
+    /// Literature references for the loaded parametrization, as
+    /// `(label, DOI)` pairs. Non-empty only for the bundled sets, where the
+    /// provenance is known:
+    ///
+    /// * GFN1-xTB — Grimme, Bannwarth, Shushkov, *J. Chem. Theory Comput.*
+    ///   **13**, 1989 (2017). The bundled file also carries the f-in-core
+    ///   lanthanoid (La–Lu, "Ln-xTB") parameters of Bursch, Hansen, Grimme,
+    ///   *Inorg. Chem.* **56**, 12485 (2017).
+    /// * GFN1(Si)-xTB — the silicon reparametrization,
+    ///   DOI 10.1021/acs.jcim.1c01170.
+    pub fn references(&self) -> &'static [(&'static str, &'static str)] {
+        match self.source {
+            ParamSource::Builtin => &[
+                ("GFN1-xTB", "10.1021/acs.jctc.7b00118"),
+                ("Ln f-in-core", "10.1021/acs.inorgchem.7b01950"),
+            ],
+            ParamSource::BuiltinSi => &[
+                ("GFN1-xTB", "10.1021/acs.jctc.7b00118"),
+                ("GFN1(Si)-xTB", "10.1021/acs.jcim.1c01170"),
+            ],
+            _ => &[],
+        }
+    }
+
+    /// One-line human-readable description of the loaded parametrization and
+    /// where it came from, e.g. for CLI startup banners and log lines. For
+    /// the bundled sets the line also carries the literature DOIs.
+    pub fn source_description(&self) -> String {
+        let name = self
+            .info
+            .get("name")
+            .cloned()
+            .unwrap_or_else(|| "unnamed parametrization".to_string());
+        let refs = self.references();
+        if refs.is_empty() {
+            format!("{name} ({})", self.source)
+        } else {
+            let refs = refs
+                .iter()
+                .map(|(label, doi)| format!("{label} DOI {doi}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{name} ({}; refs: {refs})", self.source)
+        }
     }
 
     pub fn from_str(text: &str) -> Result<Self> {
@@ -944,6 +1075,74 @@ $end
         assert_eq!(p.parameter_value(&tp).unwrap(), 0.96);
         let p5 = p.with_parameter(&tp, 0.9).unwrap();
         assert_eq!(p5.pair_scaling(1, 1), 0.9);
+    }
+
+    #[test]
+    fn builtin_params_parse_and_report_source() {
+        let p = Gfn1Parameters::builtin().unwrap();
+        assert_eq!(p.info.get("name").map(String::as_str), Some("GFN1-xTB"));
+        assert_eq!(p.info.get("level").map(String::as_str), Some("1"));
+        assert!(p.elements.len() >= 86, "expected full periodic coverage");
+        assert_eq!(p.source, ParamSource::Builtin);
+        let desc = p.source_description();
+        assert!(desc.contains("GFN1-xTB"), "desc: {desc}");
+        assert!(desc.contains("builtin"), "desc: {desc}");
+        assert!(desc.contains("grimme-lab/xtb"), "desc: {desc}");
+        // Literature references: the base parametrization and the f-in-core
+        // lanthanoid (Ln-xTB) set that is merged into the same file — the
+        // La–Lu blocks must actually be present.
+        assert!(desc.contains("10.1021/acs.jctc.7b00118"), "desc: {desc}");
+        assert!(desc.contains("10.1021/acs.inorgchem.7b01950"), "desc: {desc}");
+        for z in 57..=71 {
+            assert!(
+                p.element(z).is_ok(),
+                "builtin set should carry the f-in-core lanthanoid block Z={z}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_si_params_parse_and_differ_for_silicon() {
+        let p = Gfn1Parameters::builtin().unwrap();
+        let si = Gfn1Parameters::builtin_si().unwrap();
+        assert_eq!(si.source, ParamSource::BuiltinSi);
+        assert_eq!(
+            si.info.get("name").map(String::as_str),
+            Some("GFN1(Si)-xTB")
+        );
+        let desc = si.source_description();
+        assert!(desc.contains("10.1021/acs.jcim.1c01170"), "desc: {desc}");
+        // The Si reparametrization must actually change the silicon element
+        // block (and adds an O-Si pair entry), while hydrogen stays identical.
+        assert_ne!(
+            p.element(14).unwrap().raw,
+            si.element(14).unwrap().raw,
+            "Si element block should differ between GFN1 and GFN1(Si)"
+        );
+        assert_eq!(p.element(1).unwrap().raw, si.element(1).unwrap().raw);
+        assert!(si.pairpar.contains_key(&(8, 14)));
+        assert!(!p.pairpar.contains_key(&(8, 14)));
+    }
+
+    #[test]
+    fn resolve_handles_builtin_specs_and_explicit_paths() {
+        let p = Gfn1Parameters::resolve(Some("builtin")).unwrap();
+        assert_eq!(p.source, ParamSource::Builtin);
+        let si = Gfn1Parameters::resolve(Some("builtin:si")).unwrap();
+        assert_eq!(si.source, ParamSource::BuiltinSi);
+
+        // Explicit file path: write the builtin text to a temp file and load it.
+        let dir = std::env::temp_dir().join("gfn1_rs_param_resolve_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("param_copy.txt");
+        std::fs::write(&file, BUILTIN_GFN1_PARAM_TEXT).unwrap();
+        let q = Gfn1Parameters::resolve(Some(file.to_str().unwrap())).unwrap();
+        match &q.source {
+            ParamSource::Explicit(path) => assert!(path.contains("param_copy.txt")),
+            other => panic!("expected Explicit source, got {other:?}"),
+        }
+        assert_eq!(q.globpar, p.globpar);
+        std::fs::remove_file(&file).ok();
     }
 
     #[test]
