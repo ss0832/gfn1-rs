@@ -69,7 +69,7 @@ fn eval_ao(ao: &AOBasisFunction, center: Vec3, r: Vec3) -> (f64, Vec3, f64) {
 }
 
 fn main() {
-    let params = Gfn1Parameters::from_file(std::env::var("GFN1_XTB_PARAM").unwrap()).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     // Water; O has 2s,2px,2py,2pz (AOs 0..4), H1 1s = AO 4, H2 1s = AO 5.
     let system = PeriodicSystem::from_xyz_str(
         "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n",

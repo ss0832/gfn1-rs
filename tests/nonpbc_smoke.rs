@@ -51,10 +51,7 @@ const TEST_MOLECULES: &[TestMolecule] = &[
 
 #[test]
 fn h2_nonpbc_singlepoint_with_external_param() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system =
         PeriodicSystem::from_xyz_str("2\nH2\nH 0.0 0.0 0.0\nH 0.74 0.0 0.0\n", 0.0, false).unwrap();
     let result = run_electronic(&system, &params, ElectronicOptions::default()).unwrap();
@@ -66,10 +63,7 @@ fn h2_nonpbc_singlepoint_with_external_param() {
 
 #[test]
 fn charged_doublet_h2_accepts_charge_and_spin_multiplicity() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system =
         PeriodicSystem::from_xyz_str("2\nH2+\nH 0.0 0.0 0.0\nH 0.74 0.0 0.0\n", 0.0, false)
             .unwrap();
@@ -96,10 +90,7 @@ fn charged_doublet_h2_accepts_charge_and_spin_multiplicity() {
 
 #[test]
 fn requested_molecules_nonpbc_singlepoint_with_external_param() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     for molecule in TEST_MOLECULES {
         let system = PeriodicSystem::from_xyz_str(molecule.xyz, 0.0, false).unwrap();
         let options = ElectronicOptions::default();
@@ -116,10 +107,7 @@ fn requested_molecules_nonpbc_singlepoint_with_external_param() {
 
 #[test]
 fn requested_small_molecule_analytic_gradients_match_finite_difference_for_current_terms() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     for molecule in TEST_MOLECULES.iter().filter(|m| m.gradient_fd) {
         let system = PeriodicSystem::from_xyz_str(molecule.xyz, 0.0, false).unwrap();
         let grad_options = AnalyticGradientOptions::default();
@@ -163,10 +151,7 @@ fn requested_small_molecule_analytic_gradients_match_finite_difference_for_curre
 
 #[test]
 fn requested_large_molecule_single_coordinate_gradient_probe() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     for molecule in TEST_MOLECULES.iter().filter(|m| !m.gradient_fd) {
         let system = PeriodicSystem::from_xyz_str(molecule.xyz, 0.0, false).unwrap();
         let grad_options = AnalyticGradientOptions::default();

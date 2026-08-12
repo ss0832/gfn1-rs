@@ -14,8 +14,7 @@ H -0.750000 0.680000 -0.040000
 ";
 
 fn load_params() -> Option<Gfn1Parameters> {
-    let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-    Some(Gfn1Parameters::from_file(path).unwrap())
+    Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
 }
 
 fn component(v: &gfn1_rs::math::Vec3, axis: usize) -> f64 {

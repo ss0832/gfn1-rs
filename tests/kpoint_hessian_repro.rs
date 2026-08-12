@@ -35,10 +35,7 @@ fn component(v: Vec3, axis: usize) -> f64 {
 
 #[test]
 fn bromoethanol_kpoint_hessian_matches_gradient_fd() {
-    let Ok(path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let base = PeriodicSystem::from_xyz_str(BROMOETHANOL_CELL, 0.0, false).unwrap();
     let opts = ElectronicOptions {
         energy_tolerance: 1.0e-10,

@@ -6,8 +6,7 @@
 //! (*J. Chem. Phys.* **131**, 144104 (2009)); experimental/near-exact bond
 //! lengths and angles are used here.
 //!
-//! Run (set both env vars):
-//!   GFN1_XTB_PARAM=/path/param_gfn1-xtb.txt \
+//! Run (GFN1_XTB_PARAM is optional; the builtin parameters are used when unset):
 //!   GFN1_M1_BASIS=/path/GFN1-xTB-cc-pVDZ.txt \
 //!   cargo run --release --example magnetizability_validation
 //!
@@ -85,6 +84,9 @@ fn cases() -> Vec<Case> {
         },
         Case {
             name: "CO",
+            // The CO bond length in Å coincidentally matches the first digits
+            // of 2/√π — it is a bond length, not the math constant.
+            #[allow(clippy::approx_constant)]
             xyz: diatomic("C", "O", 1.1283),
             paper_m0: -94.0,
             paper_m1: -197.6,
@@ -122,8 +124,7 @@ fn cases() -> Vec<Case> {
 }
 
 fn main() {
-    let param = std::env::var("GFN1_XTB_PARAM").expect("set GFN1_XTB_PARAM to param_gfn1-xtb.txt");
-    let params = Gfn1Parameters::from_file(param).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let basis_path = std::env::var("GFN1_M1_BASIS")
         .expect("set GFN1_M1_BASIS to the GFN1-xTB-cc-pVDZ secondary-basis file");
     let secondary: SecondaryBasis =

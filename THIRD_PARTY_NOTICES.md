@@ -1,5 +1,35 @@
 # Third-Party Notices
 
+## xtb GFN1 parameter files
+
+This repository bundles the official GFN1-xTB parametrizations, embedded into
+the compiled library (`include_str!` in `src/params.rs`) so the crate, CLI, and
+Python wheel work without a separate download:
+
+- `third_party/xtb/param_gfn1-xtb.txt` — GFN1-xTB
+  (S. Grimme, C. Bannwarth, P. Shushkov, *J. Chem. Theory Comput.* **13**,
+  1989 (2017), DOI 10.1021/acs.jctc.7b00118), including the merged f-in-core
+  lanthanoid ("Ln-xTB") La–Lu parameters
+  (M. Bursch, A. Hansen, S. Grimme, *Inorg. Chem.* **56**, 12485 (2017),
+  DOI 10.1021/acs.inorgchem.7b01950)
+- `third_party/xtb/param_gfn1-si-xtb.txt` — GFN1(Si)-xTB silicon
+  reparametrization (DOI 10.1021/acs.jcim.1c01170)
+
+Source: <https://github.com/grimme-lab/xtb>, commit
+`2b5cd4829290775e575807daee21560f851ff7e1`. See
+`third_party/xtb/PROVENANCE.md` for checksums. Both files are line-for-line
+identical to upstream (line endings normalized to LF).
+
+The upstream project licenses these files LGPL-3.0-or-later; the license texts
+are included at:
+
+- `third_party/xtb/COPYING`
+- `third_party/xtb/COPYING.LESSER`
+
+The main crate is licensed `GPL-3.0-or-later`; LGPL-3.0-or-later code/data can
+be distributed as part of this GPL-3.0-or-later work (LGPLv3 §2b). The files
+remain available under LGPL-3.0-or-later from the upstream repository.
+
 ## simple-dftd3 D3 reference data
 
 This repository includes the minimal D3 reference data needed by `src/dispersion.rs`:
@@ -43,9 +73,8 @@ upstream license texts are included at:
 
 The GFN1-specific D4 damping constants `a1`, `a2`, `s8`, and `s9` are not
 hard-coded from the DFT-D4 parameter table. They are read at runtime from the
-user-supplied `param_gfn1-xtb.txt`. The canonical upstream copy of that
-external parameter file is in <https://github.com/grimme-lab/xtb> at
-`param_gfn1-xtb.txt`.
+active GFN1 parameter file (the bundled `third_party/xtb/param_gfn1-xtb.txt`
+by default, or a user-supplied file; see "xtb GFN1 parameter files" above).
 
 ## tblite GFN1 spin constants
 

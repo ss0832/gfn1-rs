@@ -1,11 +1,34 @@
 [package]
 name = "gfn1-rs"
-version = "0.4.6"
+version = "0.5.0"
 edition = "2021"
+# Verified by building on the pinned toolchains, not guessed: 1.84 fails because
+# `generativity` (pulled in via faer -> dyn-stack) needs the `edition2024`
+# feature, which Cargo only stabilized in 1.85; 1.85 builds clean.
+rust-version = "1.85"
 license = "GPL-3.0-or-later"
 authors = ["ss0832"]
-description = "Rust-native GFN1-xTB prototype: energies/gradients/stress/Hessian, periodic (Gamma + k-point) electrostatics, external electric and magnetic (GFN1-xTB-M0/M1) fields with magnetizability and an analytic magnetic gradient, TD-GFN1 (incl. k-point), IR/Raman, and parameter tooling."
+description = "Rust-native GFN1-xTB prototype: energies/gradients/stress/Hessian, analytic third and fourth nuclear derivatives (molecular, periodic Gamma and k-point, T=0 and finite-temperature), periodic (Gamma + k-point) electrostatics, external electric and magnetic (GFN1-xTB-M0/M1) fields with magnetizability and an analytic magnetic gradient, TD-GFN1 (incl. k-point), IR/Raman, and parameter tooling."
+repository = "https://github.com/ss0832/gfn1-rs"
+homepage = "https://github.com/ss0832/gfn1-rs"
+readme = "README.md"
+keywords = ["xtb", "gfn1-xtb", "quantum-chemistry", "tight-binding", "chemistry"]
+categories = ["science", "simulation", "mathematics"]
 autobins = false
+
+# Only scratch/build artefacts are excluded. The bundled parameter tables and
+# basis data are compiled in with `include_str!` and MUST stay in the package:
+#   third_party/xtb/param_gfn1-xtb.txt, param_gfn1-si-xtb.txt   (src/params.rs)
+#   third_party/simple-dftd3/src/dftd3/reference.f90, data/r4r2.f90
+#                                                             (src/dispersion.rs)
+#   src/secondary_bases/gfn1-xtb-cc-pv{dz,tz,qz,5z}.txt  (src/secondary_bases.rs)
+# Excluding any of those silently ships a crate that cannot resolve parameters.
+exclude = [
+    ".claude/",
+    "target-*/",
+    "**/__pycache__/",
+    "**/*.pdb",
+]
 
 [lib]
 name = "gfn1_rs"
@@ -18,8 +41,20 @@ path = "src/bin/gfn1_rs.rs"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
+strip = "symbols"
+
+# Fast-iteration profile for the numerical test suite: release-grade optimization
+# without fat LTO / single-codegen-unit linking, which would otherwise re-link
+# every test binary at full LTO cost. Use `cargo test --profile reltest`.
+[profile.reltest]
+inherits = "release"
+lto = false
+codegen-units = 16
+# `release` strips symbols to slim the shipped cdylib/binary; the test profile
+# must NOT inherit that, or panicking assertions lose their backtrace symbols.
+strip = "none"
 
 [lints.clippy]
 correctness = "deny"

@@ -11,10 +11,7 @@ use gfn1_rs::{
 
 #[test]
 fn repulsion_only_analytic_hessian_is_symmetric() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
         0.0,
@@ -44,10 +41,7 @@ fn repulsion_only_analytic_hessian_is_symmetric() {
 
 #[test]
 fn fixed_scc_analytic_hessian_matches_gradient_finite_difference() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
         0.0,
@@ -99,10 +93,7 @@ fn fixed_scc_analytic_hessian_matches_gradient_finite_difference() {
 
 #[test]
 fn fixed_density_pulay_hessian_matches_gradient_finite_difference() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "2\nHF\nH 0.000000 0.000000 0.000000\nF 0.917000 0.000000 0.000000\n",
         0.0,
@@ -138,10 +129,7 @@ fn fixed_density_pulay_hessian_matches_gradient_finite_difference() {
 
 #[test]
 fn fixed_density_cn_h0_hessian_matches_gradient_finite_difference() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
         0.0,
@@ -179,10 +167,7 @@ fn fixed_density_cn_h0_hessian_matches_gradient_finite_difference() {
 
 #[test]
 fn relaxed_electronic_hessian_matches_gradient_finite_difference_h2() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "2\nH2\nH 0.000000 0.000000 0.000000\nH 0.740000 0.000000 0.000000\n",
         0.0,
@@ -526,15 +511,189 @@ fn optimized_finite_temperature_cpxtb_response_matches_scc_finite_difference_ni_
     );
 }
 
+/// v0.5.0 regression: with `charge_order = 4` (Linear Breathing-Radius on-site
+/// orders) the CPXTB response kernel must carry the anharmonic
+/// `Σ_{n≥4}(n−1)X_n q^{n−2}` on-site block — before the fix the kernel was
+/// silently truncated at the DFTB3 `2Γq` term, so the relaxed Hessian belonged
+/// to a different energy expression than the gradient it should differentiate.
+#[test]
+fn relaxed_electronic_hessian_matches_gradient_fd_charge_order_4() {
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
+    let system = PeriodicSystem::from_xyz_str(
+        "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
+        0.0,
+        false,
+    )
+    .unwrap();
+    let mut electronic_options = ElectronicOptions::default();
+    electronic_options.energy_tolerance = 1.0e-12;
+    electronic_options.charge_tolerance = 1.0e-10;
+    electronic_options.max_scc = 500;
+    electronic_options.charge_order = 4;
+    let hessian_options = AnalyticHessianOptions {
+        include_repulsion: false,
+        include_dispersion: false,
+        include_halogen: false,
+        electronic_options: electronic_options.clone(),
+        ..AnalyticHessianOptions::default()
+    };
+    let analytic = analytic_hessian(&system, &params, hessian_options).unwrap();
+    let grad_options = AnalyticGradientOptions {
+        electronic: electronic_options,
+        include_repulsion: false,
+        include_dispersion: false,
+        include_hamiltonian: true,
+        include_scc: true,
+        include_halogen: false,
+    };
+    let step = 1.0e-5;
+    let ndof = 3 * system.atoms.len();
+    let mut max_delta = 0.0_f64;
+    for col in 0..ndof {
+        let mut plus = system.clone();
+        let mut minus = system.clone();
+        displace(&mut plus, col, step);
+        displace(&mut minus, col, -step);
+        let gp = analytic_gradient(&plus, &params, grad_options.clone())
+            .unwrap()
+            .electronic_gradient;
+        let gm = analytic_gradient(&minus, &params, grad_options.clone())
+            .unwrap()
+            .electronic_gradient;
+        for row in 0..ndof {
+            let fd = (component(&gp, row) - component(&gm, row)) / (2.0 * step);
+            max_delta = max_delta.max((analytic.hessian[(row, col)] - fd).abs());
+        }
+    }
+    assert!(
+        max_delta < 1.0e-6,
+        "charge_order=4 relaxed Hessian vs gradient FD: max delta {max_delta:.3e}"
+    );
+}
+
+/// v0.5.0 regression: the analytic Hessian must REJECT option sets whose
+/// second-derivative terms it does not implement (multipole, exchange, +U,
+/// spin polarization, D4, external field) instead of silently dropping them.
+#[test]
+fn analytic_hessian_rejects_unsupported_terms() {
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
+    let system = PeriodicSystem::from_xyz_str(
+        "3\nwater\nO 0.000000 0.000000 0.000000\nH 0.757000 0.586000 0.000000\nH -0.757000 0.586000 0.000000\n",
+        0.0,
+        false,
+    )
+    .unwrap();
+    let cases: Vec<(&str, ElectronicOptions)> = vec![
+        (
+            "multipole",
+            ElectronicOptions {
+                multipole: true,
+                ..ElectronicOptions::default()
+            },
+        ),
+        (
+            "lr_exchange",
+            ElectronicOptions {
+                lr_exchange: true,
+                ..ElectronicOptions::default()
+            },
+        ),
+        (
+            "plus_u",
+            ElectronicOptions {
+                plus_u: true,
+                ..ElectronicOptions::default()
+            },
+        ),
+        (
+            "spin_polarization",
+            ElectronicOptions {
+                spin_polarization: true,
+                ..ElectronicOptions::default()
+            },
+        ),
+        (
+            "experimental_d4",
+            ElectronicOptions {
+                experimental_d4: true,
+                ..ElectronicOptions::default()
+            },
+        ),
+        (
+            "external_field",
+            ElectronicOptions {
+                external_field: gfn1_rs::field::ExternalFieldOptions::electric(
+                    gfn1_rs::math::Vec3::new(0.0, 0.0, 1.0e-3),
+                ),
+                ..ElectronicOptions::default()
+            },
+        ),
+    ];
+    for (label, electronic_options) in cases {
+        let options = AnalyticHessianOptions {
+            electronic_options,
+            ..AnalyticHessianOptions::default()
+        };
+        let err = analytic_hessian(&system, &params, options);
+        assert!(
+            err.is_err(),
+            "{label}: analytic_hessian should reject this unsupported option"
+        );
+        let msg = format!("{}", err.err().unwrap());
+        assert!(
+            msg.contains("requires analytic order-2"),
+            "{label}: unexpected error message: {msg}"
+        );
+    }
+}
+
+/// v0.5.0 regression: a zero-gap (open-shell-degenerate) configuration with
+/// integer occupations makes the CPXTB operator singular; the solver used to
+/// return ~1e42 garbage without erroring. It must now reject with a clear
+/// message. The system is CH3Br plus a BARE oxygen atom (a symmetry-broken
+/// aufbau filling of O's degenerate 2p shell), which converges in the SCC but
+/// has a vanishing occupied-virtual gap.
+#[test]
+fn analytic_hessian_rejects_zero_gap_integer_occupations() {
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
+    let system = PeriodicSystem::from_xyz_str(
+        "6\nCH3Br + bare O\nC 0.000000 0.000000 0.000000\nBr 0.000000 0.000000 1.950000\nH 1.030000 0.000000 -0.330000\nH -0.515000 0.892000 -0.330000\nH -0.515000 -0.892000 -0.330000\nO 0.000000 0.100000 4.900000\n",
+        0.0,
+        false,
+    )
+    .unwrap();
+    let options = AnalyticHessianOptions::default();
+    let result = analytic_hessian(&system, &params, options);
+    match result {
+        Err(err) => {
+            let msg = format!("{err}");
+            assert!(
+                msg.contains("singular") || msg.contains("degenerate"),
+                "unexpected error message: {msg}"
+            );
+        }
+        Ok(res) => {
+            // If a future SCC finds a gapped solution instead, the Hessian must
+            // at least be sane — the historical failure mode was ~1e42 entries.
+            let max = res
+                .hessian
+                .as_slice()
+                .iter()
+                .fold(0.0_f64, |m, v| m.max(v.abs()));
+            assert!(
+                max < 1.0e6,
+                "zero-gap system returned a garbage Hessian (max entry {max:.3e})"
+            );
+        }
+    }
+}
+
 fn assert_relaxed_electronic_hessian_matches_gradient_finite_difference_for_xyz(
     name: &str,
     xyz: &str,
     threshold: f64,
 ) {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
     let mut electronic_options = ElectronicOptions::default();
     electronic_options.energy_tolerance = 1.0e-12;
@@ -914,10 +1073,7 @@ fn assert_cpxtb_response_matches_scc_finite_difference_for_xyz(
     shell_threshold: f64,
     occupation_threshold: f64,
 ) {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
     let mut electronic_options = ElectronicOptions::default();
     electronic_options.energy_tolerance = 1.0e-12;

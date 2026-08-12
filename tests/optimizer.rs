@@ -4,10 +4,7 @@ use gfn1_rs::{optimize_geometry, GeometryOptimizationOptions, Gfn1Parameters, Pe
 
 #[test]
 fn h2_native_lbfgs_optimization_converges() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(
         "2\nH2 stretched\nH 0.000000 0.000000 0.000000\nH 1.100000 0.000000 0.000000\n",
         0.0,
@@ -30,10 +27,7 @@ fn h2_native_lbfgs_optimization_converges() {
 /// its ideal site must relax: the energy drops, the max gradient shrinks, and the lattice survives.
 #[test]
 fn pbc_gamma_optimization_lowers_energy() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     // Diamond cubic cell (8 C) with atom 0 displaced ~0.15 Å off its ideal site.
     let perturbed = "8\n\
 Lattice=\"3.567 0 0 0 3.567 0 0 0 3.567\" pbc=\"T T T\"\n\

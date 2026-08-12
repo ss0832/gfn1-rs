@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! External electric-field energy/gradient/dipole checks (need `GFN1_XTB_PARAM`).
+//! External electric-field energy/gradient/dipole checks.
 
 use gfn1_rs::math::Vec3;
 use gfn1_rs::{
@@ -8,8 +8,7 @@ use gfn1_rs::{
 };
 
 fn load_params() -> Option<Gfn1Parameters> {
-    let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-    Gfn1Parameters::from_file(path).ok()
+    Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
 }
 
 fn water() -> PeriodicSystem {

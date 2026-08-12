@@ -61,11 +61,8 @@ fn requested_molecules_match_tblite_reference() {
     let Ok(tblite_bin) = std::env::var("GFN1_TBLITE_BIN") else {
         return;
     };
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
 
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let run_root = root.join(".tblite_runs").join("parity");
     fs::create_dir_all(&run_root).unwrap();

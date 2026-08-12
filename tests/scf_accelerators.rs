@@ -4,8 +4,7 @@
 use gfn1_rs::{run_electronic, ElectronicOptions, Gfn1Parameters, PeriodicSystem, SccAccelerator};
 
 fn load_params() -> Option<Gfn1Parameters> {
-    let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-    Gfn1Parameters::from_file(path).ok()
+    Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
 }
 
 const WATER: &str = "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n";

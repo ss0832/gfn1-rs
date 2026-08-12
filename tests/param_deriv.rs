@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Finite-difference parameter-derivative checks (require `GFN1_XTB_PARAM`).
+//! Finite-difference parameter-derivative checks.
 
 use gfn1_rs::{
     parameter_dipole_derivatives, parameter_finite_difference, parameter_hessian_derivatives,
@@ -18,10 +18,7 @@ fn h2() -> PeriodicSystem {
 
 #[test]
 fn param_energy_derivative_matches_independent_central_difference() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = h2();
     let electronic = ElectronicOptions::default();
 
@@ -33,7 +30,8 @@ fn param_energy_derivative_matches_independent_central_difference() {
         include_stress: false,
     };
     let driver =
-        parameter_finite_difference(&system, &params, &[target.clone()], &options).unwrap();
+        parameter_finite_difference(&system, &params, std::slice::from_ref(&target), &options)
+            .unwrap();
     let driver_deriv = driver[0].energy_derivative;
 
     // Independent central difference at a different step.
@@ -68,10 +66,7 @@ fn param_energy_derivative_matches_independent_central_difference() {
 
 #[test]
 fn dipole_and_hessian_parameter_derivatives_are_consistent() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     // Off-symmetric water so the dipole responds to parameters.
     let system = PeriodicSystem::from_xyz_str(
         "3\nwater\nO 0.0 0.0 0.0\nH 0.80 0.55 0.0\nH -0.74 0.58 0.0\n",
@@ -124,10 +119,7 @@ fn dipole_and_hessian_parameter_derivatives_are_consistent() {
 
 #[test]
 fn symmetric_h2_hardness_derivative_is_negligible() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = h2();
     let target = ParameterTarget::parse("elem:1:GAM").unwrap();
     let derivs = parameter_finite_difference(

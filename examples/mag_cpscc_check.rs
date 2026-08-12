@@ -535,7 +535,7 @@ fn fd1_check(name: &str, system: &PeriodicSystem, params: &Gfn1Parameters) {
 }
 
 fn main() {
-    let params = Gfn1Parameters::from_file(std::env::var("GFN1_XTB_PARAM").unwrap()).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let mols = [
         ("HF", "2\nHF\nH 0.0 0.0 0.0\nF 0.9168 0.0 0.0\n"),
         ("H2O", "3\nwater\nO 0.0 0.0 0.0\nH 0.7572 0.5864 0.0\nH -0.7572 0.5864 0.0\n"),

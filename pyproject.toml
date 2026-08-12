@@ -1,20 +1,51 @@
 [build-system]
-requires = ["maturin>=1.7,<2"]
+requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
 name = "gfn1-rs-python"
-version = "0.4.6"
+version = "0.5.0"
 description = "Python and ASE interface for the native Rust GFN1-RS implementation"
 requires-python = ">=3.9,<3.15"
 license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "third_party/*/COPYING*"]
 authors = [{ name = "ss0832" }]
 readme = "README.md"
+keywords = [
+  "xtb",
+  "gfn1-xtb",
+  "quantum-chemistry",
+  "tight-binding",
+  "chemistry",
+  "ase",
+  "computational-chemistry",
+]
+# NOTE: no "License :: OSI Approved :: ..." classifier on purpose. PEP 639
+# deprecates the license classifiers and makes them mutually exclusive with the
+# `license` SPDX expression above; maturin will happily emit both, but PyPI
+# rejects a Metadata-Version 2.4 upload that carries a License-Expression *and*
+# a License classifier. The licence is conveyed by `license` + `license-files`.
 classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Scientific/Engineering :: Physics",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
 ]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/ss0832/gfn1-rs"
+Repository = "https://github.com/ss0832/gfn1-rs"
+Documentation = "https://github.com/ss0832/gfn1-rs/tree/master/docs"
+Issues = "https://github.com/ss0832/gfn1-rs/issues"
 
 [project.optional-dependencies]
 ase = ["ase>=3.22", "numpy>=1.22"]
@@ -27,4 +58,4 @@ module-name = "gfn1_rs._native"
 python-source = "python"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/python"]

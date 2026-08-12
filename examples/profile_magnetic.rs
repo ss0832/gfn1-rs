@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Wall-clock benchmark of the magnetic (v0.1.5/v0.1.6) property stack, to localize
-//! optimization targets. `GFN1_XTB_PARAM=... cargo run --release --example profile_magnetic`.
+//! optimization targets. `cargo run --release --example profile_magnetic`
+//! (`GFN1_XTB_PARAM` is optional; the builtin parameters are used when unset).
 
 use std::time::Instant;
 
@@ -36,7 +37,7 @@ fn bench<F: FnMut()>(name: &str, reps: usize, mut f: F) {
 }
 
 fn main() {
-    let params = Gfn1Parameters::from_file(std::env::var("GFN1_XTB_PARAM").unwrap()).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let xyz = std::fs::read_to_string("examples/bromoethanol.xyz").unwrap();
     let system = PeriodicSystem::from_xyz_str(&xyz, 0.0, false).unwrap();
     let base = base_opts();

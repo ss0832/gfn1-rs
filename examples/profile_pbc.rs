@@ -5,7 +5,7 @@
 //!
 //! Run with phase breakdown:
 //!   GFN1_PROFILE=1 cargo run --release --example profile_pbc -- examples/diamond.xyz
-//! (set GFN1_XTB_PARAM to the parameter file path).
+//! (`GFN1_XTB_PARAM` is optional; the builtin bundled parameters are used when unset).
 
 use gfn1_rs::pbc::hessian::pbc_gamma_hessian;
 use gfn1_rs::pbc::pbc_stress_from_scc;
@@ -19,8 +19,7 @@ fn main() {
     let xyz = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "examples/diamond.xyz".to_string());
-    let param = std::env::var("GFN1_XTB_PARAM").expect("set GFN1_XTB_PARAM to param_gfn1-xtb.txt");
-    let params = Gfn1Parameters::from_file(param).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_file(&xyz, 0.0, false).unwrap();
 
     let opts = ElectronicOptions {

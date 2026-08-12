@@ -3,8 +3,8 @@
 //! `run_electronic` / `analytic_gradient` auto-dispatch to the PBC path, and the
 //! agreement of the dispatched result with a direct `run_pbc_scc` call.
 //!
-//! These tests require an external `param_gfn1-xtb.txt` via `GFN1_XTB_PARAM` and
-//! quietly no-op when it is absent (matching the rest of the suite).
+//! These tests use the standard parameter resolution (`GFN1_XTB_PARAM` when set,
+//! otherwise the builtin bundled parameters).
 
 use gfn1_rs::{
     analytic_gradient, run_electronic, run_pbc_scc, AnalyticGradientOptions, ElectronicOptions,
@@ -12,8 +12,7 @@ use gfn1_rs::{
 };
 
 fn params() -> Option<Gfn1Parameters> {
-    let path = std::env::var("GFN1_XTB_PARAM").ok()?;
-    Gfn1Parameters::from_file(path).ok()
+    Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
 }
 
 const DIAMOND: &str = "8\n\

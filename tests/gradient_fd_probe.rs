@@ -39,10 +39,7 @@ H 0.780000 5.330000 0.000000
 
 #[test]
 fn caffeine_gradient_fd_probe() {
-    let Ok(param_path) = std::env::var("GFN1_XTB_PARAM") else {
-        return;
-    };
-    let params = Gfn1Parameters::from_file(param_path).unwrap();
+    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(CAFFEINE_XYZ, 0.0, false).unwrap();
     let mut options = AnalyticGradientOptions::default();
     let tight = std::env::var_os("GFN1_FD_TIGHT").is_some();

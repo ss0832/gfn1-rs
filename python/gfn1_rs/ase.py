@@ -1,29 +1,170 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ASE interface for the native Rust GFN1-RS implementation."""
+"""ASE interface for the native Rust GFN1-RS implementation.
+
+This module is the **only** unit boundary in the package: it converts the
+atomic-units output of the native engine (:mod:`gfn1_rs.native`) into ASE's
+Angstrom / eV / e convention, deriving every factor from ``ase.units`` and
+nothing else. See :class:`GFN1RSCalculator` for the full per-quantity table.
+"""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from ase.calculators.calculator import Calculator, all_changes
+from ase.units import Bohr, Hartree, invcm
 
+from ._native import (
+    FORCE_HARTREE_PER_BOHR_TO_EV_PER_ANGSTROM as _NATIVE_FORCE_FACTOR,
+)
 from .native import Gfn1NativeCalculator, default_param_path
+
+_logger = logging.getLogger("gfn1_rs")
+
+# ---------------------------------------------------------------------------
+# Unit conversion.
+#
+# ``ase.units`` is the SINGLE source of truth for every conversion performed in
+# this module -- there are deliberately no hand-typed numeric conversion factors
+# here, and the native (Rust) constants exported by ``gfn1_rs._native`` are NOT
+# used for forward conversion (they come from a slightly different CODATA set,
+# which would make the ASE layer disagree with ``ase.units`` at the 1e-8 level).
+#
+# The native/PyO3 layer (``gfn1_rs.Gfn1NativeCalculator``) speaks ATOMIC UNITS
+# (bohr / Hartree / e*bohr); this module is the only place where the boundary to
+# ASE's Angstrom / eV / e convention is crossed.
+# ---------------------------------------------------------------------------
+#: Hartree -> eV (energies).
+_ENERGY = Hartree
+#: bohr -> Angstrom (lengths).
+_LENGTH = Bohr
+#: Hartree/bohr -> eV/Angstrom (forces / gradients).
+_FORCE = Hartree / Bohr
+#: Hartree/bohr**2 -> eV/Angstrom**2 (Hessian / force constants).
+_HESSIAN = Hartree / Bohr**2
+#: Hartree/bohr**3 -> eV/Angstrom**3 (cubic force constants AND stress).
+_THIRD = Hartree / Bohr**3
+#: Hartree/bohr**4 -> eV/Angstrom**4 (quartic force constants).
+_FOURTH = Hartree / Bohr**4
+#: e*bohr -> e*Angstrom (dipole moments).
+_DIPOLE = Bohr
+#: e**2*bohr**2/Hartree -> e**2*Angstrom**2/eV (dipole polarizability, dmu/dF).
+_POLARIZABILITY = Bohr**2 / Hartree
+#: cm**-1 -> eV (vibrational quanta; the ``ase.vibrations`` energy convention).
+_WAVENUMBER = invcm
+
+
+def _forces_hartree_per_bohr(result):
+    """Recover the native forces in Hartree/bohr from a ``CalculationResult``.
+
+    The non-periodic path exposes ``gradient_hartree_per_bohr`` directly (forces
+    are its negative). The **periodic** path currently only exposes
+    ``forces_ev_per_angstrom``, already scaled by the *native* CODATA constant;
+    dividing that constant back out recovers the atomic-unit value exactly (to
+    round-off) so that the single forward conversion below is the ``ase.units``
+    one. Returns ``None`` when no gradient was computed.
+    """
+
+    gradient = result.gradient_hartree_per_bohr
+    if gradient is not None:
+        return -np.asarray(gradient, dtype=float)
+    forces_ev = result.forces_ev_per_angstrom
+    if forces_ev is None:
+        return None
+    return np.asarray(forces_ev, dtype=float) / _NATIVE_FORCE_FACTOR
+
+
+def _origin_bohr(origin):
+    """Convert a gauge/multipole origin from ASE **Angstrom** to native **bohr**.
+
+    The PyO3 layer takes ``origin`` in atomic units unconditionally (unlike
+    ``positions``, it is not scaled by the ``unit`` argument), so the ASE boundary
+    has to divide it out here. ``None`` (the coordinate origin) passes through.
+    """
+
+    if origin is None:
+        return None
+    return tuple(float(v) / _LENGTH for v in origin)
+
+
+def _to_ase_gradient_dict(out, energy_keys=()):
+    """Convert a native gradient dict to the ASE-unit convention, in place.
+
+    The native dicts carry ``gradient`` / ``forces`` in Hartree/bohr and energies
+    under explicit ``*_hartree`` keys. Here the raw arrays are preserved as
+    ``gradient_hartree_per_bohr`` / ``forces_hartree_per_bohr`` while the
+    unsuffixed ``gradient`` / ``forces`` become **eV/Angstrom** numpy arrays, and
+    each ``(hartree_key, ase_key)`` pair in ``energy_keys`` adds the **eV** twin of
+    a Hartree energy.
+    """
+
+    for hartree_key, ase_key in energy_keys:
+        if hartree_key in out:
+            out[ase_key] = float(out[hartree_key]) * _ENERGY
+    for key in ("gradient", "forces"):
+        if key in out:
+            raw = np.asarray(out[key], dtype=float)
+            out[f"{key}_hartree_per_bohr"] = raw
+            out[key] = raw * _FORCE
+    return out
 
 
 class GFN1RSCalculator(Calculator):
     """ASE calculator backed by the Rust-native GFN1-RS engine.
 
-    ASE units are used at the Python boundary: Angstrom, eV, and
-    eV/Angstrom. Periodic cells are supported: a single point with
-    ``any(atoms.pbc)`` runs the Gamma / k-point PBC path (energy, forces, and
-    stress), and :meth:`optimize_native` relaxes the atomic positions at fixed
-    cell. Because the periodic **stress** tensor is provided, ASE's variable-cell
-    barostats work too — e.g. constant-pressure MD via ``ase.md.npt.NPT`` and
-    variable-cell relaxation via ``ase.constraints.ExpCellFilter`` (ASE drives the
-    cell; this calculator supplies energy/forces/stress each step). Only the
-    *native* L-BFGS (``optimize_native``) is fixed-cell.
+    **Units.** This class is the ASE boundary and speaks ASE units throughout;
+    ``ase.units.Bohr`` / ``ase.units.Hartree`` are the single source of every
+    conversion applied here. The rule, applied uniformly to every method:
+
+    * Positions and cells in **Angstrom**, energies in **eV**, forces and
+      gradients in **eV/Angstrom**, stress in **eV/Angstrom**\\ :sup:`3` (ASE
+      Voigt 6-vector, ASE sign convention ``sigma = (1/V) dE/d(strain)``),
+      dipole in **e*Angstrom**, atomic charges in **e**.
+    * Higher energy derivatives follow the same base units: Hessian in
+      **eV/Angstrom**\\ :sup:`2`, cubic force constants in
+      **eV/Angstrom**\\ :sup:`3`, quartic force constants in
+      **eV/Angstrom**\\ :sup:`4`, dipole polarizability in
+      **e**\\ :sup:`2`\\ **Angstrom**\\ :sup:`2`\\ **/eV** (= ``dmu/dF`` with
+      ``mu`` in e*Angstrom and ``F`` in V/Angstrom).
+    * Quantities that are *dimensionless by construction* are returned raw --
+      notably the Grueneisen parameters of :meth:`get_gruneisen`, which are
+      ratios of logarithms.
+    * Observables that have no ASE convention but a universal spectroscopic one
+      keep it, exactly as ``ase.vibrations`` does: wavenumbers in
+      **cm**\\ :sup:`-1`, IR intensities in **km/mol**, NMR shieldings in
+      **ppm**, magnetizabilities in **1e-30 J/T**\\ :sup:`2`.
+    * Raw electronic-structure tensors with no macroscopic unit (AO integral
+      matrices, magnetic-field response, rotatory strengths) stay in **atomic
+      units** and say so in their docstring.
+    * In every returned dict, an **unsuffixed** key is in ASE units while a key
+      carrying an explicit unit suffix (``*_hartree``, ``*_hartree_per_bohr``,
+      ``*_au``, ``*_ev``) is in the unit its name states.
+
+    The low-level :class:`gfn1_rs.Gfn1NativeCalculator` (reachable as
+    ``calc._native``) is the **atomic-units** API: it returns bohr / Hartree /
+    e*bohr and is unaffected by this class.
+
+    The rule above covers everything the calculator *returns*. The construction
+    **parameters** are model knobs forwarded verbatim to the Rust engine and are
+    therefore in native units, each flagged where it is declared:
+    ``electric_field`` (a.u.), ``level_shift`` / ``hubbard_u`` / ``hubbard_v`` /
+    ``energy_tolerance`` (Hartree), ``hubbard_v_cutoff`` / ``d4_cutoff`` /
+    ``d4_cn_cutoff`` / ``d4_atm_cutoff`` (bohr), ``electronic_temperature`` (K).
+    Likewise the numerical ``step`` / ``e_step`` / ``b_step`` / ``field_step``
+    arguments of the property methods are native finite-difference steps in
+    atomic units.
+
+    Periodic cells are supported: a single point with ``any(atoms.pbc)`` runs the
+    Gamma / k-point PBC path (energy, forces, and stress), and
+    :meth:`optimize_native` relaxes the atomic positions at fixed cell. Because
+    the periodic **stress** tensor is provided, ASE's variable-cell barostats work
+    too — e.g. constant-pressure MD via ``ase.md.npt.NPT`` and variable-cell
+    relaxation via ``ase.constraints.ExpCellFilter`` (ASE drives the cell; this
+    calculator supplies energy/forces/stress each step). Only the *native* L-BFGS
+    (``optimize_native``) is fixed-cell.
     """
 
     # `energy` IS the finite-temperature (Mermin) free energy E - T*S_elec — the force-consistent
@@ -32,7 +173,9 @@ class GFN1RSCalculator(Calculator):
     # with the *vibrational/thermodynamic* free energy from a frequency analysis and is confusing.
     # `stress` (periodic) is advertised so ASE's variable-cell barostats — e.g. the NPT ensemble
     # (`ase.md.npt.NPT`) and `ase.constraints.ExpCellFilter`/`UnitCellFilter` — accept this calculator.
-    implemented_properties = ["energy", "forces", "charges", "stress"]
+    # `dipole` (e*Angstrom) is advertised so `atoms.get_dipole_moment()` works; for a periodic cell
+    # it is the reference-cell Mulliken dipole, NOT a Berry-phase bulk polarization.
+    implemented_properties = ["energy", "forces", "charges", "stress", "dipole"]
 
     default_parameters = {
         "param_path": None,
@@ -213,6 +356,22 @@ class GFN1RSCalculator(Calculator):
         return changed
 
     def calculate(self, atoms=None, properties=("energy",), system_changes=all_changes) -> None:
+        """Run a single point and fill ``self.results`` in **ASE units**.
+
+        Keys set on every call: ``energy`` (eV), ``charges`` (e), ``dipole``
+        (e*Angstrom); plus ``forces`` (eV/Angstrom) when requested (or when the
+        gradient was computed anyway for the stress) and ``stress``
+        (eV/Angstrom**3, ASE Voigt 6-vector ``(xx, yy, zz, yz, xz, xy)`` with the
+        ASE sign convention ``sigma = (1/V) dE/d(strain)``) for a periodic cell.
+
+        Also set, as explicitly-named *native* passthroughs:
+        ``native_energy_terms_hartree`` (Hartree), ``native_energy_terms_ev``
+        (eV), ``native_dipole_au`` (e*bohr), ``native_forces_hartree_per_bohr``
+        (Hartree/bohr, when a gradient was computed),
+        ``native_stress_hartree_per_bohr3`` (Hartree/bohr**3, periodic + stress),
+        ``native_converged`` and ``native_iterations``.
+        """
+
         Calculator.calculate(self, atoms, properties, system_changes)
         assert self.atoms is not None
 
@@ -223,8 +382,6 @@ class GFN1RSCalculator(Calculator):
         positions = np.asarray(self.atoms.get_positions(), dtype=float).tolist()
 
         if any(self.atoms.get_pbc()):
-            from ._native import BOHR_TO_ANGSTROM, HARTREE_TO_EV
-
             kgrid = self.parameters.kgrid
             result = self._native.calculate_periodic(
                 numbers=numbers,
@@ -237,10 +394,13 @@ class GFN1RSCalculator(Calculator):
                 compute_stress=need_stress,
             )
             if need_stress and result.stress is not None:
-                # Native stress is 3x3 in Hartree/bohr^3; convert to eV/Angstrom^3
-                # and pack into the ASE Voigt 6-vector (xx, yy, zz, yz, xz, xy).
-                factor = HARTREE_TO_EV / (BOHR_TO_ANGSTROM**3)
-                s = np.asarray(result.stress, dtype=float) * factor
+                # The native 3x3 stress is Hartree/bohr^3 with the SAME sign
+                # convention ASE uses (sigma_ab = (1/V) dE/d eps_ab), so this is a
+                # pure unit conversion; then pack into the ASE Voigt 6-vector
+                # (xx, yy, zz, yz, xz, xy).
+                raw = np.asarray(result.stress, dtype=float)
+                self.results["native_stress_hartree_per_bohr3"] = raw
+                s = raw * _THIRD
                 self.results["stress"] = np.array(
                     [s[0, 0], s[1, 1], s[2, 2], s[1, 2], s[0, 2], s[0, 1]]
                 )
@@ -255,15 +415,23 @@ class GFN1RSCalculator(Calculator):
         # energy at T_elec = 0): the quantity the forces/stress differentiate. The plain internal
         # energy is still available via `results["native_energy_terms_ev"]["total_internal"]`. No ASE
         # `free_energy` key (it would be ambiguous with the vibrational free energy).
-        self.results["energy"] = float(result.energy_ev)
+        terms_hartree = dict(result.energy_terms_hartree())
+        self.results["energy"] = float(result.energy_hartree) * _ENERGY
         self.results["charges"] = np.asarray(result.charges, dtype=float)
-        self.results["native_dipole_au"] = np.asarray(result.dipole, dtype=float)
-        self.results["native_energy_terms_hartree"] = dict(result.energy_terms_hartree())
-        self.results["native_energy_terms_ev"] = dict(result.energy_terms_ev())
+        # ASE dipole: e*Angstrom (the native Mulliken dipole is e*bohr).
+        dipole_au = np.asarray(result.dipole, dtype=float)
+        self.results["dipole"] = dipole_au * _DIPOLE
+        self.results["native_dipole_au"] = dipole_au
+        self.results["native_energy_terms_hartree"] = terms_hartree
+        self.results["native_energy_terms_ev"] = {
+            key: value * _ENERGY for key, value in terms_hartree.items()
+        }
         self.results["native_converged"] = bool(result.converged)
         self.results["native_iterations"] = int(result.iterations)
-        if result.forces_ev_per_angstrom is not None:
-            self.results["forces"] = np.asarray(result.forces_ev_per_angstrom, dtype=float)
+        forces_au = _forces_hartree_per_bohr(result)
+        if forces_au is not None:
+            self.results["native_forces_hartree_per_bohr"] = forces_au
+            self.results["forces"] = forces_au * _FORCE
 
     def optimize_native(
         self,
@@ -276,6 +444,20 @@ class GFN1RSCalculator(Calculator):
         max_atom_step: float = 0.30,
     ):
         """Run the Rust-native L-BFGS optimizer and update the ASE atoms.
+
+        The ASE ``atoms`` are updated in **Angstrom**. ``gradient_tolerance`` and
+        ``step_tolerance`` are *native* convergence thresholds in atomic units
+        (Hartree/bohr and bohr), and ``max_atom_step`` is in **bohr** — they are
+        forwarded to the Rust optimizer untouched.
+
+        Returns the raw native ``OptimizationResult``, whose attributes each carry
+        their unit in the name (``energy_hartree`` / ``energy_ev``,
+        ``positions_angstrom``, ``gradient_hartree_per_bohr``,
+        ``forces_ev_per_angstrom``, ``trajectory_positions_angstrom``,
+        ``trajectory_energies_hartree``). Note that its ``*_ev`` fields are scaled
+        by the *native* CODATA constants, not by ``ase.units``; for ASE-unit
+        numbers read them off the calculator instead
+        (``atoms.get_potential_energy()`` / ``atoms.get_forces()``).
 
         For a periodic cell (``any(atoms.get_pbc())``) this is a **fixed-cell
         Gamma-point** optimization: the atomic positions relax while the lattice is
@@ -308,9 +490,13 @@ class GFN1RSCalculator(Calculator):
 
     def _make_native_calculator(self) -> Gfn1NativeCalculator:
         p = self.parameters
+        # Resolution: explicit param_path > GFN1_XTB_PARAM > bundled builtin.
+        # `default_param_path()` returns the env value or the "builtin" spec;
+        # builtin specs ("builtin", "builtin:si") are passed through verbatim.
         param_path = p.param_path or default_param_path()
-        return Gfn1NativeCalculator(
-            param_path=str(Path(param_path)),
+        param_arg = param_path if str(param_path).startswith("builtin") else str(Path(param_path))
+        native = Gfn1NativeCalculator(
+            param_path=param_arg,
             charge=float(p.charge),
             multiplicity=None if p.multiplicity is None else int(p.multiplicity),
             spin_polarization=bool(p.spin_polarization),
@@ -369,6 +555,8 @@ class GFN1RSCalculator(Calculator):
             camm_onsite_scale=float(p.camm_onsite_scale),
             camm_preset=p.camm_preset,
         )
+        _logger.info("gfn1-rs parameters: %s", native.param_source())
+        return native
 
     def _numbers_positions(self, atoms):
         atoms = self.atoms if atoms is None else atoms
@@ -381,40 +569,81 @@ class GFN1RSCalculator(Calculator):
         return numbers, positions
 
     def get_dipole_au(self, atoms=None):
-        """Mulliken dipole moment (atomic units, e*a0) as a length-3 array."""
+        """Mulliken dipole moment in **atomic units** (e*bohr) as a length-3 array.
+
+        This is the explicitly-named atomic-unit escape hatch kept for
+        compatibility. The ASE-unit dipole (**e*Angstrom**) is
+        ``atoms.get_dipole_moment()`` / ``calc.results["dipole"]``.
+        """
         numbers, positions = self._numbers_positions(atoms)
         result = self._native.calculate(numbers=numbers, positions=positions, unit="angstrom")
         return np.asarray(result.dipole, dtype=float)
 
     def get_polarizability(self, atoms=None):
-        """Analytic static dipole polarizability (atomic units). Returns a dict
-        with ``tensor`` (3x3), ``isotropic``, and ``anisotropy``."""
+        """Analytic static dipole polarizability in **ASE units**.
+
+        Returns a dict with ``tensor`` (3x3), ``isotropic`` and ``anisotropy`` in
+        e**2*Angstrom**2/eV — i.e. ``dmu/dF`` with ``mu`` in e*Angstrom and the
+        field ``F`` in V/Angstrom — plus the raw ``tensor_au`` / ``isotropic_au`` /
+        ``anisotropy_au`` in atomic units (e**2*bohr**2/Hartree). Non-periodic.
+        """
         numbers, positions = self._numbers_positions(atoms)
         out = self._native.polarizability(numbers=numbers, positions=positions, unit="angstrom")
-        out["tensor"] = np.asarray(out["tensor"], dtype=float)
+        tensor_au = np.asarray(out["tensor"], dtype=float)
+        isotropic_au = float(out["isotropic"])
+        anisotropy_au = float(out["anisotropy"])
+        out["tensor_au"] = tensor_au
+        out["isotropic_au"] = isotropic_au
+        out["anisotropy_au"] = anisotropy_au
+        out["tensor"] = tensor_au * _POLARIZABILITY
+        out["isotropic"] = isotropic_au * _POLARIZABILITY
+        out["anisotropy"] = anisotropy_au * _POLARIZABILITY
         return out
 
     def get_dipole_derivatives(self, atoms=None, origin=None):
-        """Analytic Cartesian dipole derivatives dmu/dR (the raw IR tensor)."""
+        """Analytic Cartesian dipole derivatives dmu/dR (the raw IR tensor).
+
+        Returns a dict with ``dipole`` (**e*Angstrom**), ``dipole_au``
+        (e*bohr) and ``ddipole_dr`` indexed ``[coord][alpha]``. ``ddipole_dr`` is
+        in **e** (e*Angstrom per Angstrom), which is numerically identical to the
+        atomic-unit value (e*bohr per bohr) — no conversion applies. Non-periodic.
+        """
         numbers, positions = self._numbers_positions(atoms)
         out = self._native.dipole_derivatives(
-            numbers=numbers, positions=positions, unit="angstrom", origin=origin
+            numbers=numbers,
+            positions=positions,
+            unit="angstrom",
+            origin=_origin_bohr(origin),
         )
-        out["dipole"] = np.asarray(out["dipole"], dtype=float)
+        dipole_au = np.asarray(out["dipole"], dtype=float)
+        out["dipole_au"] = dipole_au
+        out["dipole"] = dipole_au * _DIPOLE
         out["ddipole_dr"] = np.asarray(out["ddipole_dr"], dtype=float)
         return out
 
     def get_ir_spectrum(self, atoms=None, origin=None):
-        """Harmonic IR spectrum (wavenumbers + analytic intensities)."""
+        """Harmonic IR spectrum (wavenumbers + analytic intensities).
+
+        Spectroscopic units, matching ``ase.vibrations``: ``wavenumbers`` in
+        cm**-1 (imaginary modes reported as negative) and
+        ``intensities_km_per_mol`` in km/mol. ``intensities_au`` and
+        ``dipole_gradients`` (dmu/dQ over the mass-weighted normal coordinate) are
+        the raw **atomic-unit** values. Non-periodic.
+        """
         numbers, positions = self._numbers_positions(atoms)
         return self._native.ir_spectrum(
-            numbers=numbers, positions=positions, unit="angstrom", origin=origin
+            numbers=numbers,
+            positions=positions,
+            unit="angstrom",
+            origin=_origin_bohr(origin),
         )
 
     def get_hessian(self, atoms=None):
         """Analytic nuclear Hessian ``d^2E/dR_a dR_b`` as a ``(3N, 3N)`` numpy array
-        (Hartree / bohr**2), atom-major Cartesian ordering. Fully analytic (no finite
-        differences) -- the same Hessian used internally by the IR/Raman spectra.
+        in **eV/Angstrom**\\ :sup:`2` (ASE units), atom-major Cartesian ordering.
+        Fully analytic (no finite differences) -- the same Hessian used internally by
+        the IR/Raman spectra. The atomic-unit Hessian (Hartree/bohr**2) is
+        ``calc._native.hessian(...)``.
 
         For a **periodic** cell (``any(atoms.get_pbc())``) this returns the fixed-cell
         Gamma-point (or k-point, when ``kgrid`` is set) periodic Hessian; otherwise the
@@ -439,47 +668,58 @@ class GFN1RSCalculator(Calculator):
             )
         else:
             h = self._native.hessian(numbers=numbers, positions=positions, unit="angstrom")
-        return np.asarray(h, dtype=float)
+        return np.asarray(h, dtype=float) * _HESSIAN
 
     def get_vibrational_frequencies(self, atoms=None):
-        """Harmonic vibrational analysis from the analytic Hessian. Returns a dict with
-        ``wavenumbers`` (cm^-1; imaginary modes as negative) and ``modes`` (normal-mode
-        displacements). Non-periodic.
+        """Harmonic vibrational analysis from the analytic Hessian.
+
+        Returns a dict with ``wavenumbers`` in cm**-1 (imaginary modes as negative,
+        the ``ase.vibrations`` convention), ``energies_ev`` -- the same quanta as
+        **eV**, matching ``ase.vibrations.Vibrations.get_energies()`` -- and
+        ``modes`` (mass-weighted normal-mode displacements, dimensionless).
+        Non-periodic.
         """
         numbers, positions = self._numbers_positions(atoms)
-        return self._native.vibrational_frequencies(
+        out = self._native.vibrational_frequencies(
             numbers=numbers, positions=positions, unit="angstrom"
         )
+        out["energies_ev"] = np.asarray(out["wavenumbers"], dtype=float) * _WAVENUMBER
+        return out
 
     def get_third_derivative_along(self, direction, atoms=None, step=1.0e-3):
         """Semi-numerical nuclear third derivative (cubic force constants) along ``direction``.
 
         ``direction`` is a flat ``3N`` vector (e.g. a normal mode). Returns the ``3N x 3N``
         matrix ``K[a][b] = sum_c v_c d^3E/dR_a dR_b dR_c`` (the directional derivative of the
-        analytic Hessian), computed from just two analytic-Hessian evaluations. Non-periodic.
+        analytic Hessian) as a numpy array in **eV/Angstrom**\\ :sup:`3` (ASE units,
+        for a dimensionless ``direction``), computed from just two analytic-Hessian
+        evaluations. ``step`` is the native finite-difference displacement in
+        **bohr**. Non-periodic.
         """
         numbers, positions = self._numbers_positions(atoms)
-        return self._native.third_derivative_along(
+        k = self._native.third_derivative_along(
             numbers=numbers,
             positions=positions,
             direction=[float(x) for x in direction],
             unit="angstrom",
             step=float(step),
         )
+        return np.asarray(k, dtype=float) * _THIRD
 
     def get_third_derivative(self, atoms=None):
         """Strict **closed-form** nuclear third derivative (cubic force constants)
         ``T_abc = d^3E/dR_a dR_b dR_c``. Returns a numpy array of shape ``(3N, 3N, 3N)``
-        indexed ``T[c, a, b]`` (Hartree / bohr**3), fully analytic -- no finite differences.
-        Non-periodic. For best accuracy construct the calculator with a tight SCF
-        (small ``energy_tolerance`` / ``charge_tolerance``). The cheaper directional
+        indexed ``T[c, a, b]`` in **eV/Angstrom**\\ :sup:`3` (ASE units), fully analytic
+        -- no finite differences. Non-periodic. For best accuracy construct the
+        calculator with a tight SCF (small ``energy_tolerance`` /
+        ``charge_tolerance``). The cheaper directional
         :meth:`get_third_derivative_along` reuses just two analytic-Hessian evaluations.
         """
         numbers, positions = self._numbers_positions(atoms)
         slabs = self._native.third_derivative(
             numbers=numbers, positions=positions, unit="angstrom"
         )
-        return np.asarray(slabs, dtype=float)
+        return np.asarray(slabs, dtype=float) * _THIRD
 
     def get_third_derivative_vector(self, direction, atoms=None):
         """Closed-form **Vector mode** of the cubic force constants: the directional third derivative
@@ -487,6 +727,7 @@ class GFN1RSCalculator(Calculator):
         mode) as a ``(3N, 3N)`` numpy array. Returns only the ``3N x 3N`` contraction (not the full
         ``(3N, 3N, 3N)`` tensor) -- the closed-form route to use when you need a directional cubic
         constant. ``direction`` is a flat ``3N`` vector. Fully analytic. Non-periodic.
+        Units: **eV/Angstrom**\\ :sup:`3` (ASE units, for a dimensionless ``direction``).
         """
         numbers, positions = self._numbers_positions(atoms)
         k = self._native.third_derivative_vector(
@@ -495,7 +736,7 @@ class GFN1RSCalculator(Calculator):
             direction=[float(x) for x in direction],
             unit="angstrom",
         )
-        return np.asarray(k, dtype=float)
+        return np.asarray(k, dtype=float) * _THIRD
 
     def get_third_derivative_block(self, atoms_subset, atoms=None):
         """Closed-form **Block mode** of the cubic force constants over the Cartesian DOFs of the atoms
@@ -503,6 +744,7 @@ class GFN1RSCalculator(Calculator):
         global DOF indices (``3*atom + axis``) and ``T_block`` is an ``(m, m, m)`` numpy array
         (``m = 3*len(atoms_subset)``) indexed ``T_block[ci, ai, bi] = T[dofs[ai], dofs[bi], dofs[ci]]`` --
         an ``O(|block|^3)`` tensor for local anharmonicity over a chosen subregion. Non-periodic.
+        Units: ``T_block`` in **eV/Angstrom**\\ :sup:`3` (ASE units); ``dofs`` are plain indices.
         """
         numbers, positions = self._numbers_positions(atoms)
         dofs, slabs = self._native.third_derivative_block(
@@ -511,22 +753,213 @@ class GFN1RSCalculator(Calculator):
             atoms=[int(a) for a in atoms_subset],
             unit="angstrom",
         )
-        return list(dofs), np.asarray(slabs, dtype=float)
+        return list(dofs), np.asarray(slabs, dtype=float) * _THIRD
+
+    def get_third_derivative_finite_t(self, direction=None, atoms=None, dofs=None):
+        """Analytic cubic force constants with **native Fermi-smearing support** (v0.5.0).
+
+        One occupation-agnostic code path serves ``electronic_temperature = 0`` and smeared
+        systems alike: at T = 0 it is equality-gated against the adjoint-assembled
+        :meth:`get_third_derivative_vector`, and at finite temperature it returns the
+        **free-energy** cubic force constants. No finite differences anywhere -- unlike
+        :meth:`get_third_derivative_along`, which finite-differences the analytic Hessian.
+
+        Three output modes, selected by the arguments:
+
+        * ``direction`` (a flat ``3N`` vector, e.g. a normal mode) -> the single contracted
+          **float** ``e3[v] = sum_abc T_abc v_a v_b v_c``;
+        * ``dofs`` (a list of global DOF indices ``3*atom + axis``) -> ``(dofs, T_block)`` with
+          ``T_block`` an ``(m, m, m)`` numpy array, ``m = len(dofs)``;
+        * neither -> the full ``(3N, 3N, 3N)`` numpy array (fully symmetric; the dense mode costs
+          ``~C(3N+2, 3)`` directional evaluations, so prefer a direction or a block).
+
+        Units: **eV/Angstrom**\\ :sup:`3` (ASE units) in every mode, for a dimensionless
+        ``direction``. Non-periodic. An exactly degenerate *fractionally occupied* reference is
+        rejected by the second-order charge-space solver -- use
+        :meth:`get_third_derivative_along` there.
+        """
+        if direction is not None and dofs is not None:
+            raise ValueError("get_third_derivative_finite_t: pass direction or dofs, not both")
+        numbers, positions = self._numbers_positions(atoms)
+        if direction is not None:
+            value = self._native.third_derivative_finite_t_directional(
+                numbers=numbers,
+                positions=positions,
+                direction=[float(x) for x in direction],
+                unit="angstrom",
+            )
+            return float(value) * _THIRD
+        if dofs is not None:
+            out_dofs, block = self._native.third_derivative_finite_t_block(
+                numbers=numbers,
+                positions=positions,
+                dofs=[int(d) for d in dofs],
+                unit="angstrom",
+            )
+            return list(out_dofs), np.asarray(block, dtype=float) * _THIRD
+        dense = self._native.third_derivative_finite_t(
+            numbers=numbers, positions=positions, unit="angstrom"
+        )
+        return np.asarray(dense, dtype=float) * _THIRD
+
+    def get_fourth_derivative_directional(
+        self, direction, atoms=None, method="analytic", step=1.0e-3
+    ):
+        """Directional **quartic** force constant ``e4[v] = sum_abcd Q_abcd v_a v_b v_c v_d``
+        (v0.5.0), returned as a float in **eV/Angstrom**\\ :sup:`4` (ASE units, for a
+        dimensionless ``direction``). ``direction`` is a flat ``3N`` vector.
+
+        ``method`` selects the algorithm:
+
+        * ``"analytic"`` (default) -- one SCF, one CPXTB solve and two charge-space solves along
+          ``v``, then the five gated stages summed; no finite differences. Requires **integer**
+          occupations and analytic order 4 for every active term (``multipole=True`` blocks it);
+          both guards raise ``ValueError``.
+        * ``"seminumerical"`` (aliases ``"fd"``, ``"semi_numerical"``) -- the central finite
+          difference of the analytic *third* derivative along ``v``, with everything reconverged
+          at ``R +/- step*v``. This is the verification reference of the analytic route and the
+          only one that runs on **Fermi-smeared** systems. ``step`` is the native displacement in
+          **bohr** (``1e-3`` is a good default).
+
+        Non-periodic. For the full tensor use ``calc._native.fourth_derivative(...)`` /
+        ``fourth_derivative_block(...)`` (atomic units, capped at
+        ``gfn1_rs.MAX_FOURTH_DERIVATIVE_NDOF`` degrees of freedom).
+        """
+        numbers, positions = self._numbers_positions(atoms)
+        kind = str(method).strip().lower().replace("-", "_")
+        if kind == "analytic":
+            value = self._native.fourth_derivative_directional(
+                numbers=numbers,
+                positions=positions,
+                direction=[float(x) for x in direction],
+                unit="angstrom",
+            )
+        elif kind in ("seminumerical", "semi_numerical", "fd", "finite_difference"):
+            value = self._native.fourth_derivative_directional_seminumerical(
+                numbers=numbers,
+                positions=positions,
+                direction=[float(x) for x in direction],
+                unit="angstrom",
+                step=float(step),
+            )
+        else:
+            raise ValueError(
+                f"unknown fourth-derivative method {method!r} (use analytic or seminumerical)"
+            )
+        return float(value) * _FOURTH
+
+    def get_gruneisen(
+        self,
+        atoms=None,
+        delta=5.0e-3,
+        temperatures=(300.0,),
+        acoustic_modes=3,
+        degeneracy_tolerance_cm1=1.0,
+        second_order=False,
+        stencil="three_point",
+        ao_cutoff=None,
+        ewald_real_cutoff=None,
+        ewald_sr_cutoff=None,
+    ):
+        """Mode and thermodynamic **Grueneisen parameters** at the Gamma point (v0.5.0), from
+        three analytic PBC Hessians (``V0``, ``V0(1 +/- delta)``) under isotropic frozen-ion
+        volumetric strain. Requires a periodic ASE Atoms with a cell (read in **Angstrom**).
+
+        With ``second_order=True`` the curvature ``gamma2_i = d^2 ln omega_i / d(ln V)^2`` is
+        fitted on the same ``ln V`` nodes; ``stencil`` is ``"three_point"`` (default -- the three
+        volumes the first-order estimator already evaluates, so the curvature costs **no extra
+        Hessian**) or ``"five_point"`` (two more Hessians, ``O(delta^4)`` truncation, needs
+        ``delta < 0.5``).
+
+        Units. Grueneisen parameters are **dimensionless** ratios of logarithms, so nothing is
+        converted: ``mode_gamma``, ``mode_gamma2``, ``mode_gamma_refit``, ``mode_q``,
+        ``thermodynamic_gamma``, ``thermodynamic_gamma2``, ``thermodynamic_gamma2_full``,
+        ``match_overlaps`` and ``min_optical_overlap`` are dimensionless. Frequencies stay in the
+        spectroscopic **cm**\\ :sup:`-1` (imaginary modes negative, the ``ase.vibrations``
+        convention): ``frequencies_cm1`` plus ``frequencies_cm1_expanded`` /
+        ``frequencies_cm1_compressed``, permuted onto the reference mode ordering. The only
+        converted quantity is the cell volume, reported as ``volume`` in
+        **Angstrom**\\ :sup:`3` with the raw ``volume_bohr3`` alongside. The thermodynamic
+        tables are ``(n, 2)`` arrays of ``[T_kelvin, value]``.
+
+        Second-order fields are ``NaN`` / empty unless ``second_order=True``, and
+        ``second_order_stencil`` is then the stencil name (else ``None``). The lowest
+        ``acoustic_modes`` (default 3) branches are excluded and carry ``NaN``.
+
+        ``delta`` is the relative **volumetric** strain and ``ao_cutoff`` /
+        ``ewald_real_cutoff`` / ``ewald_sr_cutoff`` are native real-space cutoffs in **bohr**
+        (defaults 30 / 40 / 10); lowering them is the standard speed lever. Build the calculator
+        with ``electronic_temperature=0.0`` -- the periodic finite-temperature CPXTB can return
+        unconverged responses without erroring.
+        """
+        atoms = self.atoms if atoms is None else atoms
+        if atoms is None:
+            raise RuntimeError("no ASE Atoms object supplied or attached")
+        if not any(atoms.get_pbc()):
+            raise ValueError("get_gruneisen requires a periodic ASE Atoms (set cell + pbc)")
+        out = self._native.gruneisen(
+            numbers=atoms.get_atomic_numbers().astype(np.uint8).tolist(),
+            positions=np.asarray(atoms.get_positions(), dtype=float).tolist(),
+            cell=np.asarray(atoms.get_cell(), dtype=float).tolist(),
+            pbc=tuple(bool(p) for p in atoms.get_pbc()),
+            unit="angstrom",
+            delta=float(delta),
+            temperatures=[float(t) for t in temperatures],
+            acoustic_modes=int(acoustic_modes),
+            degeneracy_tolerance_cm1=float(degeneracy_tolerance_cm1),
+            second_order=bool(second_order),
+            stencil=str(stencil),
+            ao_cutoff=None if ao_cutoff is None else float(ao_cutoff),
+            ewald_real_cutoff=None if ewald_real_cutoff is None else float(ewald_real_cutoff),
+            ewald_sr_cutoff=None if ewald_sr_cutoff is None else float(ewald_sr_cutoff),
+        )
+        volume_bohr3 = float(out["volume"])
+        out["volume_bohr3"] = volume_bohr3
+        out["volume"] = volume_bohr3 * _LENGTH**3
+        for key in (
+            "frequencies_cm1",
+            "frequencies_cm1_expanded",
+            "frequencies_cm1_compressed",
+            "mode_gamma",
+            "mode_gamma2",
+            "mode_gamma_refit",
+            "mode_q",
+            "match_overlaps",
+            "thermodynamic_gamma",
+            "thermodynamic_gamma2",
+            "thermodynamic_gamma2_full",
+        ):
+            out[key] = np.asarray(out[key], dtype=float)
+        out["degenerate_groups"] = [tuple(int(v) for v in g) for g in out["degenerate_groups"]]
+        return out
 
     def get_raman_spectrum(self, atoms=None, origin=None, field_step=1.0e-3):
-        """Harmonic Raman spectrum (wavenumbers + activities)."""
+        """Harmonic Raman spectrum (wavenumbers + activities).
+
+        ``wavenumbers`` are in cm**-1 (the ``ase.vibrations`` convention);
+        ``activities``, ``mean_polarizability_derivative`` and
+        ``anisotropy_squared`` are the raw **atomic-unit** values (Raman activity
+        has no ASE convention). ``field_step`` is the finite-difference electric
+        field step in atomic units. Non-periodic.
+        """
         numbers, positions = self._numbers_positions(atoms)
         return self._native.raman_spectrum(
             numbers=numbers,
             positions=positions,
             unit="angstrom",
-            origin=origin,
+            origin=_origin_bohr(origin),
             field_step=float(field_step),
         )
 
     def get_parameter_derivatives(self, targets, atoms=None, step=1.0e-4):
         """Finite-difference parameter derivatives (dE/dp) over the given
-        ``glob:`` / ``elem:`` / ``pair:`` targets."""
+        ``glob:`` / ``elem:`` / ``pair:`` targets.
+
+        This is a **parameter-space**, atomic-units API: ``value`` and
+        ``energy_derivative`` are in the native units of the GFN1 parameter file
+        (``energy_derivative`` is Hartree per unit parameter). There is no ASE
+        unit for a model parameter, so nothing is converted. Non-periodic.
+        """
         numbers, positions = self._numbers_positions(atoms)
         return self._native.parameter_derivatives(
             numbers=numbers,
@@ -537,9 +970,13 @@ class GFN1RSCalculator(Calculator):
         )
 
     def get_tda(self, atoms=None, n_states=5, spin="singlet"):
-        """TD-GFN1 (TDA) excited states (non-periodic). Returns a dict with
-        ``excitation_energies_ev`` / ``_hartree``, ``oscillator_strengths`` and
-        ``transition_dipoles``."""
+        """TD-GFN1 (TDA) excited states (non-periodic).
+
+        Returns a dict with ``excitation_energies_ev`` (**eV**),
+        ``excitation_energies_hartree`` (Hartree), ``oscillator_strengths``
+        (dimensionless) and ``transition_dipoles`` (**atomic units**, e*bohr --
+        the raw transition moments, which have no ASE convention).
+        """
         numbers, positions = self._numbers_positions(atoms)
         return self._native.tda(
             numbers=numbers,
@@ -553,7 +990,13 @@ class GFN1RSCalculator(Calculator):
         self, atoms=None, state=0, n_states=5, spin="singlet", step=1.0e-3,
         method="semi_numerical",
     ):
-        """TD-GFN1 excited-state gradient (Hartree/bohr) of the given state.
+        """TD-GFN1 excited-state gradient of the given state, in **ASE units**.
+
+        Returns a dict with ``total_energy`` and ``excitation_energy`` (**eV**),
+        ``gradient`` and ``forces`` (**eV/Angstrom**), alongside the raw native
+        values ``total_energy_hartree``, ``excitation_energy_hartree``,
+        ``gradient_hartree_per_bohr`` and ``forces_hartree_per_bohr``. ``step`` is
+        the native finite-difference displacement in **bohr**.
 
         ``method`` selects the algorithm: ``"semi_numerical"`` (default) =
         analytic ground gradient + finite difference of the frozen-amplitude
@@ -580,13 +1023,22 @@ class GFN1RSCalculator(Calculator):
         if any(atoms.get_pbc()):
             kwargs["cell"] = np.asarray(atoms.get_cell(), dtype=float).tolist()
             kwargs["pbc"] = tuple(bool(p) for p in atoms.get_pbc())
-        return self._native.tda_gradient(**kwargs)
+        return _to_ase_gradient_dict(
+            self._native.tda_gradient(**kwargs),
+            energy_keys=(
+                ("total_energy_hartree", "total_energy"),
+                ("excitation_energy_hartree", "excitation_energy"),
+            ),
+        )
 
     def get_rotatory_strengths(self, atoms=None, n_states=5, spin="singlet", origin=None):
-        """Electronic-CD rotatory strengths ``R_n = Im(mu_0n . m_n0)`` (atomic units)
-        of the TD-GFN1 (TDA) excited states, about ``origin`` (default the coordinate
-        origin). Returns a dict with ``excitation_energies_ev`` / ``_hartree`` and
-        ``rotatory_strengths`` (all zero for an achiral molecule). Non-periodic."""
+        """Electronic-CD rotatory strengths ``R_n = Im(mu_0n . m_n0)`` of the TD-GFN1
+        (TDA) excited states, about ``origin`` (a length-3 vector in **Angstrom**,
+        default the coordinate origin). Returns a dict with
+        ``excitation_energies_ev`` (**eV**), ``excitation_energies_hartree``
+        (Hartree) and ``rotatory_strengths`` in **atomic units** (a rotatory
+        strength has no ASE convention); all zero for an achiral molecule.
+        Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return self._native.rotatory_strengths(
             numbers=numbers,
@@ -594,17 +1046,19 @@ class GFN1RSCalculator(Calculator):
             unit="angstrom",
             n_states=int(n_states),
             spin=str(spin),
-            origin=None if origin is None else tuple(float(v) for v in origin),
+            origin=_origin_bohr(origin),
         )
 
     def get_optical_rotation(
         self, atoms=None, frequencies_ev=(0.0,), n_states=10, spin="singlet", origin=None
     ):
-        """Frequency-dependent electronic optical rotation (isotropic Rosenfeld beta,
-        atomic units) from the TD-GFN1 (TDA) sum over states. ``frequencies_ev`` are
-        photon energies in eV (0 = static; wavelength via ``E[eV] = 1239.84/lambda[nm]``).
-        Returns a dict with ``frequencies_ev`` and ``beta`` (zero for achiral molecules,
-        negated for the enantiomer). Non-periodic."""
+        """Frequency-dependent electronic optical rotation (isotropic Rosenfeld beta)
+        from the TD-GFN1 (TDA) sum over states. ``frequencies_ev`` are photon energies
+        in **eV** (0 = static; wavelength via ``E[eV] = 1239.84/lambda[nm]``);
+        ``origin`` is a gauge origin in **Angstrom**. Returns a dict with
+        ``frequencies_ev`` (eV) and ``beta`` in **atomic units** (Rosenfeld beta has no
+        ASE convention); zero for achiral molecules, negated for the enantiomer.
+        Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return self._native.optical_rotation(
             numbers=numbers,
@@ -613,7 +1067,7 @@ class GFN1RSCalculator(Calculator):
             n_states=int(n_states),
             spin=str(spin),
             frequencies_ev=[float(f) for f in frequencies_ev],
-            origin=None if origin is None else tuple(float(v) for v in origin),
+            origin=_origin_bohr(origin),
         )
 
     # ------------------------------------------------------------------
@@ -626,19 +1080,26 @@ class GFN1RSCalculator(Calculator):
         return None if path is None else str(Path(path))
 
     def get_magnetic_energy(self, b_field, atoms=None, m1_basis_path=None):
-        """Closed-shell magnetic (GFN1-xTB-M) SCC total energy in Hartree for a
-        uniform field ``b_field = (Bx, By, Bz)`` (atomic units). Uses GFN1-xTB-M1
-        when an ``m1_basis_path`` is set (here or as a calculator parameter),
-        otherwise the single-basis M0. Non-periodic."""
+        """Closed-shell magnetic (GFN1-xTB-M) SCC total energy in **eV** (ASE units)
+        for a uniform field ``b_field = (Bx, By, Bz)`` in atomic units (ASE has no
+        magnetic-field unit, so the field stays a.u.). Uses GFN1-xTB-M1 when an
+        ``m1_basis_path`` is set (here or as a calculator parameter), otherwise the
+        single-basis M0. Non-periodic.
+
+        For the Hartree value use ``calc._native.magnetic_energy(...)``.
+        """
         numbers, positions = self._numbers_positions(atoms)
-        return float(
-            self._native.magnetic_energy(
-                numbers=numbers,
-                positions=positions,
-                b_field=tuple(float(v) for v in b_field),
-                unit="angstrom",
-                m1_basis_path=self._m1_path(m1_basis_path),
+        return (
+            float(
+                self._native.magnetic_energy(
+                    numbers=numbers,
+                    positions=positions,
+                    b_field=tuple(float(v) for v in b_field),
+                    unit="angstrom",
+                    m1_basis_path=self._m1_path(m1_basis_path),
+                )
             )
+            * _ENERGY
         )
 
     def get_magnetizability(self, atoms=None, step=0.02, analytic=True, m1_basis_path=None):
@@ -647,7 +1108,8 @@ class GFN1RSCalculator(Calculator):
         CP-SCC response (one magnetic SCC + cheap LAO integral derivatives, no extra
         SCF); ``analytic=False`` central-differences the energy. Uses GFN1-xTB-M1 when
         an ``m1_basis_path`` is set (strongly recommended; M0 is unreliable), else M0.
-        Non-periodic."""
+        The SI magnetizability unit is kept because ASE defines none; ``step`` is the
+        finite-difference field step in atomic units. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return float(
             self._native.magnetizability(
@@ -697,7 +1159,8 @@ class GFN1RSCalculator(Calculator):
         """NMR nuclear magnetic shielding tensor of atom ``nucleus`` (0-based) as a
         ``(3, 3)`` array in ppm; the isotropic shielding is ``np.trace(sigma) / 3``.
         Closed-shell, non-periodic, with the common gauge origin at the shielded
-        nucleus. The analytic CP-SCC magnetic-field response gives the paramagnetic
+        nucleus. ppm is the universal NMR convention and is kept because ASE defines
+        none. The analytic CP-SCC magnetic-field response gives the paramagnetic
         part and a ground-state expectation the diamagnetic part. Set ``m1_basis_path``
         (or the calculator parameter) for the M1 kinetic-energy basis. Note: the GFN1
         valence-only basis omits core electrons, so absolute shieldings are not
@@ -717,22 +1180,27 @@ class GFN1RSCalculator(Calculator):
     def get_magnetic_polarizability(
         self, atoms=None, b_field=(0.0, 0.0, 0.0), e_step=0.002, m1_basis_path=None
     ):
-        """Electric dipole polarizability ``alpha_ij(B) = dmu_i/dE_j`` (atomic units) as
-        a ``(3, 3)`` array, in a uniform magnetic field ``b_field`` (atomic units), from
-        the combined electric+magnetic SCC. Reduces to the field-free polarizability at
-        ``B = 0``. Set ``m1_basis_path`` (or the calculator parameter) for M1.
-        Non-periodic."""
+        """Electric dipole polarizability ``alpha_ij(B) = dmu_i/dE_j`` as a ``(3, 3)``
+        array in **ASE units** (e**2*Angstrom**2/eV, the same convention as
+        :meth:`get_polarizability`), in a uniform magnetic field ``b_field`` (atomic
+        units -- ASE defines no magnetic-field unit). ``e_step`` is the
+        finite-difference electric field step in atomic units. Reduces to the
+        field-free polarizability at ``B = 0``. Set ``m1_basis_path`` (or the
+        calculator parameter) for M1. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
-        return np.asarray(
-            self._native.magnetic_polarizability(
-                numbers=numbers,
-                positions=positions,
-                b_field=tuple(float(v) for v in b_field),
-                unit="angstrom",
-                e_step=float(e_step),
-                m1_basis_path=self._m1_path(m1_basis_path),
-            ),
-            dtype=float,
+        return (
+            np.asarray(
+                self._native.magnetic_polarizability(
+                    numbers=numbers,
+                    positions=positions,
+                    b_field=tuple(float(v) for v in b_field),
+                    unit="angstrom",
+                    e_step=float(e_step),
+                    m1_basis_path=self._m1_path(m1_basis_path),
+                ),
+                dtype=float,
+            )
+            * _POLARIZABILITY
         )
 
     def get_cotton_mouton(self, atoms=None, e_step=0.002, b_step=0.02, m1_basis_path=None):
@@ -740,8 +1208,10 @@ class GFN1RSCalculator(Calculator):
         ``(3, 3, 3)`` array indexed ``[k, i, j]``, driving the magnetic-field-induced
         birefringence. The first derivative ``d alpha/d B`` (MCD/Faraday) is identically
         zero in the GFN1 monopole model (``dq/dB = 0``), so only this second derivative
-        is a nonzero observable. Set ``m1_basis_path`` (or the calculator parameter) for
-        M1. Non-periodic."""
+        is a nonzero observable. **Atomic units** throughout (a magnetic-field
+        derivative has no ASE unit); ``e_step`` / ``b_step`` are the finite-difference
+        field steps in atomic units. Set ``m1_basis_path`` (or the calculator
+        parameter) for M1. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return np.asarray(
             self._native.cotton_mouton(
@@ -760,6 +1230,7 @@ class GFN1RSCalculator(Calculator):
         array indexed ``[k, i, j]``. NOTE: identically zero in the GFN1 monopole model
         (``dq/dB = 0``); it is the correct general raw ``d alpha/d B`` tensor and would
         be nonzero for a length-gauge (dipole-coupled) model — see ``get_lao_dipole``.
+        **Atomic units** throughout (a magnetic-field derivative has no ASE unit).
         Set ``m1_basis_path`` (or the calculator parameter) for M1. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return np.asarray(
@@ -778,14 +1249,15 @@ class GFN1RSCalculator(Calculator):
         """Raw orbital angular-momentum AO integral matrices behind the CD / magnetic-
         dipole response: a ``(3, nAO, nAO)`` array ``out[a]`` with
         ``<mu|L_a|nu> = -i * out[a, mu, nu]`` (``L = (r - O) x p`` about ``origin``; the
-        orbital magnetic dipole is ``m = -1/2 L``). Non-periodic."""
+        orbital magnetic dipole is ``m = -1/2 L``). Raw AO integrals, so **atomic
+        units** throughout; ``origin`` is in **Angstrom**. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         return np.asarray(
             self._native.angular_momentum(
                 numbers=numbers,
                 positions=positions,
                 unit="angstrom",
-                origin=None if origin is None else tuple(float(v) for v in origin),
+                origin=_origin_bohr(origin),
             ),
             dtype=float,
         )
@@ -795,7 +1267,7 @@ class GFN1RSCalculator(Calculator):
         ``D_c(B)_{mu nu} = <om_mu|(r_c - O)|om_nu>`` in a uniform magnetic field
         ``b_field`` (atomic units) — the length-gauge dipole behind MCD/optical rotation.
         Returns ``(re, im)`` as two ``(3, nAO, nAO)`` arrays (real, Hermitian at
-        ``B = 0``). Non-periodic."""
+        ``B = 0``). Raw AO integrals, so **atomic units** throughout. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         d = self._native.lao_dipole(
             numbers=numbers,
@@ -809,10 +1281,14 @@ class GFN1RSCalculator(Calculator):
         """Nuclear gradient/forces of the magnetic (GFN1-xTB-M) energy in a uniform
         field ``b_field`` (atomic units). ``analytic=True`` (default) uses the
         Hellmann-Feynman analytic gradient (one SCC + cheap integral derivatives);
-        ``analytic=False`` uses the slower 6N+1-SCC finite difference. Set
-        ``m1_basis_path`` (or the calculator parameter) for GFN1-xTB-M1 forces
-        (requires ``analytic=True``). Returns a dict with ``energy_hartree``,
-        ``gradient`` and ``forces`` (Hartree/bohr, numpy arrays). Non-periodic."""
+        ``analytic=False`` uses the slower 6N+1-SCC finite difference (``step`` is its
+        displacement, in **bohr**). Set ``m1_basis_path`` (or the calculator parameter)
+        for GFN1-xTB-M1 forces (requires ``analytic=True``).
+
+        Returns a dict in **ASE units**: ``energy`` (**eV**), ``gradient`` and
+        ``forces`` (**eV/Angstrom** numpy arrays), plus the raw native
+        ``energy_hartree``, ``gradient_hartree_per_bohr`` and
+        ``forces_hartree_per_bohr``. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
         out = self._native.magnetic_forces(
             numbers=numbers,
@@ -823,17 +1299,16 @@ class GFN1RSCalculator(Calculator):
             analytic=bool(analytic),
             m1_basis_path=self._m1_path(m1_basis_path),
         )
-        out["gradient"] = np.asarray(out["gradient"], dtype=float)
-        out["forces"] = np.asarray(out["forces"], dtype=float)
-        return out
+        return _to_ase_gradient_dict(out, energy_keys=(("energy_hartree", "energy"),))
 
     def get_tda_kpoint(
         self, atoms=None, kmesh=(2, 2, 2), n_states=5, spin="singlet", gamma_centered=True
     ):
         """Periodic TD-GFN1 (TDA) excited states over a Monkhorst-Pack ``kmesh``
-        (optical q=0 transitions). Requires a periodic ASE Atoms with a cell.
-        Returns a dict with ``excitation_energies_ev`` / ``_hartree`` and
-        ``oscillator_strengths``."""
+        (optical q=0 transitions). Requires a periodic ASE Atoms with a cell (read in
+        **Angstrom**). Returns a dict with ``excitation_energies_ev`` (**eV**),
+        ``excitation_energies_hartree`` (Hartree) and ``oscillator_strengths``
+        (dimensionless)."""
         atoms = self.atoms if atoms is None else atoms
         if atoms is None:
             raise RuntimeError("no ASE Atoms object supplied or attached")
@@ -864,9 +1339,13 @@ class GFN1RSCalculator(Calculator):
     ):
         """Periodic TD-GFN1 (TDA) excited-state gradient over a Monkhorst-Pack
         ``kmesh``. ``method`` is ``"analytic"`` (exact direct-CPHF gradient) or
-        ``"fd"`` (finite difference). Requires a periodic ASE Atoms with a cell and
-        integer (gapped) occupations. Returns a dict with ``total_energy_hartree``,
-        ``excitation_energy_hartree``, ``gradient``, and ``forces`` (atomic units)."""
+        ``"fd"`` (finite difference, displacement ``step`` in **bohr**). Requires a
+        periodic ASE Atoms with a cell and integer (gapped) occupations.
+
+        Returns a dict in **ASE units**: ``total_energy`` and ``excitation_energy``
+        (**eV**), ``gradient`` and ``forces`` (**eV/Angstrom**), plus the raw native
+        ``total_energy_hartree``, ``excitation_energy_hartree``,
+        ``gradient_hartree_per_bohr`` and ``forces_hartree_per_bohr``."""
         atoms = self.atoms if atoms is None else atoms
         if atoms is None:
             raise RuntimeError("no ASE Atoms object supplied or attached")
@@ -874,17 +1353,23 @@ class GFN1RSCalculator(Calculator):
             raise ValueError(
                 "get_tda_kpoint_gradient requires a periodic ASE Atoms (set cell + pbc)"
             )
-        return self._native.tda_kpoint_gradient(
-            numbers=atoms.get_atomic_numbers().astype(np.uint8).tolist(),
-            positions=np.asarray(atoms.get_positions(), dtype=float).tolist(),
-            cell=np.asarray(atoms.get_cell(), dtype=float).tolist(),
-            kmesh=tuple(int(k) for k in kmesh),
-            state=int(state),
-            unit="angstrom",
-            n_states=int(n_states),
-            spin=str(spin),
-            pbc=tuple(bool(p) for p in atoms.get_pbc()),
-            gamma_centered=bool(gamma_centered),
-            method=str(method),
-            step=float(step),
+        return _to_ase_gradient_dict(
+            self._native.tda_kpoint_gradient(
+                numbers=atoms.get_atomic_numbers().astype(np.uint8).tolist(),
+                positions=np.asarray(atoms.get_positions(), dtype=float).tolist(),
+                cell=np.asarray(atoms.get_cell(), dtype=float).tolist(),
+                kmesh=tuple(int(k) for k in kmesh),
+                state=int(state),
+                unit="angstrom",
+                n_states=int(n_states),
+                spin=str(spin),
+                pbc=tuple(bool(p) for p in atoms.get_pbc()),
+                gamma_centered=bool(gamma_centered),
+                method=str(method),
+                step=float(step),
+            ),
+            energy_keys=(
+                ("total_energy_hartree", "total_energy"),
+                ("excitation_energy_hartree", "excitation_energy"),
+            ),
         )
