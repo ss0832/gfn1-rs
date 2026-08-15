@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "gfn1-rs-python"
-version = "0.5.0"
+version = "0.5.1"
 description = "Python and ASE interface for the native Rust GFN1-RS implementation"
 requires-python = ">=3.9,<3.15"
 license = "GPL-3.0-or-later"
