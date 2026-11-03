@@ -8,11 +8,14 @@ The official parametrization is **bundled** — nothing to download. Dense linea
 algebra uses `faer`; no BLAS/LAPACK required. **Unofficial — use with caution.**
 
 Names: Cargo package `gfn1-rs`; Rust library target `gfn1_rs`; CLI binary
-`gfn1_rs_cli`; Python package `gfn1_rs` (PyO3 extension module `gfn1_rs._native`).
+`gfn1-rs` and `gfn1-rs-train` (also installed by pip); Python package `gfn1_rs`
+(PyO3 extension module `gfn1_rs._native`). Current distribution: **v0.7.2**.
+
+
 
 ## Scope
 
-Headlines for **v0.5.0** — everything below is analytic and finite-difference
+Inherited baseline features — everything below is analytic and finite-difference
 gated unless it says otherwise:
 
 - **Energy, gradient, stress** — molecular and periodic (Γ and Monkhorst–Pack
@@ -31,6 +34,12 @@ gated unless it says otherwise:
 - **Periodic thermal expansion** — strain-mixed `dH/dlnV` and mode/thermodynamic
   Grüneisen parameters (with a separate second-order volumetric step).
 - **Bulk polarization** — Berry phase, King-Smith–Vanderbilt and Resta forms.
+- **Crystal properties** — adaptive periodic SCC, joint ionic/cell relaxation,
+  EOS, analytic scalar/ML elasticity, Born charges, proper piezoelectricity,
+  dielectric/IR and directional LO–TO response; phonon/electronic DOS and
+  harmonic thermodynamics. Guards retain unstable/nonstationary failures.
+- **ML property fine-tuning** — explicit sample conditions, weighted/scaled
+  component objectives and held-out validation, starting from user weights.
 - **Excited states** — TD-GFN1 (TDA) singlet/triplet, non-periodic, Γ and
   k-point, with analytic excited-state gradients.
 - **Fields and magnetics** — external electric field (molecular and periodic),
@@ -53,6 +62,8 @@ exchange, DFT+U/+V, collinear spin polarization, and self-consistent D4.
 The docs are organised one page per subsystem — see the index at
 [`docs/README.md`](docs/README.md):
 
+- [`docs/api-overview.md`](docs/api-overview.md) — Rust/native/ASE/CLI entry
+  points, argument compatibility, units, controls and supported domains.
 - [`docs/scope.md`](docs/scope.md) — the full feature matrix, including the
   FC3/FC4 coverage tables (molecular / PBC Γ / PBC k-mesh × `T = 0` / finite `T`).
 - [`docs/parameters.md`](docs/parameters.md) — bundled official parameters,
@@ -70,6 +81,14 @@ The docs are organised one page per subsystem — see the index at
   `dH/dlnV`, Grüneisen parameters, and Berry-phase bulk polarization.
 - [`docs/td.md`](docs/td.md) — TD-GFN1 (TDA) excited states: working equations,
   the analytic excited-state gradients, the MO phase gauge, and the gate numbers.
+- [`docs/excited-hessians.md`](docs/excited-hessians.md) — analytic molecular
+  TDA/sTDA Hessians and Rust/native Python/ASE examples.
+- [`docs/resources.md`](docs/resources.md) — CPU worker counts and checked
+  calculation-workspace budgets through Rust, both commands, Python and ASE.
+- [`docs/cp-settings.md`](docs/cp-settings.md) — CP/DFPT residual tolerances,
+  iterative limits and configuration logs through all interfaces.
+- [`docs/stda-pes.md`](docs/stda-pes.md) — the measured sTDA PES limitation and
+  the separately defined, audited crossing stationary point.
 - [`docs/limitations.md`](docs/limitations.md) — **known gaps and silent failure
   modes**, with the exact error messages. Read this one.
 - [`docs/rust-api.md`](docs/rust-api.md) — Rust library API (`run_electronic`,
@@ -88,13 +107,13 @@ The docs are organised one page per subsystem — see the index at
 ## Build
 
 ```bash
-cargo build --release          # CLI -> target/release/gfn1_rs_cli
+cargo build --release          # CLI -> target/release/gfn1-rs
 ```
 
 Python extension (Python 3.9–3.14):
 
 ```bash
-python -m pip install maturin "ase>=3.22" "numpy>=1.22"
+python -m pip install maturin "ase>=3.22" "numpy>=1.22,<2.5"
 maturin develop --release --features python
 ```
 
@@ -205,65 +224,65 @@ your own file. Common workflows:
 
 ```bash
 # single-point energy (+ Mulliken charges)
-gfn1_rs_cli examples/water.xyz --charges
+gfn1-rs examples/water.xyz --charges
 
 # energy + analytical gradient / forces
-gfn1_rs_cli --gradient examples/ammonia.xyz
+gfn1-rs --gradient examples/ammonia.xyz
 
 # analytical Hessian (non-periodic)
-gfn1_rs_cli --hessian examples/water.xyz
+gfn1-rs --hessian examples/water.xyz
 
 # periodic single point + component stress (Lattice from the extXYZ header)
-gfn1_rs_cli --stress examples/diamond.xyz
+gfn1-rs --stress examples/diamond.xyz
 
 # L-BFGS optimization (non-periodic; analytical gradient). --opt-output writes the final
 # geometry, --opt-traj writes the full multi-frame XYZ trajectory.
-gfn1_rs_cli --optimize --opt-output opt.xyz --opt-traj opt_traj.xyz examples/ammonia.xyz
+gfn1-rs --optimize --opt-output opt.xyz --opt-traj opt_traj.xyz examples/ammonia.xyz
 
 # mDFTB2 multipole-corrected single point / optimization (experimental, non-PBC)
-gfn1_rs_cli --multipole --optimize --opt-output opt.xyz examples/ammonia.xyz
+gfn1-rs --multipole --optimize --opt-output opt.xyz examples/ammonia.xyz
 
 # CAMM-on-mDFTB2: GFN2-style anisotropic electrostatics (q-mu/q-Theta/mu-mu) on cumulative
 # atomic multipoles, replacing the mDFTB2 off-site term (experimental, non-PBC, v0.4.2).
 # camm_damp (kappa) is the primary range-selective lever; camm_aes_scale (s_AES) the secondary amplitude.
-gfn1_rs_cli --multipole --multipole-model camm_on_mdftb2 --camm-damp 1.0 examples/water48.xyz
+gfn1-rs --multipole --multipole-model camm_on_mdftb2 --camm-damp 1.0 examples/water48.xyz
 
 # experimental self-consistent D4 single point / gradient (non-PBC only)
-gfn1_rs_cli --experimental-d4 --gradient examples/water.xyz
+gfn1-rs --experimental-d4 --gradient examples/water.xyz
 
 # range-separated Fock exchange single point (experimental, non-PBC); --onsite-exchange adds
 # the exact one-center (OFX) term, --scf-trah forces the TRAH second-order SCF
-gfn1_rs_cli --lr-exchange --onsite-exchange --charges examples/water.xyz
+gfn1-rs --lr-exchange --onsite-exchange --charges examples/water.xyz
 
 # charged / open-shell single point
-gfn1_rs_cli --charge 1 --multiplicity 2 examples/h2.xyz
+gfn1-rs --charge 1 --multiplicity 2 examples/h2.xyz
 
 # spin-polarized GFN1 ("spGFN1"): collinear spin term for open-shell systems (non-PBC, energy +
 # analytic forces). Off by default; a closed-shell singlet stays byte-identical to GFN1.
-gfn1_rs_cli --multiplicity 3 --spinpol --gradient examples/h2.xyz
+gfn1-rs --multiplicity 3 --spinpol --gradient examples/h2.xyz
 
 # TD-GFN1 (TDA) excited states; --tda-grad adds the excited-state gradient. The CLI default is
 # --tda-gradient-method semi-numerical; pass `analytic` for the fully analytic direct-CPHF gradient
 # (or `fd` for the root-tracked full finite difference).
-gfn1_rs_cli --tda examples/water.xyz
+gfn1-rs --tda examples/water.xyz
 
 # single point in a uniform external electric field (atomic units, Ex Ey Ez)
-gfn1_rs_cli --field 0.0 0.01 0.0 --charges examples/water.xyz
+gfn1-rs --field 0.0 0.01 0.0 --charges examples/water.xyz
 
 # static polarizability, IR, and Raman (each also prints the raw derivative tensors)
-gfn1_rs_cli --polarizability examples/water.xyz
-gfn1_rs_cli --ir examples/water.xyz
-gfn1_rs_cli --raman examples/water.xyz
+gfn1-rs --polarizability examples/water.xyz
+gfn1-rs --ir examples/water.xyz
+gfn1-rs --raman examples/water.xyz
 
 # NMR nuclear magnetic shielding tensor of atom 0 (ppm; isotropic + 3x3)
-gfn1_rs_cli --nmr 0 examples/water.xyz
+gfn1-rs --nmr 0 examples/water.xyz
 
 # finite-difference parameter derivatives (dE/dp, add --param-forces for dF/dp)
-gfn1_rs_cli --param-deriv \
+gfn1-rs --param-deriv \
   --targets glob:ks,elem:1:GAM,pair:1:1 examples/h2.xyz
 ```
 
-`cargo run --bin gfn1_rs_cli -- ...` works too if you have not built the binary.
+`cargo run --bin gfn1-rs -- ...` works too if you have not built the binary.
 
 IR/Raman are taken at the input geometry, so optimize first (`--optimize`) for a
 clean spectrum free of spurious low-frequency modes.
@@ -377,41 +396,9 @@ extension.
 
 ## Limitations
 
-The full, honest list — including the failure modes that are *silent* — lives in
-[`docs/limitations.md`](docs/limitations.md). The headline items:
+The failure modes that are silent lives in
+[`docs/limitations.md`](docs/limitations.md). 
 
-- **Fermi smearing reaches everything except the strict `T = 0` closed forms.**
-  The `third_derivative::finite_t` drivers carry smearing through the analytic
-  FC3 *and* FC4 (directional, dense and block); the strict closed forms
-  (`third_derivative_analytic_*`, `fourth_derivative_analytic_*`) still reject
-  fractional occupations with an explicit error pointing at them.
-- **The analytic periodic FC3 carries a `~1e-7` residual and rejects smearing.**
-  Both the Γ path (`pbc_gamma_third_analytic_*`) and the k-point path
-  (`pbc_kpoint_third_analytic_*`, any Monkhorst–Pack mesh, vector / dense /
-  block) are complete and agree with the seminumerical reference to `≈8e-8`; the
-  two share one assembly, so they share that open residual. Fermi-smeared cells
-  and order-1 model options still need
-  `pbc_kpoint_third_derivative_seminumerical_*`.
-- **The `n⁴`-expanded FC4 front ends are capped at 30 DOF**
-  (`MAX_FOURTH_DERIVATIVE_NDOF`, the `8·n⁴`-byte expansion and the full-space
-  `Jet4` working set of the D3/halogen full-tensor routes). The **directional**
-  quartic has no such cap — 45 DOF is exercised in the test suite — and the
-  block mode applies the cap to `|dofs|`, not to `3N`.
-- **`pbc_kpoint_hessian` is wrong on exactly degenerate frontier orbitals**
-  (perfect-symmetry cells; up to 100 % error, vanishing under a 0.03 Å
-  distortion). The Γ path and every FC3 route are structurally immune; see
-  [`docs/pbc.md`](docs/pbc.md) §2b.
-- **Experimental model flags cap the derivative ladder at the gradient.** D4,
-  multipole/CAMM, MFX/OFX exchange, +U, spGFN1 and an external electric field all
-  carry `max_analytic_order: 1`; asking for a Hessian/FC3/FC4 with any of them on
-  now fails fast instead of silently returning the derivative of a different
-  energy expression.
-- **Open-shell** magnetic properties (spin-Zeeman / NMR shieldings) and the
-  **length-gauge orbital-current** optical-rotation `G`-tensor / MCD (both vanish in
-  the GFN1 point-charge model since `dq/dB = 0`; the `lao_dipole_matrix` integrals
-  are the route to the orbital-current versions). The closed-shell magnetics —
-  analytic magnetizability and the FD-verified magneto-optical suite — are already
-  complete; see [scope.md](docs/scope.md).
 
 ## References
 

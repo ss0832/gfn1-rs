@@ -12,14 +12,14 @@
 //!   smeared analytic Hessian contracted `vv`;
 //! * order 4 — [`directional_fourth_seminumerical`], which finite-differences
 //!   that occupation-agnostic third derivative and therefore RUNS on smeared
-//!   systems (the analytic quartic still does not); gated for step consistency;
-//! * the two guards that must stay closed: the ANALYTIC quartic rejects
+//!   systems; gated for step consistency against the analytic thermal route;
+//! * standard analytic quartic routes support
 //!   fractional occupations, and an EXACTLY degenerate fractionally occupied
-//!   reference is rejected by the second-order charge-space solver.
+//!   reference is validated through spectral third-order charge-space response.
 //!
 //! **Fixtures and cost.** Fermi-smeared Ni(CO)₄ (3000 K, 18 of 41 orbitals
 //! fractional) is the reference smeared system and carries the order-2 gate and
-//! both guards, all of which are cheap. Orders 3 and 4 use non-equilibrium
+//! spectral-response checks. Orders 3 and 4 use non-equilibrium
 //! formaldehyde at 10000 K (10 of 12 orbitals fractional, including a
 //! 1.79/0.23 pair) because the analytic directional FC3 costs ~855 s on
 //! Ni(CO)₄'s 27 DOF versus ~22 s on formaldehyde's 12 — the full Ni(CO)₄ FC3
@@ -60,7 +60,7 @@ const DISTORTED_NI_CO4: &str = "9\ndistorted Ni(CO)4\nNi 0.020000 -0.030000 0.01
 const NONEQ_HCHO: &str =
     "4\nnon-eq formaldehyde\nC 0.0 0.0 0.0\nO 1.28 0.10 0.05\nH -0.60 0.95 0.10\nH -0.62 -0.90 0.12\n";
 
-/// The rejection fixture: a Ni–O diatomic at 3000 K. Cylindrical symmetry makes
+/// The exact-degeneracy fixture: a Ni–O diatomic at 3000 K. Cylindrical symmetry makes
 /// its π manifold EXACTLY degenerate (gap 5.6e-16, i.e. symmetry-exact rather
 /// than accidental) and the partly filled Ni d/π levels are fractionally
 /// occupied (9 of 13 orbitals) — the combination the second-order solver must
@@ -285,7 +285,9 @@ fn smeared_directional_third_matches_hessian_fd() {
 
     let analytic = directional_third_finite_t(&system, &params, &options, cutoff, &v).unwrap();
     let hessian_vv = |sys: &PeriodicSystem| -> f64 {
-        let h = analytic_hessian(sys, &params, options.clone()).unwrap().hessian;
+        let h = analytic_hessian(sys, &params, options.clone())
+            .unwrap()
+            .hessian;
         let mut acc = 0.0;
         for a in 0..ndof {
             for b in 0..ndof {
@@ -316,7 +318,7 @@ fn smeared_directional_third_matches_hessian_fd() {
 /// occupied reference and return a finite value. Before the reference was
 /// re-routed it inherited `third_derivative_analytic_vector`'s
 /// integer-occupation rejection, and there was no FC4 route at all for smeared
-/// systems (the analytic quartic rejects them too — see the guard below).
+/// systems. Standard analytic quartics now select the canonical thermal backend too.
 ///
 /// It is a second-order-accurate central FD of an ANALYTIC quantity, so the two
 /// steps must agree to `O(h²)`: the `h` → `h/2` change IS the truncation error.
@@ -357,57 +359,27 @@ fn smeared_directional_fourth_seminumerical_is_step_consistent() {
     );
 }
 
-/// **Guard 1.** The ANALYTIC quartic (directional and dense) must keep rejecting
-/// fractional occupations with the documented message: silently returning the
-/// integer-occupation expression for a smeared reference would be a wrong
-/// answer, not a slow one. The message names
-/// [`directional_fourth_seminumerical`] as the fallback, which — since that
-/// route now finite-differences the finite-temperature third derivative — is
-/// actually available for these systems (the test above runs it).
+/// Standard directional and dense quartics select canonical thermal response.
 #[test]
-fn smeared_analytic_fourth_rejects_fractional_occupations() {
-    let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
-    let system = PeriodicSystem::from_xyz_str(DISTORTED_NI_CO4, 0.0, false).unwrap();
-    let options = full_options(NI_CO4_TEMPERATURE);
+fn smeared_standard_analytic_fourth_matches_explicit_thermal_backend() {
+    let params = Gfn1Parameters::resolve(None).unwrap();
+    let system =
+        PeriodicSystem::from_xyz_str("2\nskew HF\nH .05 -.1 .02\nF .98 .04 -.03\n", 0.0, false)
+            .unwrap();
+    let options = full_options(30000.0);
     let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
-    let v = skew_direction(3 * system.atoms.len());
-
-    let err = directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap_err();
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("fractional") && msg.contains("Fermi-smeared"),
-        "expected the fractional-occupation rejection from the directional quartic, got: {msg}"
-    );
-    let err = fourth_derivative_analytic_dense(&system, &params, &options, cutoff).unwrap_err();
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("fractional") && msg.contains("Fermi-smeared"),
-        "expected the fractional-occupation rejection from the dense quartic, got: {msg}"
-    );
+    let v = skew_direction(6);
+    assert_fractional(&system, &params, 30000.0, "HF");
+    let direct = directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap();
+    let explicit = directional_fourth_finite_t(&system, &params, &options, cutoff, &v).unwrap();
+    let dense = fourth_derivative_analytic_dense(&system, &params, &options, cutoff).unwrap();
+    assert!((direct - explicit).abs() < 1e-12);
+    assert!((dense.contract_vvvv(&v).unwrap() - explicit).abs() < 1e-10);
 }
-
-/// **Guard 2, end to end — the order boundary at exact degeneracy.**
-///
-/// An EXACTLY degenerate fractionally occupied reference used to be rejected
-/// by the second-order charge-space solver, because the in-block occupation
-/// channel is matrix-valued (Daleckii–Krein) and the scalar `f''` chain could
-/// not represent it. The solver now assembles the second order in the
-/// frame-free **resolvent** form, where the degenerate case is the confluent
-/// limit of the same divided differences, so the guard was retired.
-///
-/// That has an order-dependent consequence this test pins:
-///
-/// * [`directional_third_finite_t`] consumes the second-order response only,
-///   so it **inherited the fix and now succeeds**. Verified against the
-///   central difference of the smeared analytic Hessian on this very fixture
-///   (min level spacing `1.1e-16`): `1.24e-9 → 3.10e-10 → 7.77e-11` for
-///   `h = 2e-3 → 1e-3 → 5e-4`, a clean `O(h²)` ladder at ratio 4.00.
-/// * `solve_third_order_directional` — reached only by the finite-T **FC4**
-///   routes — is still frame-based, and a frame is not defined inside such a
-///   block (measured 3.5e3 against its FD gate). It still refuses, so
-///   [`directional_fourth_finite_t`] must error here.
+/// Exact fractional degeneracy: spectral second and third electronic responses
+/// must produce FC3/FC4, with the quartic checked against displaced FC3.
 #[test]
-fn exactly_degenerate_smeared_third_succeeds_but_fourth_is_rejected() {
+fn exactly_degenerate_smeared_third_and_fourth_match_fd() {
     let started = std::time::Instant::now();
     let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let system = PeriodicSystem::from_xyz_str(NI_O_DIATOMIC, 0.0, false).unwrap();
@@ -415,8 +387,7 @@ fn exactly_degenerate_smeared_third_succeeds_but_fourth_is_rejected() {
     let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
     let v = skew_direction(3 * system.atoms.len());
 
-    let electronic =
-        run_electronic(&system, &params, options.electronic_options.clone()).unwrap();
+    let electronic = run_electronic(&system, &params, options.electronic_options.clone()).unwrap();
     let min_spacing = electronic
         .orbital_energies
         .windows(2)
@@ -436,15 +407,21 @@ fn exactly_degenerate_smeared_third_succeeds_but_fourth_is_rejected() {
         "exactly degenerate smeared FC3 returned a non-finite value: {third}"
     );
 
-    let err = directional_fourth_finite_t(&system, &params, &options, cutoff, &v).unwrap_err();
-    let msg = format!("{err}");
-    eprintln!(
-        "exactly degenerate smeared FC3 = {third:.10e}; FC4 rejected [{:?}]: {msg}",
-        started.elapsed()
-    );
+    let fourth = directional_fourth_finite_t(&system, &params, &options, cutoff, &v).unwrap();
+    let cubic_at = |step: f64| {
+        let mut displaced = system.clone();
+        for (i, atom) in displaced.atoms.iter_mut().enumerate() {
+            atom.position += gfn1_rs::math::Vec3::new(v[3 * i], v[3 * i + 1], v[3 * i + 2]) * step;
+        }
+        directional_third_finite_t(&displaced, &params, &options, cutoff, &v).unwrap()
+    };
+    let h = 2e-3;
+    let coarse = (cubic_at(h) - cubic_at(-h)) / (2. * h);
+    let fine = (cubic_at(h / 2.) - cubic_at(-h / 2.)) / h;
+    let error = (fourth - (4. * fine - coarse) / 3.).abs();
+    eprintln!("exactly degenerate smeared FC3={third:.10e}, FC4={fourth:.10e}, FD error={error:.3e} [{:?}]", started.elapsed());
     assert!(
-        msg.contains("exactly degenerate") && msg.contains("fractional occupation"),
-        "expected the exact-degeneracy rejection from the frame-based third-order solver, \
-         got: {msg}"
+        error < 1e-7,
+        "fractional degenerate FC4 differs from displaced FC3: {error}"
     );
 }

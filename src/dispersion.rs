@@ -10,6 +10,7 @@
 //! user-supplied `param_gfn1-xtb.txt` through [`Gfn1Parameters`].  The experimental
 //! ATM scale `s9` is an API option and defaults to the GFN2-xTB value.
 
+mod reduced_hessian;
 use crate::coordination::{coordination_with_derivatives, CoordinationOptions};
 use crate::d4_reference;
 use crate::data_tables::covalent_radius_d3_bohr;
@@ -17,9 +18,7 @@ use crate::error::{Gfn1Error, Result};
 use crate::jets::{DirectionScope, Jet1, Jet2, Jet3, Jet4};
 use crate::linalg::Matrix;
 use crate::math::Vec3;
-use crate::pairlist::{
-    all_center_short_range_neighbors, unique_short_range_pairs, ShortRangePair,
-};
+use crate::pairlist::{all_center_short_range_neighbors, unique_short_range_pairs, ShortRangePair};
 use crate::params::{Gfn1Parameters, GFN1_D3_REFERENCE_ENV};
 use crate::system::PeriodicSystem;
 use std::collections::HashMap;
@@ -28,8 +27,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const WF: f64 = 4.0;
-const CN_CUTOFF: f64 = 25.0;
-const DISP2_CUTOFF: f64 = 50.0;
+pub const CN_CUTOFF: f64 = 25.0;
+pub const DISP2_CUTOFF: f64 = 50.0;
 const D4_PAIR_CUTOFF: f64 = 60.0;
 const D4_CN_CUTOFF: f64 = 30.0;
 const D4_ATM_CUTOFF: f64 = 40.0;
@@ -1364,6 +1363,17 @@ pub fn dispersion_energy_gradient_hessian(
     params: &Gfn1Parameters,
     explicit_reference_path: Option<&str>,
 ) -> Result<DispersionHessianResult> {
+    if params.required_global("s9")?.abs() <= 1e-15 {
+        return reduced_hessian::two_body(system, params, explicit_reference_path);
+    }
+    dispersion_hessian_global_jets(system, params, explicit_reference_path)
+}
+
+fn dispersion_hessian_global_jets(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+) -> Result<DispersionHessianResult> {
     let s6 = params.global("s6", 1.0);
     let s8 = params.required_global("s8")?;
     let s9 = params.required_global("s9")?;
@@ -1441,6 +1451,48 @@ pub fn dispersion_stress(
     }
 }
 
+/// Exact second derivative of the full D3(BJ)+ATM energy under `F=I+epsilon`.
+/// Indices are unsymmetrized Cartesian strain `3*row+column`; units Hartree.
+/// CN, interpolation weights, self images and all three ATM legs are carried
+/// through the same Jet2 strain expression used by the analytic stress.
+pub fn dispersion_strain_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+) -> Result<Matrix> {
+    let energy = dispersion_strain_energy_jet(system, params, explicit_reference_path, 9)?;
+    Matrix::from_vec(9, 9, energy.hessian)
+}
+
+/// Exact joint Hessian for reference nuclear coordinates and all nine affine
+/// components, R'=F(R+u). Includes D3 CN, weights, pair and ATM image terms.
+pub fn dispersion_affine_nuclear_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+) -> Result<Matrix> {
+    let d = 3 * system.atoms.len() + 9;
+    let count = system
+        .atoms
+        .len()
+        .checked_mul(system.atoms.len())
+        .and_then(|n| n.checked_add(system.atoms.len() + 16))
+        .and_then(|n| n.checked_mul(d))
+        .and_then(|n| n.checked_mul(d))
+        .and_then(|n| n.checked_mul(8))
+        .ok_or_else(|| Gfn1Error::InvalidInput("affine D3 workspace overflow".into()))?;
+    let budget = crate::resources::current()
+        .memory_budget_bytes
+        .unwrap_or(512 * 1024 * 1024);
+    if count > budget {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "affine D3 workspace estimate {count} bytes exceeds budget {budget}"
+        )));
+    }
+    let energy = dispersion_strain_energy_jet(system, params, explicit_reference_path, d)?;
+    Matrix::from_vec(d, d, energy.hessian)
+}
+
 fn periodic_dispersion_stress(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -1485,7 +1537,7 @@ fn dispersion_strain_energy_jet(
         let j = pair.j;
         let zi = system.atoms[i].z;
         let zj = system.atoms[j].z;
-        let rij = strain_vector_jets(pair.dr, ndof);
+        let rij = strain_pair_vector_jets(pair.dr, ndof, pair.j, pair.i);
         let r2 = disp_dot(&rij, &rij);
         if r2.value > cutoff2 || r2.value <= DIST_EPS {
             continue;
@@ -1503,9 +1555,7 @@ fn dispersion_strain_energy_jet(
     }
 
     if atm_active {
-        d3_atm_strain_energy_jet(
-            system, &reference, &c6, s9, a1, a2, ndof, &mut energy,
-        )?;
+        d3_atm_strain_energy_jet(system, &reference, &c6, s9, a1, a2, ndof, &mut energy)?;
     }
 
     Ok(energy)
@@ -1538,8 +1588,8 @@ fn d3_atm_strain_energy_jet(
         a1,
         a2,
         energy,
-        |_i, _j, _translation, dr| {
-            let leg = strain_vector_jets(dr, ndof);
+        |i, j, _translation, dr| {
+            let leg = strain_pair_vector_jets(dr, ndof, j, i);
             disp_dot(&leg, &leg)
         },
     )
@@ -2144,9 +2194,8 @@ impl DispJet for Jet1 {
     }
     #[inline]
     fn seed_hessian(&mut self, a: usize, b: usize, value: f64) {
-        self.d2 += value
-            * crate::jets::direction_component(a)
-            * crate::jets::direction_component(b);
+        self.d2 +=
+            value * crate::jets::direction_component(a) * crate::jets::direction_component(b);
     }
     #[inline]
     fn value(&self) -> f64 {
@@ -2287,7 +2336,7 @@ fn d3_strain_coordination_jets(system: &PeriodicSystem, ndof: usize) -> Result<V
     for pair in unique_short_range_pairs(system, CN_CUTOFF)? {
         let i = pair.i;
         let j = pair.j;
-        let rij = strain_vector_jets(pair.dr, ndof);
+        let rij = strain_pair_vector_jets(pair.dr, ndof, pair.j, pair.i);
         let r2 = disp_dot(&rij, &rij);
         if r2.value <= DIST_EPS || r2.value > cutoff2 {
             continue;
@@ -2741,6 +2790,19 @@ fn d3_atm_accumulate_jet<J: DispJet>(
     }
 }
 
+fn strain_pair_vector_jets(
+    vector: Vec3,
+    ndof: usize,
+    positive: usize,
+    negative: usize,
+) -> [Jet2; 3] {
+    if ndof == 9 {
+        strain_vector_jets(vector, ndof)
+    } else {
+        crate::pbc::elastic_response::affine_nuclear_vector_jet(vector, ndof, positive, negative)
+    }
+}
+
 fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
     let components = vector.to_array();
     let mut out = [
@@ -2978,6 +3040,16 @@ pub fn dispersion_fourth_directional(
     explicit_reference_path: Option<&str>,
     v: &[f64],
 ) -> Result<f64> {
+    Ok(dispersion_directional_jet(system, params, explicit_reference_path, v)?.d4)
+}
+
+/// Same streamed energy expression for analytic FC3 and FC4 contractions.
+pub(crate) fn dispersion_directional_jet(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    explicit_reference_path: Option<&str>,
+    v: &[f64],
+) -> Result<Jet1> {
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     if v.len() != ndof {
@@ -3040,7 +3112,7 @@ pub fn dispersion_fourth_directional(
         }
     }
 
-    Ok(energy.d4)
+    Ok(energy)
 }
 
 #[derive(Clone, Debug)]
@@ -3330,8 +3402,7 @@ mod tests {
     use super::{
         dispersion_energy, dispersion_energy_gradient, dispersion_energy_gradient_hessian,
         dispersion_fourth_derivative, dispersion_fourth_directional, dispersion_third_derivative,
-        reference_weight_cn_derivatives, resolve_and_load_d3_reference,
-        MAX_FOURTH_DERIVATIVE_NDOF,
+        reference_weight_cn_derivatives, resolve_and_load_d3_reference, MAX_FOURTH_DERIVATIVE_NDOF,
     };
     use crate::lattice::Lattice;
     use crate::math::{Mat3, Vec3};
@@ -3830,8 +3901,12 @@ mod tests {
         for system in [methane(), water_trimer()] {
             let p1 = params_with_s9(1.0);
             let p0 = params_with_s9(0.0);
-            let g1 = dispersion_energy_gradient(&system, &p1, None).unwrap().gradient;
-            let g0 = dispersion_energy_gradient(&system, &p0, None).unwrap().gradient;
+            let g1 = dispersion_energy_gradient(&system, &p1, None)
+                .unwrap()
+                .gradient;
+            let g0 = dispersion_energy_gradient(&system, &p0, None)
+                .unwrap()
+                .gradient;
             let atm_energy = |sys: &PeriodicSystem| -> f64 {
                 dispersion_energy(sys, &p1, None).unwrap()
                     - dispersion_energy(sys, &p0, None).unwrap()
@@ -3867,8 +3942,12 @@ mod tests {
         let system = water_trimer();
         let p1 = params_with_s9(1.0);
         let p0 = params_with_s9(0.0);
-        let g1 = dispersion_energy_gradient(&system, &p1, None).unwrap().gradient;
-        let g0 = dispersion_energy_gradient(&system, &p0, None).unwrap().gradient;
+        let g1 = dispersion_energy_gradient(&system, &p1, None)
+            .unwrap()
+            .gradient;
+        let g0 = dispersion_energy_gradient(&system, &p0, None)
+            .unwrap()
+            .gradient;
         let mut sum = Vec3::zero();
         for atom in 0..system.atoms.len() {
             sum += g1[atom] - g0[atom];
@@ -3911,8 +3990,12 @@ mod tests {
         for system in [periodic_water()] {
             let p1 = params_with_s9(1.0);
             let p0 = params_with_s9(0.0);
-            let g1 = dispersion_energy_gradient(&system, &p1, None).unwrap().gradient;
-            let g0 = dispersion_energy_gradient(&system, &p0, None).unwrap().gradient;
+            let g1 = dispersion_energy_gradient(&system, &p1, None)
+                .unwrap()
+                .gradient;
+            let g0 = dispersion_energy_gradient(&system, &p0, None)
+                .unwrap()
+                .gradient;
             let atm_energy = |sys: &PeriodicSystem| -> f64 {
                 dispersion_energy(sys, &p1, None).unwrap()
                     - dispersion_energy(sys, &p0, None).unwrap()

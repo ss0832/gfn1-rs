@@ -143,7 +143,8 @@ class TestConversionTable:
 @requires_native
 class TestMolecularSinglePoint:
     @pytest.fixture(scope="class")
-    def pair(self, calc, native):
+    @classmethod
+    def pair(cls, calc, native):
         atoms = water()
         atoms.calc = calc
         nums, pos = numbers_positions(atoms)
@@ -226,7 +227,8 @@ class TestMolecularSinglePoint:
 @requires_native
 class TestPeriodicSinglePoint:
     @pytest.fixture(scope="class")
-    def pair(self, calc, native):
+    @classmethod
+    def pair(cls, calc, native):
         atoms = diamond()
         atoms.calc = calc
         nums, pos = numbers_positions(atoms)
@@ -303,7 +305,8 @@ class TestPeriodicSinglePoint:
 @requires_native
 class TestDerivedProperties:
     @pytest.fixture(scope="class")
-    def atoms(self, calc):
+    @classmethod
+    def atoms(cls, calc):
         atoms = water()
         atoms.calc = calc
         return atoms

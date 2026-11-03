@@ -10,9 +10,9 @@ in this crate (`src/spin.rs`, table transcribed into `src/data_tables.rs`).
 - Upstream path: `src/tblite/data/spin.f90`
 - Upstream project: tblite — <https://github.com/tblite/tblite>
 - Repository HEAD at snapshot time: `eb50bbfbe1c0869e2e18c9b7cc13144e5130b6df`
-  (main, 2026-06-28).
+  (main).
 - Last upstream commit touching `spin.f90`:
-  `66175172f1e80b899fd67f79128ee27b2be8dafa` (2025-07-22,
+  `66175172f1e80b899fd67f79128ee27b2be8dafa` (
   "GFN lanthanide spin constants & minor adjustments").
 
 The verbatim Fortran source is preserved here as `spin.f90`. The numeric values
@@ -43,6 +43,9 @@ code/data is compatible with and may be distributed as part of a
 GPL-3.0-or-later work. The upstream LGPL/GPL license texts are the standard GNU
 texts (see <https://www.gnu.org/licenses/>); tblite ships them in its own
 `COPYING` / `COPYING.LESSER`.
+The exact standard GNU texts are retained in this distribution as
+`../xtb/COPYING` and `../xtb/COPYING.LESSER`; the source-byte review compares
+those shared texts with tblite's own copies at the pinned revision.
 
 ## References (spin-polarized DFTB / spGFN1 method)
 

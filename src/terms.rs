@@ -15,6 +15,106 @@ use crate::electronic::ElectronicOptions;
 use crate::error::{Gfn1Error, Result};
 use crate::params::Gfn1Parameters;
 
+/// Electronic counting conventions are physical representations, not numerical
+/// real embeddings of a complex matrix (which do not create extra electrons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElectronicRepresentation {
+    RestrictedSpatial,
+    CollinearSpin,
+    ComplexSpinor,
+}
+
+impl ElectronicRepresentation {
+    pub fn maximum_occupation(self) -> f64 {
+        match self {
+            Self::RestrictedSpatial => 2.0,
+            _ => 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PerturbationKind {
+    Nuclear,
+    ElectricField,
+    MagneticField,
+    Parameter,
+    Strain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoundaryCondition {
+    Molecule,
+    PeriodicGamma,
+    PeriodicKMesh,
+    PeriodicFiniteQ,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OccupationRegime {
+    /// Must still be checked on the converged state, not inferred from T alone.
+    Unresolved,
+    Integer,
+    Fractional,
+    DegenerateFractional,
+}
+
+/// A request to the molecular nuclear-derivative drivers. Other driver families
+/// carry their own contracts; they cannot inherit these scalar capabilities.
+#[derive(Clone, Debug)]
+pub struct DerivativeRequest {
+    pub perturbations: Vec<PerturbationKind>,
+    pub representation: ElectronicRepresentation,
+    pub boundary: BoundaryCondition,
+    pub occupations: OccupationRegime,
+    pub order: u8,
+    /// Derivatives require one smooth electronic/geometric branch.
+    pub smooth_branch: bool,
+}
+
+pub fn require_derivative(
+    options: &ElectronicOptions,
+    params: &Gfn1Parameters,
+    request: &DerivativeRequest,
+    context: &str,
+) -> Result<()> {
+    if request.order == 0
+        || request.perturbations.len() != usize::from(request.order)
+        || request
+            .perturbations
+            .iter()
+            .any(|p| *p != PerturbationKind::Nuclear)
+        || request.boundary != BoundaryCondition::Molecule
+        || request.representation == ElectronicRepresentation::ComplexSpinor
+        || !request.smooth_branch
+    {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "{context}: unsupported molecular nuclear derivative context: {request:?}"
+        )));
+    }
+    let actual_representation = if options.spin_polarization || options.plus_u {
+        ElectronicRepresentation::CollinearSpin
+    } else {
+        ElectronicRepresentation::RestrictedSpatial
+    };
+    if request.representation != actual_representation {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "{context}: electronic representation does not match active options"
+        )));
+    }
+    if request.order >= 4
+        && matches!(
+            request.occupations,
+            OccupationRegime::Fractional | OccupationRegime::DegenerateFractional
+        )
+    {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "{context}: analytic fractional-occupation FC4 is not implemented"
+        )));
+    }
+    require_term_order(options, params, request.order, context)
+}
+
 /// One energy term (or physics-changing modifier) of the model.
 #[derive(Clone, Copy, Debug)]
 pub struct TermDescriptor {
@@ -105,6 +205,22 @@ pub fn active_terms(options: &ElectronicOptions, params: &Gfn1Parameters) -> Vec
             active: options.external_field.electric_field.is_some(),
             max_analytic_order: 1,
         },
+        TermDescriptor {
+            name: "external magnetic field (requires the separate London-orbital driver)",
+            active: options.external_field.magnetic_field.is_some(),
+            max_analytic_order: 0,
+        },
+        TermDescriptor {
+            name: "GFN1 ALPB/GBSA (Born/SASA/H-bond/shape)",
+            active: options.solvation.is_some(),
+            max_analytic_order: 4,
+        },
+        // Complete structural-head jets + shared CP-SCC, integer occupations.
+        TermDescriptor {
+            name: "structure-dependent ML Hamiltonian heads",
+            active: options.ml_model.is_some(),
+            max_analytic_order: 3,
+        },
     ]
     // NOTE: Fermi smearing is deliberately NOT a registry row. Whether the
     // occupations are actually fractional is only known after the SCC
@@ -120,6 +236,42 @@ pub fn require_order(
     order: u8,
     context: &str,
 ) -> Result<()> {
+    if order == 0 {
+        return Ok(());
+    }
+    require_derivative(
+        options,
+        params,
+        &DerivativeRequest {
+            perturbations: vec![PerturbationKind::Nuclear; usize::from(order)],
+            representation: if options.spin_polarization || options.plus_u {
+                ElectronicRepresentation::CollinearSpin
+            } else {
+                ElectronicRepresentation::RestrictedSpatial
+            },
+            boundary: BoundaryCondition::Molecule,
+            occupations: OccupationRegime::Unresolved,
+            order,
+            smooth_branch: true,
+        },
+        context,
+    )
+}
+
+fn require_term_order(
+    options: &ElectronicOptions,
+    params: &Gfn1Parameters,
+    order: u8,
+    context: &str,
+) -> Result<()> {
+    // Both quartic assemblies retain CN-dependent frozen blocks. Until that
+    // channel is consistently disabled in every stage, refuse the combination
+    // before SCF rather than returning derivatives of a different Hamiltonian.
+    if order >= 4 && !options.hamiltonian.enable_cn_hamiltonian {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "{context}: analytic order-{order} derivatives with enable_cn_hamiltonian=false are not implemented"
+        )));
+    }
     let blockers: Vec<String> = active_terms(options, params)
         .into_iter()
         .filter(|t| t.active && t.max_analytic_order < order)
@@ -139,6 +291,30 @@ pub fn require_order(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn representation_boundary_and_occupation_are_independent_guards() {
+        let params = Gfn1Parameters::builtin().unwrap();
+        let options = ElectronicOptions::default();
+        let mut request = DerivativeRequest {
+            perturbations: vec![PerturbationKind::Nuclear; 4],
+            representation: ElectronicRepresentation::RestrictedSpatial,
+            boundary: BoundaryCondition::Molecule,
+            occupations: OccupationRegime::Integer,
+            order: 4,
+            smooth_branch: true,
+        };
+        assert!(require_derivative(&options, &params, &request, "test").is_ok());
+        request.boundary = BoundaryCondition::PeriodicFiniteQ;
+        assert!(require_derivative(&options, &params, &request, "test").is_err());
+        request.boundary = BoundaryCondition::Molecule;
+        request.occupations = OccupationRegime::DegenerateFractional;
+        assert!(require_derivative(&options, &params, &request, "test").is_err());
+        request.occupations = OccupationRegime::Integer;
+        request.representation = ElectronicRepresentation::ComplexSpinor;
+        assert!(require_derivative(&options, &params, &request, "test").is_err());
+        assert_eq!(request.representation.maximum_occupation(), 1.0);
+    }
 
     #[test]
     fn stock_gfn1_supports_order_three() {

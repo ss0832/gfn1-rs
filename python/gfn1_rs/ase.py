@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 from ase.calculators.calculator import Calculator, all_changes
-from ase.units import Bohr, Hartree, invcm
+from ase.units import Bohr, Hartree, GPa, invcm
 
 from ._native import (
     FORCE_HARTREE_PER_BOHR_TO_EV_PER_ANGSTROM as _NATIVE_FORCE_FACTOR,
@@ -110,6 +110,76 @@ def _to_ase_gradient_dict(out, energy_keys=()):
             out[f"{key}_hartree_per_bohr"] = raw
             out[key] = raw * _FORCE
     return out
+
+
+def _crystal_ase_units(value):
+    """Preserve explicit native-unit keys and add ASE-unit counterparts."""
+    if isinstance(value, list):
+        return [_crystal_ase_units(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    out = {key: _crystal_ase_units(item) for key, item in value.items()}
+    factors = (
+        ("_hartree_per_primitive_cell", _ENERGY, "_per_primitive_cell"),
+        ("_hartree_per_bohr2_amu", _HESSIAN, "_per_amu"),
+        ("_hartree_per_bohr3", _THIRD, ""),
+        ("_hartree_per_bohr2", _HESSIAN, ""),
+        ("_hartree_per_bohr", _FORCE, ""),
+        ("_hartree_per_kelvin", _ENERGY, ""),
+        ("_bohr3_per_hartree", 1.0 / _THIRD, ""),
+        ("_inverse_bohr", 1.0 / _LENGTH, ""),
+        ("_hartree", _ENERGY, ""),
+        ("_bohr3", _LENGTH**3, ""),
+        ("_bohr", _LENGTH, ""),
+        ("_gpa", GPa, ""),
+    )
+    for suffix, factor, extra in factors:
+        for key, item in value.items():
+            if not key.endswith(suffix):
+                continue
+            target = key[:-len(suffix)] + extra
+            if target in out:
+                continue
+            if item is None:
+                out[target] = None
+            else:
+                array = np.asarray(item, dtype=float) * factor
+                out[target] = float(array) if array.ndim == 0 else array
+    if "finite_strain_coefficients" in value:
+        out["finite_strain_coefficients_hartree"] = value["finite_strain_coefficients"]
+        out["finite_strain_coefficients"] = np.asarray(value["finite_strain_coefficients"]) * _ENERGY
+    if "scc_energy_tolerance" in value:
+        out["scc_energy_tolerance_hartree"] = value["scc_energy_tolerance"]
+        out["scc_energy_tolerance"] = value["scc_energy_tolerance"] * _ENERGY
+    # These electromechanical keys explicitly say atomic units. Their raw
+    # counterparts remain available; unsuffixed values use ASE e/Angstrom/eV.
+    for key, factor in (
+        ("polarization_au", 1.0 / _LENGTH**2),
+        ("polarization_raw_au", 1.0 / _LENGTH**2),
+        ("quantum_au", 1.0 / _LENGTH**2),
+        ("polarization_quantum_au", 1.0 / _LENGTH**2),
+        ("clamped_piezoelectric_au", 1.0 / _LENGTH**2),
+        ("relaxed_piezoelectric_au", 1.0 / _LENGTH**2),
+        ("piezoelectric_strain_au", _LENGTH / _ENERGY),
+        ("mode_effective_charges_e_per_sqrt_amu", 1.0),
+        ("oscillator_strengths_e2_per_amu", 1.0),
+    ):
+        if key in value:
+            target = key[:-3] if key.endswith("_au") else (
+                "mode_effective_charges" if key == "mode_effective_charges_e_per_sqrt_amu"
+                else "oscillator_strengths")
+            out[target] = None if value[key] is None else np.asarray(value[key], dtype=float) * factor
+    return out
+
+
+def _crystal_relax_options(options):
+    options = dict(options)
+    for key, factor in (("force_tolerance", _FORCE), ("stress_tolerance", _THIRD),
+                        ("target_pressure", _THIRD), ("max_atom_step", _LENGTH),
+                        ("stability_tolerance", _HESSIAN)):
+        if key in options:
+            options[key] = float(options[key]) / factor
+    return options
 
 
 class GFN1RSCalculator(Calculator):
@@ -337,6 +407,21 @@ class GFN1RSCalculator(Calculator):
         # magnetic methods use the node-correct GFN1-xTB-M1 kinetic-energy
         # correction; None selects single-basis M0.
         "m1_basis_path": None,
+        "solvation_model": None,
+        "solvent": None,
+        "solvent_state": "gsolv",
+        "solvent_temperature": 298.15,
+        "solvent_grid": 230,
+        "ml_model_path": None,
+        "pbc_ao_cutoff": None,
+        "log_file": None,
+        "log_level": "info",
+        "log_console": False,
+        "threads": None,
+        "memory_mb": None,
+        "cp_tolerance": None,
+        "cp_relative_tolerance": None,
+        "cp_max_iter": None,
     }
 
     def __init__(
@@ -428,6 +513,11 @@ class GFN1RSCalculator(Calculator):
         }
         self.results["native_converged"] = bool(result.converged)
         self.results["native_iterations"] = int(result.iterations)
+        self.results["method_citations"] = list(getattr(result, "method_citations", []))
+        self.results["calculation_id"] = getattr(result, "calculation_id", None)
+        if hasattr(result, "solvation_metadata"):
+            self.results["solvation_metadata"] = result.solvation_metadata()
+        self.results["ml_model_sha256"] = getattr(result, "ml_model_sha256", None)
         forces_au = _forces_hartree_per_bohr(result)
         if forces_au is not None:
             self.results["native_forces_hartree_per_bohr"] = forces_au
@@ -496,6 +586,21 @@ class GFN1RSCalculator(Calculator):
         param_path = p.param_path or default_param_path()
         param_arg = param_path if str(param_path).startswith("builtin") else str(Path(param_path))
         native = Gfn1NativeCalculator(
+            threads=p.threads,
+            memory_mb=p.memory_mb,
+            cp_tolerance=p.cp_tolerance,
+            cp_relative_tolerance=p.cp_relative_tolerance,
+            cp_max_iter=p.cp_max_iter,
+            log_file=p.log_file,
+            log_level=p.log_level,
+            log_console=bool(p.log_console),
+            solvation_model=p.solvation_model,
+            solvent=p.solvent,
+            solvent_state=p.solvent_state,
+            solvent_temperature=float(p.solvent_temperature),
+            solvent_grid=int(p.solvent_grid),
+            ml_model_path=p.ml_model_path,
+            pbc_ao_cutoff=p.pbc_ao_cutoff,
             param_path=param_arg,
             charge=float(p.charge),
             multiplicity=None if p.multiplicity is None else int(p.multiplicity),
@@ -556,6 +661,8 @@ class GFN1RSCalculator(Calculator):
             camm_preset=p.camm_preset,
         )
         _logger.info("gfn1-rs parameters: %s", native.param_source())
+        if native.ml_model_source() is not None:
+            _logger.info("gfn1-rs ML model: %s", native.ml_model_source())
         return native
 
     def _numbers_positions(self, atoms):
@@ -567,6 +674,253 @@ class GFN1RSCalculator(Calculator):
         numbers = atoms.get_atomic_numbers().astype(np.uint8).tolist()
         positions = np.asarray(atoms.get_positions(), dtype=float).tolist()
         return numbers, positions
+
+    def get_phonons_commensurate(self, repetitions, qpoints, atoms=None, memory_budget_bytes=536870912, max_atoms=128,
+                               zeta_hartree=None, parameter_provenance=None):
+        """Analytic-supercell finite-q phonons, reciprocal fractional q, cm^-1."""
+        selected = self.atoms if atoms is None else atoms
+        if selected is None:
+            raise RuntimeError("no ASE Atoms supplied")
+        return self._native.phonons_commensurate(
+            numbers=selected.get_atomic_numbers().tolist(),
+            positions=selected.get_positions().tolist(), cell=selected.get_cell().tolist(),
+            pbc=tuple(bool(x) for x in selected.get_pbc()), unit="angstrom",
+            repetitions=tuple(repetitions), qpoints=[tuple(q) for q in qpoints],
+            masses_amu=selected.get_masses().tolist(), memory_budget_bytes=memory_budget_bytes,
+            max_atoms=max_atoms,
+            zeta_hartree=zeta_hartree, parameter_provenance=parameter_provenance,
+        )
+
+    def _crystal_arguments(self, atoms=None, kmesh=None, gamma_centered=False):
+        selected = self.atoms if atoms is None else atoms
+        if selected is None:
+            raise RuntimeError("no ASE Atoms supplied")
+        if not any(selected.get_pbc()):
+            raise ValueError("crystal properties require periodic Atoms")
+        mesh = self.parameters.kgrid if kmesh is None else kmesh
+        args = dict(numbers=selected.get_atomic_numbers().tolist(),
+                    positions=selected.get_positions().tolist(),
+                    cell=selected.get_cell().tolist(), unit="angstrom",
+                    pbc=tuple(bool(p) for p in selected.get_pbc()),
+                    kmesh=None if mesh is None else tuple(int(k) for k in mesh),
+                    gamma_centered=bool(gamma_centered))
+        return selected, args
+
+    def get_phonon_mesh(self, repetitions, atoms=None, memory_budget_bytes=536870912, max_atoms=128):
+        """Analytic Gamma-supercell reference and its full commensurate q mesh."""
+        if self.parameters.kgrid is not None and tuple(self.parameters.kgrid) != (1, 1, 1):
+            raise ValueError("phonon_mesh uses Gamma of its supercell; use kgrid=None or (1,1,1) for this calculator")
+        selected, args = self._crystal_arguments(atoms)
+        args.pop("kmesh")
+        args.pop("gamma_centered")
+        out = self._native.phonon_mesh(**args, repetitions=tuple(repetitions),
+            masses_amu=selected.get_masses().tolist(), memory_budget_bytes=memory_budget_bytes,
+            max_atoms=max_atoms)
+        return _crystal_ase_units(out)
+
+    def get_phonon_dos(self, wavenumbers_cm1, weights, grid_cm1, sigma_cm1=10.0):
+        """Signed phonon DOS in states/(cm^-1 primitive cell)."""
+        return self._native.phonon_dos(np.asarray(wavenumbers_cm1).tolist(),
+            np.asarray(weights).tolist(), np.asarray(grid_cm1).tolist(), sigma_cm1=sigma_cm1)
+
+    def get_harmonic_thermodynamics(self, wavenumbers_cm1, weights, temperatures_kelvin, zero_tolerance_cm1=1e-3):
+        """Vibrational energies in eV/cell, entropy and Cv in eV/(K cell)."""
+        out = self._native.harmonic_thermodynamics(np.asarray(wavenumbers_cm1).tolist(),
+            np.asarray(weights).tolist(), np.asarray(temperatures_kelvin).tolist(),
+            zero_tolerance_cm1=zero_tolerance_cm1)
+        return _crystal_ase_units(out)
+
+    def get_band_structure(self, kpoints, atoms=None, kmesh=None, gamma_centered=False):
+        """Fixed-SCC model bands; path and reference electronic mesh are separate."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.band_structure(**args,
+            kpoints=[tuple(float(x) for x in k) for k in kpoints]))
+
+    def get_electronic_dos(self, energies, weights, grid_ev, sigma_ev=0.1):
+        """Electronic DOS from ASE-unit (eV) bands, with spin degeneracy two."""
+        return self._native.electronic_dos(np.asarray(energies).tolist(),
+            np.asarray(weights).tolist(), np.asarray(grid_ev).tolist(), sigma_ev=sigma_ev, energy_unit="ev")
+
+    def get_quasiharmonic_zero_pressure(self, volumes, static_energies,
+                                      phonons_by_volume_cm1, q_weights, temperatures_kelvin,
+                                      zero_tolerance_cm1=1e-3):
+        """QHA: input volumes Angstrom³ and static energies eV per primitive cell."""
+        out = self._native.quasiharmonic_zero_pressure(
+            (np.asarray(volumes)/_LENGTH**3).tolist(),
+            (np.asarray(static_energies)/_ENERGY).tolist(),
+            np.asarray(phonons_by_volume_cm1).tolist(), np.asarray(q_weights).tolist(),
+            np.asarray(temperatures_kelvin).tolist(), zero_tolerance_cm1=zero_tolerance_cm1)
+        return _crystal_ase_units(out)
+
+    def get_relax_periodic(self, atoms=None, kmesh=None, gamma_centered=False, update_atoms=False, **options):
+        """Analytic periodic relaxation; optional tolerances/steps use ASE units."""
+        selected, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        out = _crystal_ase_units(self._native.relax_periodic(**args, **_crystal_relax_options(options)))
+        if update_atoms:
+            if not out["converged"]:
+                raise ValueError("periodic relaxation did not converge; inspect termination before updating Atoms")
+            selected.set_cell(out["cell"], scale_atoms=False)
+            selected.set_positions(out["positions"])
+        return out
+
+    def get_equation_of_state(self, volume_ratios, atoms=None, kmesh=None, gamma_centered=False, **options):
+        """EOS sampling with energies eV and volumes Angstrom³; named raw keys retained."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.equation_of_state(**args,
+            volume_ratios=np.asarray(volume_ratios).tolist(), **_crystal_relax_options(options)))
+
+    def get_fit_equation_of_state(self, volumes, energies):
+        """Fit BM3 to Angstrom³/eV samples."""
+        return _crystal_ase_units(self._native.fit_equation_of_state(
+            (np.asarray(volumes)/_LENGTH**3).tolist(), (np.asarray(energies)/_ENERGY).tolist()))
+
+    def get_elastic_constants(self, atoms=None, kmesh=None, gamma_centered=False, **options):
+        """Analytic clamped/relaxed material stiffness in eV/Angstrom³."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.elastic_constants(**args, **_crystal_relax_options(options)))
+
+    def get_berry_polarization(self, atoms=None, kmesh=None, gamma_centered=True):
+        """Bulk Berry polarization in e/Angstrom², with explicit raw a.u./SI keys."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.berry_polarization(**args))
+
+    def get_born_effective_charges(self, atoms=None, kmesh=None, gamma_centered=True):
+        """Analytic Z* in e and proper clamped e in e/Angstrom²; raw/SI retained."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.born_effective_charges(**args))
+
+    def get_dielectric_tensor(self, atoms=None, kmesh=None, gamma_centered=True):
+        """Dimensionless electronic relative dielectric from Berry electric enthalpy."""
+        _, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        return _crystal_ase_units(self._native.dielectric_tensor(**args))
+
+    def get_electromechanical_response(self, atoms=None, kmesh=None, gamma_centered=True,
+                                     masses_amu=None, **options):
+        """Same-SCC analytic C/Z*/proper e/epsilon/IR; ASE-unit tolerances.
+
+        Absent relaxed/d/free-stress results and their physical rejection
+        reasons are preserved. This does not impose equilibrium or symmetry.
+        zero_curvature_tolerance is eV/Angstrom²/amu and zero_stress_tolerance
+        is eV/Angstrom³; force/stability tolerances follow elastic_constants.
+        """
+        selected, args = self._crystal_arguments(atoms, kmesh, gamma_centered)
+        controls = _crystal_relax_options(options)
+        for key, factor in (("zero_curvature_tolerance", _HESSIAN),
+                            ("zero_stress_tolerance", _THIRD)):
+            if key in controls:
+                controls[key] = float(controls[key]) / factor
+        masses = selected.get_masses() if masses_amu is None else masses_amu
+        out = self._native.electromechanical_response(**args,
+            masses_amu=np.asarray(masses).tolist(), **controls)
+        return _crystal_ase_units(out)
+
+    def get_polar_mode_properties(self, hessian, born_effective_charges, masses_amu,
+                                 volume, zero_tolerance=1e-10 * _HESSIAN):
+        """IR/ionic epsilon from Hessian eV/Angstrom², Z* e, volume Angstrom³.
+
+        Mode charges use e/sqrt(amu), oscillator tensors e²/amu, frequencies
+        cm^-1. Imaginary/charged zero modes retain the native diagnostic.
+        """
+        out = self._native.polar_mode_properties(
+            (np.asarray(hessian) / _HESSIAN).tolist(),
+            np.asarray(born_effective_charges).tolist(),
+            np.asarray(masses_amu).tolist(), float(volume) / _LENGTH**3,
+            zero_tolerance=float(zero_tolerance) / _HESSIAN)
+        return _crystal_ase_units(out)
+
+    def get_lo_to_modes(self, hessian, born_effective_charges, dielectric, volume,
+                        masses_amu, direction):
+        """Directional Gamma limit; Hessian eV/Angstrom² and volume Angstrom³.
+
+        Explicit Z* (e), electronic relative dielectric, isotope masses (amu)
+        and a Cartesian direction are required. No empirical values inferred.
+        """
+        out = self._native.lo_to_modes((np.asarray(hessian) / _HESSIAN).tolist(),
+            np.asarray(born_effective_charges).tolist(), np.asarray(dielectric).tolist(),
+            float(volume) / _LENGTH**3, np.asarray(masses_amu).tolist(),
+            tuple(float(x) for x in direction))
+        return _crystal_ase_units(out)
+
+    def fine_tune_properties(self, dataset, settings, output_model="trained.model"):
+        """Warm-start native property fitting; dataset's explicit units govern.
+
+        This runs Rust in process and saves a new model. Attached Atoms and
+        ASE units do not replace dataset conditions; this calculator continues
+        to use its original weights until the saved model is explicitly loaded.
+        """
+        return self._native.fine_tune_properties(dataset, settings, output_model=str(output_model))
+
+    def property_training_observables(self):
+        """Native property-target registry with mandatory explicit label units."""
+        return self._native.property_training_observables()
+
+    def get_elastic_properties(self, stiffness, density_kg_m3):
+        """VRH moduli/compliance from stiffness in eV/Angstrom³ and SI density."""
+        out = self._native.elastic_properties((np.asarray(stiffness)/_THIRD).tolist(), density_kg_m3)
+        return _crystal_ase_units(out)
+
+    def get_directional_elastic_properties(self, stiffness, density_kg_m3, direction, transverse):
+        """Directional E/G/nu and Christoffel sound velocities; stiffness eV/Angstrom³."""
+        out = self._native.directional_elastic_properties((np.asarray(stiffness)/_THIRD).tolist(),
+            density_kg_m3, tuple(float(x) for x in direction), tuple(float(x) for x in transverse))
+        return _crystal_ase_units(out)
+
+    def get_molecular_vibrations(self, atoms=None):
+        """Eckart-projected modes using the Atoms object's isotope masses."""
+        selected = self.atoms if atoms is None else atoms
+        numbers, positions = self._numbers_positions(selected)
+        return self._native.molecular_vibrations(
+            numbers=numbers, positions=positions, unit="angstrom",
+            masses_amu=selected.get_masses().tolist(),
+        )
+
+    def get_vpt2_pes(self, atoms=None, gradient_tolerance=1e-5, resonance_threshold_cm1=10.0):
+        """PES-only VPT2; stationary minimum required. Wavenumbers in cm^-1."""
+        selected = self.atoms if atoms is None else atoms
+        numbers, positions = self._numbers_positions(selected)
+        out = self._native.vpt2_pes(
+            numbers=numbers, positions=positions, unit="angstrom",
+            masses_amu=selected.get_masses().tolist(), gradient_tolerance=gradient_tolerance,
+            resonance_threshold_cm1=resonance_threshold_cm1,
+        )
+        out["zpe"] = out["zpe_hartree"] * _ENERGY
+        return out
+
+    def get_soc(self, zeta_hartree, parameter_provenance, atoms=None, compute_forces=True, compute_response=False,
+                compute_stress=False, compute_hessian=False):
+        """Explicit-zeta L.S spinor calculation. Unsuffixed energy/forces use ASE units."""
+        selected = self.atoms if atoms is None else atoms
+        if selected is None:
+            raise RuntimeError("no ASE Atoms supplied")
+        if any(selected.get_pbc()):
+            if compute_response:
+                raise ValueError("periodic SOC macroscopic electric response is not implemented")
+            out = self._native.soc_calculate_periodic(
+                numbers=selected.get_atomic_numbers().tolist(), positions=selected.get_positions().tolist(),
+                cell=selected.get_cell().tolist(), pbc=tuple(bool(x) for x in selected.get_pbc()),
+                kgrid=None if self.parameters.kgrid is None else tuple(self.parameters.kgrid),
+                zeta_hartree=zeta_hartree, parameter_provenance=parameter_provenance, unit="angstrom",
+                compute_forces=compute_forces, compute_stress=compute_stress, compute_hessian=compute_hessian,
+            )
+        else:
+            if compute_stress or compute_hessian:
+                raise ValueError("molecular SOC stress/Hessian are not implemented")
+            numbers, positions = self._numbers_positions(selected)
+            out = self._native.soc_calculate(
+                numbers=numbers, positions=positions, zeta_hartree=zeta_hartree,
+                parameter_provenance=parameter_provenance, unit="angstrom",
+                compute_forces=compute_forces, compute_response=compute_response,
+            )
+        out["energy"] = out["energy_hartree"] * _ENERGY
+        if "gradient_hartree_per_bohr" in out:
+            out["forces"] = -np.asarray(out["gradient_hartree_per_bohr"]) * _FORCE
+        if "polarizability_au" in out:
+            out["polarizability"] = np.asarray(out["polarizability_au"]) * _POLARIZABILITY
+        if "stress_hartree_per_bohr3" in out:
+            out["stress"] = np.asarray(out["stress_hartree_per_bohr3"]) * _THIRD
+        if "hessian_hartree_per_bohr2" in out:
+            out["hessian"] = np.asarray(out["hessian_hartree_per_bohr2"]) * _HESSIAN
+        return out
 
     def get_dipole_au(self, atoms=None):
         """Mulliken dipole moment in **atomic units** (e*bohr) as a length-3 array.
@@ -638,7 +992,7 @@ class GFN1RSCalculator(Calculator):
             origin=_origin_bohr(origin),
         )
 
-    def get_hessian(self, atoms=None):
+    def get_hessian(self, atoms=None, gamma_centered=False):
         """Analytic nuclear Hessian ``d^2E/dR_a dR_b`` as a ``(3N, 3N)`` numpy array
         in **eV/Angstrom**\\ :sup:`2` (ASE units), atom-major Cartesian ordering.
         Fully analytic (no finite differences) -- the same Hessian used internally by
@@ -665,6 +1019,7 @@ class GFN1RSCalculator(Calculator):
                 pbc=tuple(bool(p) for p in atoms.get_pbc()),
                 kgrid=None if kgrid is None else tuple(int(k) for k in kgrid),
                 unit="angstrom",
+                gamma_centered=bool(gamma_centered),
             )
         else:
             h = self._native.hessian(numbers=numbers, positions=positions, unit="angstrom")
@@ -706,20 +1061,39 @@ class GFN1RSCalculator(Calculator):
         )
         return np.asarray(k, dtype=float) * _THIRD
 
-    def get_third_derivative(self, atoms=None):
-        """Strict **closed-form** nuclear third derivative (cubic force constants)
-        ``T_abc = d^3E/dR_a dR_b dR_c``. Returns a numpy array of shape ``(3N, 3N, 3N)``
-        indexed ``T[c, a, b]`` in **eV/Angstrom**\\ :sup:`3` (ASE units), fully analytic
-        -- no finite differences. Non-periodic. For best accuracy construct the
-        calculator with a tight SCF (small ``energy_tolerance`` /
-        ``charge_tolerance``). The cheaper directional
-        :meth:`get_third_derivative_along` reuses just two analytic-Hessian evaluations.
-        """
+    def get_third_derivative(
+        self, atoms=None, *, disk_storage=False, output_path=None,
+        memory_budget_bytes=None, kmesh=None,
+    ):
+        """Analytic Cartesian FC3 in ASE units or a packed file in native units."""
+        atoms = self.atoms if atoms is None else atoms
         numbers, positions = self._numbers_positions(atoms)
-        slabs = self._native.third_derivative(
-            numbers=numbers, positions=positions, unit="angstrom"
+        periodic = {}
+        if any(atoms.get_pbc()):
+            periodic["cell"] = np.asarray(atoms.get_cell(), dtype=float).tolist()
+            periodic["pbc"] = tuple(bool(x) for x in atoms.get_pbc())
+            periodic["kmesh"] = kmesh
+        out = self._native.third_derivative(
+            numbers=numbers, positions=positions, unit="angstrom",
+            disk_storage=disk_storage, output_path=output_path,
+            memory_budget_bytes=memory_budget_bytes, **periodic,
         )
-        return np.asarray(slabs, dtype=float) * _THIRD
+        return out if disk_storage else np.asarray(out, dtype=float) * _THIRD
+
+    def get_fourth_derivative(
+        self, atoms=None, *, disk_storage=False, output_path=None, memory_budget_bytes=None,
+    ):
+        """Analytic molecular FC4 in ASE units or a packed file in native units."""
+        atoms = self.atoms if atoms is None else atoms
+        numbers, positions = self._numbers_positions(atoms)
+        if any(atoms.get_pbc()):
+            raise ValueError("analytic Cartesian FC4 requires a molecule")
+        out = self._native.fourth_derivative(
+            numbers=numbers, positions=positions, unit="angstrom",
+            disk_storage=disk_storage, output_path=output_path,
+            memory_budget_bytes=memory_budget_bytes,
+        )
+        return out if disk_storage else np.asarray(out, dtype=float) * _FOURTH
 
     def get_third_derivative_vector(self, direction, atoms=None):
         """Closed-form **Vector mode** of the cubic force constants: the directional third derivative
@@ -774,9 +1148,8 @@ class GFN1RSCalculator(Calculator):
           ``~C(3N+2, 3)`` directional evaluations, so prefer a direction or a block).
 
         Units: **eV/Angstrom**\\ :sup:`3` (ASE units) in every mode, for a dimensionless
-        ``direction``. Non-periodic. An exactly degenerate *fractionally occupied* reference is
-        rejected by the second-order charge-space solver -- use
-        :meth:`get_third_derivative_along` there.
+        ``direction``. Non-periodic. Exactly degenerate fractionally occupied references are supported
+        by the spectral charge-space response.
         """
         if direction is not None and dofs is not None:
             raise ValueError("get_third_derivative_finite_t: pass direction or dofs, not both")
@@ -812,13 +1185,13 @@ class GFN1RSCalculator(Calculator):
         ``method`` selects the algorithm:
 
         * ``"analytic"`` (default) -- one SCF, one CPXTB solve and two charge-space solves along
-          ``v``, then the five gated stages summed; no finite differences. Requires **integer**
-          occupations and analytic order 4 for every active term (``multipole=True`` blocks it);
-          both guards raise ``ValueError``.
+          ``v``; no finite differences. Positive temperature selects the analytic
+          free-energy quartic, including exact fractional degeneracy. Every active term
+          must support analytic order 4 (``multipole=True`` blocks it).
         * ``"seminumerical"`` (aliases ``"fd"``, ``"semi_numerical"``) -- the central finite
           difference of the analytic *third* derivative along ``v``, with everything reconverged
           at ``R +/- step*v``. This is the verification reference of the analytic route and the
-          only one that runs on **Fermi-smeared** systems. ``step`` is the native displacement in
+          an independent check for **Fermi-smeared** systems. ``step`` is the native displacement in
           **bohr** (``1e-3`` is a good default).
 
         Non-periodic. For the full tensor use ``calc._native.fourth_derivative(...)`` /
@@ -969,7 +1342,124 @@ class GFN1RSCalculator(Calculator):
             step=float(step),
         )
 
-    def get_tda(self, atoms=None, n_states=5, spin="singlet"):
+    def _fragment_result(self, method, fragments, atoms, options):
+        selected = self.atoms if atoms is None else atoms
+        if selected is None:
+            raise RuntimeError("no ASE Atoms supplied")
+        periodic = tuple(bool(x) for x in selected.get_pbc())
+        kwargs = dict(numbers=selected.get_atomic_numbers().tolist(),
+                      positions=selected.get_positions().tolist(),
+                      fragments=[list(f) for f in fragments], unit="angstrom", **options)
+        if any(periodic):
+            if not all(periodic):
+                raise ValueError("FMO/DC periodic extension requires fully 3D periodic boundary conditions")
+            if self.parameters.kgrid is not None and tuple(self.parameters.kgrid) != (1, 1, 1):
+                raise ValueError("FMO/DC supports Gamma sampling; use kgrid=(1,1,1)")
+            kwargs.update(cell=selected.get_cell().tolist())
+        out = getattr(self._native, method)(**kwargs)
+        out["total_free"] = out["total_free_hartree"] * _ENERGY
+        for key in ("gradient", "forces"):
+            raw = None if out[key] is None else np.asarray(out[key], dtype=float)
+            out[key + "_hartree_per_bohr"] = raw
+            out[key] = None if raw is None else raw * _FORCE
+        stress = None if out["stress"] is None else np.asarray(out["stress"], dtype=float)
+        out["stress_hartree_per_bohr3"] = stress
+        out["stress"] = None if stress is None else stress * _THIRD
+        return out
+
+    def get_fmo_xtb(self, fragments, atoms=None, **options):
+        """Native FMO2/FMO3 energy, analytic forces and periodic 3x3 stress.
+
+        Unsuffixed energy/derivatives use ASE units. Fragments and HOP cuts use
+        zero-based indices; fixed cut images are integer lattice translations.
+        This explicit property call does not change ordinary Atoms force caching.
+        """
+        return self._fragment_result("fmo_xtb", fragments, atoms, options)
+
+    def get_divide_and_conquer(self, fragments, atoms=None, **options):
+        """Native overlapping DC free energy and analytic derivatives, ASE units."""
+        return self._fragment_result("divide_and_conquer", fragments, atoms, options)
+
+    def get_stda_xtb(self, atoms=None, **options):
+        """Complete native Rust sTDA-xTB spectrum. Energies in eV/Hartree as named."""
+        numbers, positions = self._numbers_positions(atoms)
+        return self._native.stda_xtb(numbers, positions, unit="angstrom", **options)
+
+    def get_stda_xtb_gradient(self, atoms=None, state=0, **options):
+        """Analytic GFN1+sTDA-xTB PES gradient; unsuffixed values use ASE units.
+
+        ``excitation_gradient`` differentiates only the sTDA excitation energy;
+        ``gradient`` and ``forces`` include the GFN1 reference free energy.
+        """
+        numbers, positions = self._numbers_positions(atoms)
+        out = self._native.stda_xtb_gradient(numbers, positions, unit="angstrom", state=state, **options)
+        out = _to_ase_gradient_dict(out, energy_keys=(
+            ("total_energy_hartree", "total_energy"),
+            ("ground_energy_hartree", "ground_energy"),
+            ("excitation_energy_hartree", "excitation_energy"),
+        ))
+        out["excitation_gradient_hartree_per_bohr"] = np.asarray(out["excitation_gradient"])
+        out["excitation_gradient"] = out["excitation_gradient_hartree_per_bohr"] * _FORCE
+        return out
+
+    def _excited_hessian_result(self, method, atoms, state, options):
+        atoms = self.atoms if atoms is None else atoms
+        if atoms is None:
+            raise RuntimeError("no ASE Atoms object supplied or attached")
+        if any(atoms.get_pbc()):
+            raise ValueError("analytic excited-state Hessians currently require a molecule")
+        numbers, positions = self._numbers_positions(atoms)
+        out = dict(getattr(self._native, method)(numbers, positions, unit="angstrom", state=state, **options))
+        for name in ("total_energy", "ground_energy", "excitation_energy"):
+            out[name] = out[name + "_hartree"] * _ENERGY
+        for name in ("hessian", "ground_hessian", "excitation_hessian"):
+            raw_name = name + "_hartree_per_bohr2"
+            out[raw_name] = np.asarray(out[raw_name], dtype=float)
+            out[name] = out[raw_name] * _HESSIAN
+        return out
+
+    def get_tda_hessian(self, atoms=None, state=0, **options):
+        """Analytic molecular TD-GFN1 total excited-state Hessian, eV/angstrom².
+
+        The dictionary also contains ground/excitation Hessians and their
+        suffixed native Hartree/bohr² values. The state index is zero based.
+        Set ``manifold_average=True`` to differentiate the mean surface.
+        """
+        return self._excited_hessian_result("tda_hessian", atoms, state, options)
+
+    def get_stda_xtb_hessian(self, atoms=None, state=0, **options):
+        """Analytic GFN1-free-energy plus sTDA-excitation Hessian, eV/angstrom²."""
+        return self._excited_hessian_result("stda_xtb_hessian", atoms, state, options)
+
+    def get_rpa(self, atoms=None, **options):
+        """Molecular full-TD spectrum with explicitly named energy units."""
+        atoms = self.atoms if atoms is None else atoms
+        if atoms is None:
+            raise RuntimeError("no ASE Atoms object supplied or attached")
+        if any(atoms.get_pbc()):
+            raise ValueError("molecular RPA requires a molecule")
+        numbers, positions = self._numbers_positions(atoms)
+        return self._native.rpa(numbers, positions, unit="angstrom", **options)
+
+    def get_rpa_gradient(self, atoms=None, state=0, **options):
+        """Analytic molecular full-TD gradient, in ASE units."""
+        atoms = self.atoms if atoms is None else atoms
+        if atoms is None:
+            raise RuntimeError("no ASE Atoms object supplied or attached")
+        if any(atoms.get_pbc()):
+            raise ValueError("molecular RPA requires a molecule")
+        numbers, positions = self._numbers_positions(atoms)
+        out = self._native.rpa_gradient(numbers, positions, unit="angstrom", state=state, **options)
+        return _to_ase_gradient_dict(out, energy_keys=(
+            ("total_energy_hartree", "total_energy"),
+            ("excitation_energy_hartree", "excitation_energy"),
+        ))
+
+    def get_rpa_hessian(self, atoms=None, state=0, **options):
+        """Analytic molecular full-TD Hessian, in eV/angstrom²."""
+        return self._excited_hessian_result("rpa_hessian", atoms, state, options)
+
+    def get_tda(self, atoms=None, n_states=5, spin="singlet", transition_dipole="mulliken"):
         """TD-GFN1 (TDA) excited states (non-periodic).
 
         Returns a dict with ``excitation_energies_ev`` (**eV**),
@@ -984,11 +1474,12 @@ class GFN1RSCalculator(Calculator):
             unit="angstrom",
             n_states=int(n_states),
             spin=str(spin),
+            transition_dipole=str(transition_dipole),
         )
 
     def get_tda_gradient(
         self, atoms=None, state=0, n_states=5, spin="singlet", step=1.0e-3,
-        method="semi_numerical",
+        method="analytic", *, manifold_average=False,
     ):
         """TD-GFN1 excited-state gradient of the given state, in **ASE units**.
 
@@ -998,13 +1489,11 @@ class GFN1RSCalculator(Calculator):
         ``gradient_hartree_per_bohr`` and ``forces_hartree_per_bohr``. ``step`` is
         the native finite-difference displacement in **bohr**.
 
-        ``method`` selects the algorithm: ``"semi_numerical"`` (default) =
-        analytic ground gradient + finite difference of the frozen-amplitude
-        excitation energy (recommended; exact for a tracked state, non-periodic);
-        ``"fd"`` = full finite difference with root tracking (robust across state
-        crossings; the only option for periodic Gamma-point cells); ``"analytic"``
-        = experimental Z-vector/Lagrangian gradient (~7e-3). Periodic Atoms
-        automatically fall back to ``"fd"``."""
+        The default ``"analytic"`` uses direct SCC response.
+        ``"semi_numerical"`` adds a numerical excitation derivative to the
+        analytic ground gradient. ``"fd"`` differences the total energy.
+        All three methods support molecules and periodic Gamma. Set
+        ``manifold_average=True`` to differentiate a degenerate manifold's mean surface."""
         atoms = self.atoms if atoms is None else atoms
         if atoms is None:
             raise RuntimeError("no ASE Atoms object supplied or attached")
@@ -1019,6 +1508,7 @@ class GFN1RSCalculator(Calculator):
             spin=str(spin),
             step=float(step),
             method=str(method),
+            manifold_average=bool(manifold_average),
         )
         if any(atoms.get_pbc()):
             kwargs["cell"] = np.asarray(atoms.get_cell(), dtype=float).tolist()
@@ -1226,10 +1716,10 @@ class GFN1RSCalculator(Calculator):
         )
 
     def get_mcd(self, atoms=None, e_step=0.002, b_step=0.01, m1_basis_path=None):
-        """Faraday/MCD tensor ``d alpha_ij / d B_k`` (atomic units) as a ``(3, 3, 3)``
-        array indexed ``[k, i, j]``. NOTE: identically zero in the GFN1 monopole model
-        (``dq/dB = 0``); it is the correct general raw ``d alpha/d B`` tensor and would
-        be nonzero for a length-gauge (dipole-coupled) model — see ``get_lao_dipole``.
+        """Static ``d alpha_ij / d B_k`` (atomic units) as a ``(3, 3, 3)``
+        array indexed ``[k, i, j]``. This legacy-named API vanishes at zero field
+        for a time-reversal-symmetric closed shell, including a length-gauge
+        dipole model. It does not calculate frequency-dependent optical MCD/Faraday.
         **Atomic units** throughout (a magnetic-field derivative has no ASE unit).
         Set ``m1_basis_path`` (or the calculator parameter) for M1. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
@@ -1265,7 +1755,7 @@ class GFN1RSCalculator(Calculator):
     def get_lao_dipole(self, atoms=None, b_field=(0.0, 0.0, 0.0)):
         """Raw London (GIAO) electric-dipole AO integral matrices
         ``D_c(B)_{mu nu} = <om_mu|(r_c - O)|om_nu>`` in a uniform magnetic field
-        ``b_field`` (atomic units) — the length-gauge dipole behind MCD/optical rotation.
+        ``b_field`` (atomic units). These are raw integrals, not an optical MCD solver.
         Returns ``(re, im)`` as two ``(3, nAO, nAO)`` arrays (real, Hermitian at
         ``B = 0``). Raw AO integrals, so **atomic units** throughout. Non-periodic."""
         numbers, positions = self._numbers_positions(atoms)
@@ -1280,7 +1770,8 @@ class GFN1RSCalculator(Calculator):
     def get_magnetic_forces(self, b_field, atoms=None, step=1.0e-3, analytic=True, m1_basis_path=None):
         """Nuclear gradient/forces of the magnetic (GFN1-xTB-M) energy in a uniform
         field ``b_field`` (atomic units). ``analytic=True`` (default) uses the
-        Hellmann-Feynman analytic gradient (one SCC + cheap integral derivatives);
+        stationary-density contraction with finite-differenced integral and
+        fixed-charge builders (one SCC; not fully analytic integral derivatives);
         ``analytic=False`` uses the slower 6N+1-SCC finite difference (``step`` is its
         displacement, in **bohr**). Set ``m1_basis_path`` (or the calculator parameter)
         for GFN1-xTB-M1 forces (requires ``analytic=True``).

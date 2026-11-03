@@ -67,8 +67,25 @@ pub fn pbc_analytic_gradient(
     options: &ElectronicOptions,
     pbc: &PbcOptions,
 ) -> Result<PbcGradientResult> {
-    let scf = run_pbc_scc(system, params, options, pbc)?;
-    pbc_gradient_from_scc(system, params, scf, options, pbc)
+    let span = options
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "periodic_analytic_gradient",
+                serde_json::json!({"atoms":system.atoms.len(),"kmesh":pbc.kmesh.size}),
+            )
+        })
+        .transpose()?;
+    let result = (|| {
+        let scf = run_pbc_scc(system, params, options, pbc)?;
+        pbc_gradient_from_scc(system, params, scf, options, pbc)
+    })();
+    crate::logging::finish(
+        span,
+        result,
+        |g| serde_json::json!({"total_free_hartree":g.total_energy,"max_gradient_hartree_per_bohr":g.max_gradient}),
+    )
 }
 
 /// Compute the analytic gradient from an existing converged periodic SCC result.
@@ -135,6 +152,14 @@ pub fn pbc_gradient_from_scc(
         let mp = multipole_gradient_terms_pbc(system, params, &scf, pbc)?;
         for atom in 0..nat {
             gradient[atom] += mp[atom];
+        }
+    }
+
+    if let Some(view) = &scf.ml_parameters {
+        let sensitivity = crate::pbc::ml::level_sensitivities(system, params, &scf)?;
+        let chain = view.gradient(&sensitivity)?;
+        for (gradient, extra) in gradient.iter_mut().zip(chain) {
+            *gradient += extra;
         }
     }
 

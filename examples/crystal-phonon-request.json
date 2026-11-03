@@ -1,0 +1,40 @@
+{
+  "schema": "gfn1-rs-crystal-properties-v1",
+  "geometry": {
+    "numbers": [6, 6],
+    "positions": [[0, 0, 0], [0.89175, 0.89175, 0.89175]],
+    "cell": [[0, 1.7835, 1.7835], [1.7835, 0, 1.7835], [1.7835, 1.7835, 0]],
+    "coordinate_units": "angstrom",
+    "charge": 0
+  },
+  "electronic": {
+    "temperature_kelvin": 300,
+    "energy_tolerance_hartree": 1e-13,
+    "charge_tolerance": 1e-11,
+    "max_scc": 1000
+  },
+  "periodic": {"kmesh": [1, 1, 1], "gamma_centered": true, "fold_time_reversal": false, "ao_cutoff_bohr": 30},
+  "tasks": [
+    {"id": "phonons", "operation": "phonon_mesh", "arguments": {"repetitions": [1, 1, 1], "masses_amu": [12, 12]}},
+    {
+      "id": "thermal",
+      "operation": "harmonic_thermodynamics",
+      "arguments": {
+        "wavenumbers_cm1": {"$ref": "phonons#/wavenumbers_cm1"},
+        "weights": {"$ref": "phonons#/weights"},
+        "temperatures_kelvin": [0, 100, 300, 600]
+      }
+    },
+    {"id": "integration_bands", "operation": "band_structure", "arguments": {"sampling_mesh": [2, 2, 2]}},
+    {
+      "id": "electronic_dos",
+      "operation": "electronic_dos",
+      "arguments": {
+        "energies_hartree": {"$ref": "integration_bands#/energies_hartree"},
+        "weights": {"$ref": "integration_bands#/integration_weights"},
+        "grid_ev": [-60, -58, -56, -54, -52, -50, -48, -46, -44, -42, -40, -38, -36, -34, -32, -30, -28, -26, -24, -22, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40],
+        "sigma_ev": 1
+      }
+    }
+  ]
+}

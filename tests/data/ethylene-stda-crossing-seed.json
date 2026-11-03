@@ -1,0 +1,47 @@
+{
+  "schema": "gfn1-rs-geometry-seed-v1",
+  "numbers": [
+    6,
+    6,
+    1,
+    1,
+    1,
+    1
+  ],
+  "positions_angstrom": [
+    [
+      -0.656276931249393,
+      -0.0014381932370188645,
+      0.00028019184713072484
+    ],
+    [
+      0.6561572296717465,
+      0.0008368155434256685,
+      0.0007595366033285756
+    ],
+    [
+      -1.2115347333722934,
+      -0.733895534142124,
+      0.6040624159550562
+    ],
+    [
+      -1.2089607244650944,
+      0.7309100058644337,
+      -0.6044737092567047
+    ],
+    [
+      1.20954939803756,
+      -0.7298129996470526,
+      -0.6047220649312416
+    ],
+    [
+      1.2110657613774811,
+      0.733399905618321,
+      0.6040936297824363
+    ]
+  ],
+  "charge": 0,
+  "electronic_temperature_kelvin": 300.0,
+  "provenance": "Last accepted near-zero sTDA excitation from the unconstrained negative-mode trajectory; initial seed only, not a converged minimum",
+  "purpose": "Reproduce the explicitly defined uncoupled-composite crossing stationary point"
+}

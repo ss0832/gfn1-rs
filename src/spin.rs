@@ -63,7 +63,9 @@ use crate::error::{Gfn1Error, Result};
 use crate::field::mulliken_dipole;
 use crate::halogen::halogen_energy;
 use crate::hamiltonian::build_h0;
-use crate::linalg::{column_weighted_gram, lowdin_orthogonalizer, lowdin_solve_with_orthogonalizer, Matrix};
+use crate::linalg::{
+    column_weighted_gram, lowdin_orthogonalizer, lowdin_solve_with_orthogonalizer, Matrix,
+};
 use crate::params::{AngularMomentum, Gfn1Parameters};
 use crate::repulsion::repulsion_energy;
 use crate::system::PeriodicSystem;
@@ -170,7 +172,11 @@ impl<'a> SpinCammContext<'a> {
         atomic_charges: &[f64],
     ) -> crate::multipole::MultipoleEnergyFock {
         let moments = crate::multipole::camm_atomic_moments(
-            basis, nat, self.integrals, total_density, &self.pos,
+            basis,
+            nat,
+            self.integrals,
+            total_density,
+            &self.pos,
         );
         // Charge-dependent κ (if set): κ_A = κ₀/(1+γ Δq_A²), matching the restricted path.
         let dyn_kappa: Vec<f64>;
@@ -184,8 +190,16 @@ impl<'a> SpinCammContext<'a> {
             &self.kappa
         };
         crate::multipole::camm_aes_energy_fock(
-            basis, nat, &self.hardness, &self.pos, self.integrals, &moments, atomic_charges,
-            eff_kappa, self.scale, &self.onsite,
+            basis,
+            nat,
+            &self.hardness,
+            &self.pos,
+            self.integrals,
+            &moments,
+            atomic_charges,
+            eff_kappa,
+            self.scale,
+            &self.onsite,
         )
     }
 }
@@ -200,6 +214,11 @@ pub fn run_spin_polarized(
     params: &Gfn1Parameters,
     options: ElectronicOptions,
 ) -> Result<ElectronicResult> {
+    if options.solvation.is_some() || options.ml_model.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "spin + solvation has not been implemented/validated".into(),
+        ));
+    }
     if system.lattice.is_some() {
         return Err(Gfn1Error::InvalidInput(
             "spin-polarized GFN1 (spGFN1) is implemented for non-periodic systems only".to_string(),
@@ -314,7 +333,7 @@ fn spin_energy(magnetization: &[f64], spin_potential: &[f64]) -> f64 {
 
 /// Aufbau / Fermi occupations for a single spin channel holding `nelec`
 /// electrons (max 1 per orbital). Returns `(occupations, fermi_level, entropy)`.
-fn channel_occupations(eps: &[f64], nelec: f64, kt: f64) -> (Vec<f64>, f64, f64) {
+pub(crate) fn channel_occupations(eps: &[f64], nelec: f64, kt: f64) -> (Vec<f64>, f64, f64) {
     let n = eps.len();
     if nelec <= 0.0 {
         return (vec![0.0; n], eps.first().copied().unwrap_or(0.0), 0.0);
@@ -372,6 +391,7 @@ fn channel_occupations(eps: &[f64], nelec: f64, kt: f64) -> (Vec<f64>, f64, f64)
 /// density, shell populations (Mulliken population, *no* reference subtraction),
 /// occupations, eigenvalues, and the channel entropy term.
 struct ChannelStep {
+    kt: f64,
     density: Matrix,
     ew_density: Matrix,
     shell_population: Vec<f64>,
@@ -417,6 +437,7 @@ fn solve_channel(
         shell_population[ish] = pop;
     }
     Ok(ChannelStep {
+        kt,
         density,
         ew_density,
         shell_population,
@@ -445,12 +466,11 @@ fn onsite_shift_fock(overlap: &Matrix, aos: &[usize], alpha: f64) -> Matrix {
     g
 }
 
-/// Apply a virtual level shift to a channel Fock in place: `F += b·(S − ½ S P S)`,
+/// Apply a virtual level shift to a channel Fock in place: `F += b·(S − S P S)`,
 /// where `P` is the previous-iteration density for THIS channel. This raises the
 /// virtual orbital energies by `b` (leaving the occupied block unchanged at self
-/// consistency), lifting a collapsing HOMO–LUMO gap so the cold-Fermi occupations
-/// stop flipping. Mirrors the restricted driver's level-shift term in
-/// `electronic::build_scc_step`. A `None` previous density (first iteration) is a
+/// consistency), since max-1 channel occupations obey `P S P = P`. The restricted
+/// spin-summed projector instead contains `S P S / 2`. A `None` previous density is a
 /// no-op (no projector yet).
 fn apply_level_shift(fock: &mut Matrix, overlap: &Matrix, prev_density: Option<&Matrix>, b: f64) {
     if b == 0.0 {
@@ -471,7 +491,7 @@ fn apply_level_shift(fock: &mut Matrix, overlap: &Matrix, prev_density: Option<&
     let s = overlap.as_slice();
     let m = sps.as_slice();
     for idx in 0..f.len() {
-        f[idx] += b * (s[idx] - 0.5 * m[idx]);
+        f[idx] += b * (s[idx] - m[idx]);
     }
 }
 
@@ -597,8 +617,22 @@ fn spin_scc_loop(
             );
         }
         match spin_scc_loop_core(
-            basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, unpaired, options,
-            plus_u_sub, plus_u_pairs, perturbation, camm, rung,
+            basis,
+            overlap,
+            h0,
+            orth,
+            shell_model,
+            amat,
+            info,
+            n_alpha,
+            n_beta,
+            unpaired,
+            options,
+            plus_u_sub,
+            plus_u_pairs,
+            perturbation,
+            camm,
+            rung,
         ) {
             Ok((alpha, beta, converged, iterations)) => {
                 // Accept the first rung that converges to a finite result. A rung that ran out of
@@ -608,6 +642,9 @@ fn spin_scc_loop(
                     && alpha.density.as_slice().iter().all(|x| x.is_finite())
                     && beta.density.as_slice().iter().all(|x| x.is_finite());
                 if finite || attempt == ladder.len() - 1 {
+                    if options.hubbard_u_linear_response && (rung.kt - kt).abs() > 1e-15 {
+                        return Err(Gfn1Error::InvalidInput("spin linear response cannot silently change the electronic temperature on a fallback rung; specify the intended temperature explicitly".into()));
+                    }
                     return Ok((alpha, beta, converged, iterations));
                 }
             }
@@ -650,11 +687,29 @@ fn spin_scc_loop_core(
     let nat = shell_model.atom_offsets.len();
     let nsh = basis.shells.len();
     let plus_u_active = !plus_u_sub.is_empty();
-    let mut v_mixed = vec![0.0; 2 * nsh];
+    // +U and CAMM depend on density projections beyond shell populations.
+    // Mixing only q/m leaves those feedback channels completely undamped.
+    // Include both AO densities in the same fixed point and convergence test.
+    let mix_density = plus_u_active || camm.is_some();
+    let n2 = basis.len() * basis.len();
+    let dim = 2 * nsh + if mix_density { 2 * n2 } else { 0 };
+    let history = if mix_density {
+        options.scc_broyden_size.clamp(2, 20)
+    } else {
+        options.scc_broyden_size.max(2)
+    };
+    let bytes = dim
+        .checked_mul(history.saturating_mul(2).saturating_add(8))
+        .and_then(|n| n.checked_mul(8))
+        .and_then(|n| n2.checked_mul(32 * 8).and_then(|m| n.checked_add(m)))
+        .ok_or_else(|| Gfn1Error::InvalidInput("spin density-mixing workspace overflow".into()))?;
+    crate::resources::check_workspace(bytes, "spin SCF arrays and mixing history")?;
+    let mut v_mixed = vec![0.0; dim];
+    let mut mixed_density: Option<(Matrix, Matrix)> = None;
     let mixing = rung.mixing.clamp(0.01, 1.0);
     let kt = rung.kt;
-    let level_shift = rung.level_shift;
-    let mut broyden = BroydenMixer::new(2 * nsh, options.scc_broyden_size.max(2), mixing);
+    let mut level_shift = rung.level_shift;
+    let mut broyden = BroydenMixer::new(dim, history, mixing);
     let mut shell_charges = vec![0.0; nsh];
     let mut magnetization = vec![0.0; nsh];
     seed_magnetization(info, &mut magnetization, unpaired as f64);
@@ -675,15 +730,25 @@ fn spin_scc_loop_core(
         let mut v_alpha = vec![0.0; nsh];
         let mut v_beta = vec![0.0; nsh];
         for ish in 0..nsh {
+            // q = n_ref - n_alpha - n_beta, m = n_alpha - n_beta.
+            // fock_from_shell_potential subtracts the supplied charge potential:
+            // this therefore gives +dE_spin/dm for alpha and -dE_spin/dm for beta
+            // (Neugebauer2023Spin), not the opposite spin-energy derivative.
             v_alpha[ish] = v_charge[ish] - spin_potential[ish];
             v_beta[ish] = v_charge[ish] + spin_potential[ish];
         }
         let mut fock_alpha = fock_from_shell_potential(basis, overlap, h0, &v_alpha);
         let mut fock_beta = fock_from_shell_potential(basis, overlap, h0, &v_beta);
+        let density_input = mixed_density.as_ref().map(|(a, b)| (a, b)).or_else(|| {
+            alpha
+                .as_ref()
+                .zip(beta.as_ref())
+                .map(|(a, b)| (&a.density, &b.density))
+        });
         if plus_u_active {
-            if let (Some(a_prev), Some(b_prev)) = (alpha.as_ref(), beta.as_ref()) {
-                let (_, ga) = crate::plus_u::plus_u_v(&a_prev.density, overlap, plus_u_sub, plus_u_pairs);
-                let (_, gb) = crate::plus_u::plus_u_v(&b_prev.density, overlap, plus_u_sub, plus_u_pairs);
+            if let Some((a_prev, b_prev)) = density_input {
+                let (_, ga) = crate::plus_u::plus_u_v(a_prev, overlap, plus_u_sub, plus_u_pairs);
+                let (_, gb) = crate::plus_u::plus_u_v(b_prev, overlap, plus_u_sub, plus_u_pairs);
                 fock_alpha = matrix_sum(&fock_alpha, &ga);
                 fock_beta = matrix_sum(&fock_beta, &gb);
             }
@@ -693,8 +758,8 @@ fn spin_scc_loop_core(
         // pattern; converges as prev→current at self-consistency). Δq_A = −(GFN1 atomic charge)
         // from the mixed shell charges of this iteration.
         if let Some(camm_ctx) = camm {
-            if let (Some(a_prev), Some(b_prev)) = (alpha.as_ref(), beta.as_ref()) {
-                let total_prev = matrix_sum(&a_prev.density, &b_prev.density);
+            if let Some((a_prev, b_prev)) = density_input {
+                let total_prev = matrix_sum(a_prev, b_prev);
                 let gfn1_atomic = shell_model.atomic_charges(basis, &shell_charges);
                 let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
                 let ef = camm_ctx.energy_fock(basis, nat, &total_prev, &qm);
@@ -709,20 +774,39 @@ fn spin_scc_loop_core(
         // Virtual level shift (per channel) using the previous-iteration density projector.
         apply_level_shift(&mut fock_alpha, overlap, prev_dens_a.as_ref(), level_shift);
         apply_level_shift(&mut fock_beta, overlap, prev_dens_b.as_ref(), level_shift);
-        let step_a = solve_channel(basis, overlap, orth, &fock_alpha, n_alpha, kt, options.eigen_tolerance)?;
-        let step_b = solve_channel(basis, overlap, orth, &fock_beta, n_beta, kt, options.eigen_tolerance)?;
+        let step_a = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &fock_alpha,
+            n_alpha,
+            kt,
+            options.eigen_tolerance,
+        )?;
+        let step_b = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &fock_beta,
+            n_beta,
+            kt,
+            options.eigen_tolerance,
+        )?;
         let mut new_q = vec![0.0; nsh];
         let mut new_m = vec![0.0; nsh];
         for (ish, shell) in basis.shells.iter().enumerate() {
-            new_q[ish] = shell.reference_occ - (step_a.shell_population[ish] + step_b.shell_population[ish]);
+            new_q[ish] =
+                shell.reference_occ - (step_a.shell_population[ish] + step_b.shell_population[ish]);
             new_m[ish] = step_a.shell_population[ish] - step_b.shell_population[ish];
         }
         let total_density = matrix_sum(&step_a.density, &step_b.density);
         let band = electronic_energy(h0, &total_density);
         let e_spin = spin_energy(&new_m, &spin_shell_potential(info, &new_m));
         let e_plus_u = if plus_u_active {
-            let (ea, _) = crate::plus_u::plus_u_v(&step_a.density, overlap, plus_u_sub, plus_u_pairs);
-            let (eb, _) = crate::plus_u::plus_u_v(&step_b.density, overlap, plus_u_sub, plus_u_pairs);
+            let (ea, _) =
+                crate::plus_u::plus_u_v(&step_a.density, overlap, plus_u_sub, plus_u_pairs);
+            let (eb, _) =
+                crate::plus_u::plus_u_v(&step_b.density, overlap, plus_u_sub, plus_u_pairs);
             ea + eb
         } else {
             0.0
@@ -737,10 +821,11 @@ fn spin_scc_loop_core(
             0.0
         };
         let entropy_term = step_a.entropy + step_b.entropy;
+        let new_scc = coulomb_energy_potential_from_matrix(basis, shell_model, &new_q, amat)?;
         let scc_energy = band
-            + scc.second_order
-            + scc.third_order
-            + scc.higher_order
+            + new_scc.second_order
+            + new_scc.third_order
+            + new_scc.higher_order
             + e_spin
             + e_plus_u
             + e_camm
@@ -755,13 +840,54 @@ fn spin_scc_loop_core(
                 "spin SCC produced a non-finite energy/density".to_string(),
             ));
         }
-        let mut residual = vec![0.0; 2 * nsh];
+        let mut out_vec = vec![0.0; dim];
+        out_vec[..nsh].copy_from_slice(&new_q);
+        out_vec[nsh..2 * nsh].copy_from_slice(&new_m);
+        if mix_density {
+            out_vec[2 * nsh..2 * nsh + n2].copy_from_slice(step_a.density.as_slice());
+            out_vec[2 * nsh + n2..].copy_from_slice(step_b.density.as_slice());
+            if mixed_density.is_none() {
+                // Seed with canonical, particle-conserving density matrices.
+                v_mixed.copy_from_slice(&out_vec);
+                mixed_density = Some((step_a.density.clone(), step_b.density.clone()));
+                shell_charges = new_q;
+                magnetization = new_m;
+                prev_dens_a = Some(step_a.density.clone());
+                prev_dens_b = Some(step_b.density.clone());
+                alpha = Some(step_a);
+                beta = Some(step_b);
+                last_energy = Some(scc_energy);
+                continue;
+            }
+        }
+        let mut residual = vec![0.0; dim];
         for ish in 0..nsh {
             residual[ish] = new_q[ish] - v_mixed[ish];
             residual[nsh + ish] = new_m[ish] - v_mixed[nsh + ish];
         }
-        let rms = (residual.iter().map(|r| r * r).sum::<f64>() / residual.len() as f64).sqrt();
-        let de = last_energy.map(|e| (scc_energy - e).abs()).unwrap_or(f64::INFINITY);
+        if mix_density {
+            for i in 2 * nsh..dim {
+                residual[i] = out_vec[i] - v_mixed[i];
+            }
+        }
+        let shell_rms =
+            (residual[..2 * nsh].iter().map(|r| r * r).sum::<f64>() / (2 * nsh) as f64).sqrt();
+        let rms = if mix_density {
+            let density_rms =
+                (residual[2 * nsh..].iter().map(|r| r * r).sum::<f64>() / (2 * n2) as f64).sqrt();
+            shell_rms.max(density_rms)
+        } else {
+            shell_rms
+        };
+        let de = last_energy
+            .map(|e| (scc_energy - e).abs())
+            .unwrap_or(f64::INFINITY);
+        if std::env::var("GFN1_SCC_DEBUG").is_ok()
+            && (it + 1 == rung.max_scc
+                || (rms < options.charge_tolerance && de < options.energy_tolerance))
+        {
+            eprintln!("[spin-SCC] rung result U={plus_u_active} CAMM={} iter={} T={} rms={rms:.6e} dE={de:.6e} E={scc_energy:.12e}", camm.is_some(), it+1, kt/BOLTZMANN_HARTREE_PER_K);
+        }
         last_energy = Some(scc_energy);
         shell_charges = new_q.clone();
         magnetization = new_m.clone();
@@ -770,12 +896,25 @@ fn spin_scc_loop_core(
         alpha = Some(step_a);
         beta = Some(step_b);
         if rms < options.charge_tolerance && de < options.energy_tolerance {
+            if level_shift != 0.0 {
+                // A shifted fixed point is only an accelerator intermediate.
+                // Re-converge the physical, unshifted Fock (also removes the
+                // fractional-occupation projector's bias from W and the entropy).
+                level_shift = 0.0;
+                v_mixed.copy_from_slice(&out_vec);
+                if mix_density {
+                    mixed_density = Some((
+                        alpha.as_ref().unwrap().density.clone(),
+                        beta.as_ref().unwrap().density.clone(),
+                    ));
+                }
+                broyden = BroydenMixer::new(dim, history, mixing);
+                last_energy = None;
+                continue;
+            }
             converged = true;
             break;
         }
-        let mut out_vec = vec![0.0; 2 * nsh];
-        out_vec[..nsh].copy_from_slice(&new_q);
-        out_vec[nsh..].copy_from_slice(&new_m);
         if rung.broyden {
             match broyden.next(&v_mixed, &residual) {
                 Some(next) => v_mixed = next,
@@ -783,15 +922,27 @@ fn spin_scc_loop_core(
             }
         } else {
             // Monotone linear mixing: v ← v + damp·residual (residual = out − v).
-            for k in 0..2 * nsh {
+            for k in 0..dim {
                 v_mixed[k] += mixing * residual[k];
             }
         }
         shell_charges[..nsh].copy_from_slice(&v_mixed[..nsh]);
         magnetization[..nsh].copy_from_slice(&v_mixed[nsh..2 * nsh]);
+        if mix_density {
+            mixed_density = Some((
+                Matrix::from_vec(
+                    basis.len(),
+                    basis.len(),
+                    v_mixed[2 * nsh..2 * nsh + n2].to_vec(),
+                )?,
+                Matrix::from_vec(basis.len(), basis.len(), v_mixed[2 * nsh + n2..].to_vec())?,
+            ));
+        }
     }
-    let alpha = alpha.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
-    let beta = beta.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
+    let alpha =
+        alpha.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
+    let beta =
+        beta.ok_or_else(|| Gfn1Error::InvalidInput("spin SCC produced no step".to_string()))?;
     Ok((alpha, beta, converged, iterations))
 }
 
@@ -871,11 +1022,7 @@ fn coeff_to_ao(mos: &Matrix, coeff: &Matrix) -> Result<Matrix> {
 /// off-diagonal pairs use the smooth `∂f/∂ε` slope limit. At `kt = 0` only the gapped
 /// off-diagonal term survives (the diagonal `∂f/∂ε → 0`), reproducing the integer-aufbau
 /// one-shot response.
-fn bare_density_response_channel(
-    ch: &ChannelBasis,
-    delta_f: &Matrix,
-    kt: f64,
-) -> Result<Matrix> {
+fn bare_density_response_channel(ch: &ChannelBasis, delta_f: &Matrix, kt: f64) -> Result<Matrix> {
     let norb = ch.eps.len();
     let h = mo_transform_local(&ch.mos, delta_f)?;
     // Single-channel (max-1) Fermi-Dirac slope ∂f/∂ε = −f(1−f)/kt.
@@ -893,7 +1040,8 @@ fn bare_density_response_channel(
         let s: Vec<f64> = ch.occ.iter().map(|&f| slope(f)).collect();
         let denom: f64 = s.iter().sum();
         let dmu = if denom.abs() > 1.0e-30 {
-            s.iter().zip(h.as_slice().iter().step_by(norb + 1))
+            s.iter()
+                .zip(h.as_slice().iter().step_by(norb + 1))
                 .map(|(&sp, &hpp)| sp * hpp)
                 .sum::<f64>()
                 / denom
@@ -1217,8 +1365,22 @@ fn linear_response_base_state(
     // analytic `plus_u_dudr` (which builds its own CAMM-free base) stays consistent with it — the
     // CAMM correction affects the total energy/force through its own channels, not through U.
     let (a0, b0, _, _) = spin_scc_loop(
-        basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired, options,
-        &[], &[], None, None,
+        basis,
+        overlap,
+        h0,
+        orth,
+        shell_model,
+        amat,
+        info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
+        &[],
+        &[],
+        None,
+        None,
     )?;
     let total0 = matrix_sum(&a0.density, &b0.density);
     let q0 = mulliken_shell_charges(basis, overlap, &total0);
@@ -1272,16 +1434,44 @@ fn compute_linear_response_uv(
     v_cutoff: f64,
     include_v: bool,
     system: &PeriodicSystem,
-) -> Result<(Vec<crate::plus_u::CorrelatedAtom>, Vec<crate::plus_u::IntersitePair>)> {
+) -> Result<(
+    Vec<crate::plus_u::CorrelatedAtom>,
+    Vec<crate::plus_u::IntersitePair>,
+)> {
     let ncorr = subspace.len();
 
     let base = linear_response_base_state(
-        basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired, options,
+        basis,
+        overlap,
+        h0,
+        orth,
+        shell_model,
+        amat,
+        info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
     )?;
     // Per-spin base-state MO bases (diagonalize the converged channel Fock) for the
     // analytic occupation response.
-    let ch_a = ChannelBasis::from_fock(overlap, orth, &base.base_fock_a, n_alpha, kt, options.eigen_tolerance)?;
-    let ch_b = ChannelBasis::from_fock(overlap, orth, &base.base_fock_b, n_beta, kt, options.eigen_tolerance)?;
+    let ch_a = ChannelBasis::from_fock(
+        overlap,
+        orth,
+        &base.base_fock_a,
+        n_alpha,
+        kt,
+        options.eigen_tolerance,
+    )?;
+    let ch_b = ChannelBasis::from_fock(
+        overlap,
+        orth,
+        &base.base_fock_b,
+        n_beta,
+        kt,
+        options.eigen_tolerance,
+    )?;
 
     // Analytic bare (χ0) and screened (χ) occupation-response matrices.
     let chi0 = analytic_chi0(overlap, &ch_a, &ch_b, subspace, kt)?;
@@ -1315,7 +1505,8 @@ fn compute_linear_response_uv(
                     continue;
                 }
                 let (pi, pj) = (&pos[comp_sub[i].atom_index], &pos[comp_sub[j].atom_index]);
-                let d = ((pi.x - pj.x).powi(2) + (pi.y - pj.y).powi(2) + (pi.z - pj.z).powi(2)).sqrt();
+                let d =
+                    ((pi.x - pj.x).powi(2) + (pi.y - pj.y).powi(2) + (pi.z - pj.z).powi(2)).sqrt();
                 if d <= v_cutoff {
                     pairs.push(crate::plus_u::IntersitePair { a: i, b: j, v });
                 }
@@ -1351,7 +1542,18 @@ fn fd_chi0_chi(
     let ncorr = subspace.len();
     let delta = 0.005_f64;
     let base = linear_response_base_state(
-        basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired, options,
+        basis,
+        overlap,
+        h0,
+        orth,
+        shell_model,
+        amat,
+        info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
     )?;
     let occ_of = |a: &ChannelStep, b: &ChannelStep| -> Vec<f64> {
         let p = matrix_sum(&a.density, &b.density);
@@ -1363,18 +1565,78 @@ fn fd_chi0_chi(
         let pert_p = onsite_shift_fock(overlap, &atom_j.aos, delta);
         let pert_m = onsite_shift_fock(overlap, &atom_j.aos, -delta);
         let (ap, bp, _, _) = spin_scc_loop(
-            basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired,
-            options, &[], &[], Some(&pert_p), None,
+            basis,
+            overlap,
+            h0,
+            orth,
+            shell_model,
+            amat,
+            info,
+            n_alpha,
+            n_beta,
+            kt,
+            unpaired,
+            options,
+            &[],
+            &[],
+            Some(&pert_p),
+            None,
         )?;
         let (am, bm, _, _) = spin_scc_loop(
-            basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired,
-            options, &[], &[], Some(&pert_m), None,
+            basis,
+            overlap,
+            h0,
+            orth,
+            shell_model,
+            amat,
+            info,
+            n_alpha,
+            n_beta,
+            kt,
+            unpaired,
+            options,
+            &[],
+            &[],
+            Some(&pert_m),
+            None,
         )?;
         let (occ_p, occ_m) = (occ_of(&ap, &bp), occ_of(&am, &bm));
-        let sap = solve_channel(basis, overlap, orth, &matrix_sum(&base.base_fock_a, &pert_p), n_alpha, kt, options.eigen_tolerance)?;
-        let sbp = solve_channel(basis, overlap, orth, &matrix_sum(&base.base_fock_b, &pert_p), n_beta, kt, options.eigen_tolerance)?;
-        let sam = solve_channel(basis, overlap, orth, &matrix_sum(&base.base_fock_a, &pert_m), n_alpha, kt, options.eigen_tolerance)?;
-        let sbm = solve_channel(basis, overlap, orth, &matrix_sum(&base.base_fock_b, &pert_m), n_beta, kt, options.eigen_tolerance)?;
+        let sap = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &matrix_sum(&base.base_fock_a, &pert_p),
+            n_alpha,
+            kt,
+            options.eigen_tolerance,
+        )?;
+        let sbp = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &matrix_sum(&base.base_fock_b, &pert_p),
+            n_beta,
+            kt,
+            options.eigen_tolerance,
+        )?;
+        let sam = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &matrix_sum(&base.base_fock_a, &pert_m),
+            n_alpha,
+            kt,
+            options.eigen_tolerance,
+        )?;
+        let sbm = solve_channel(
+            basis,
+            overlap,
+            orth,
+            &matrix_sum(&base.base_fock_b, &pert_m),
+            n_beta,
+            kt,
+            options.eigen_tolerance,
+        )?;
         let (occ0_p, occ0_m) = (occ_of(&sap, &sbp), occ_of(&sam, &sbm));
         for i in 0..ncorr {
             chi[i][j] = (occ_p[i] - occ_m[i]) / (2.0 * delta);
@@ -1405,14 +1667,48 @@ fn analytic_chi0_chi(
     subspace: &[crate::plus_u::CorrelatedAtom],
 ) -> Result<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     let base = linear_response_base_state(
-        basis, overlap, h0, orth, shell_model, amat, info, n_alpha, n_beta, kt, unpaired, options,
+        basis,
+        overlap,
+        h0,
+        orth,
+        shell_model,
+        amat,
+        info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
     )?;
-    let ch_a = ChannelBasis::from_fock(overlap, orth, &base.base_fock_a, n_alpha, kt, options.eigen_tolerance)?;
-    let ch_b = ChannelBasis::from_fock(overlap, orth, &base.base_fock_b, n_beta, kt, options.eigen_tolerance)?;
+    let ch_a = ChannelBasis::from_fock(
+        overlap,
+        orth,
+        &base.base_fock_a,
+        n_alpha,
+        kt,
+        options.eigen_tolerance,
+    )?;
+    let ch_b = ChannelBasis::from_fock(
+        overlap,
+        orth,
+        &base.base_fock_b,
+        n_beta,
+        kt,
+        options.eigen_tolerance,
+    )?;
     let chi0 = analytic_chi0(overlap, &ch_a, &ch_b, subspace, kt)?;
     let chi = analytic_chi(
-        basis, overlap, h0, &ch_a, &ch_b, &base.coul_kernel, info, subspace, kt,
-        options.max_scc.max(200), options.charge_tolerance.min(1.0e-9),
+        basis,
+        overlap,
+        h0,
+        &ch_a,
+        &ch_b,
+        &base.coul_kernel,
+        info,
+        subspace,
+        kt,
+        options.max_scc.max(200),
+        options.charge_tolerance.min(1.0e-9),
     )?;
     Ok((chi0, chi))
 }
@@ -1433,7 +1729,10 @@ pub fn linear_response_uv_for_system(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     options: &ElectronicOptions,
-) -> Result<(Vec<crate::plus_u::CorrelatedAtom>, Vec<crate::plus_u::IntersitePair>)> {
+) -> Result<(
+    Vec<crate::plus_u::CorrelatedAtom>,
+    Vec<crate::plus_u::IntersitePair>,
+)> {
     if system.lattice.is_some() {
         return Err(Gfn1Error::InvalidInput(
             "linear-response U is implemented for non-periodic systems only".to_string(),
@@ -1445,7 +1744,9 @@ pub fn linear_response_uv_for_system(
     let basis = BasisSet::build(
         system,
         params,
-        crate::basis::BasisOptions { nprim: options.nprim },
+        crate::basis::BasisOptions {
+            nprim: options.nprim,
+        },
     )?;
     let charge = options.charge.unwrap_or(system.charge);
     let nelec = basis.total_reference_electrons - charge;
@@ -1467,8 +1768,22 @@ pub fn linear_response_uv_for_system(
         return Ok((Vec::new(), Vec::new()));
     }
     compute_linear_response_uv(
-        &basis, overlap, h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-        options, &plus_u_sel, options.hubbard_v_cutoff, options.plus_u_v, system,
+        &basis,
+        overlap,
+        h0,
+        &orth,
+        &shell_model,
+        &amat,
+        &info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
+        &plus_u_sel,
+        options.hubbard_v_cutoff,
+        options.plus_u_v,
+        system,
     )
 }
 
@@ -1531,7 +1846,13 @@ pub(crate) fn linear_response_geom_context(
     if !(options.plus_u && options.hubbard_u_linear_response) {
         return Ok(None);
     }
-    let basis = BasisSet::build(system, params, crate::basis::BasisOptions { nprim: options.nprim })?;
+    let basis = BasisSet::build(
+        system,
+        params,
+        crate::basis::BasisOptions {
+            nprim: options.nprim,
+        },
+    )?;
     let charge = options.charge.unwrap_or(system.charge);
     let nelec = basis.total_reference_electrons - charge;
     let unpaired = resolve_unpaired(nelec, options.spin_multiplicity)?;
@@ -1555,8 +1876,22 @@ pub(crate) fn linear_response_geom_context(
     let nsh = basis.shells.len();
     // Converged base state (plain spGFN1), reproducing `linear_response_base_state`.
     let (a0, b0, _, _) = spin_scc_loop(
-        &basis, &overlap, &h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-        options, &[], &[], None, None,
+        &basis,
+        &overlap,
+        &h0,
+        &orth,
+        &shell_model,
+        &amat,
+        &info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
+        &[],
+        &[],
+        None,
+        None,
     )?;
     let total0 = matrix_sum(&a0.density, &b0.density);
     let q0 = mulliken_shell_charges(&basis, &overlap, &total0);
@@ -1575,8 +1910,22 @@ pub(crate) fn linear_response_geom_context(
     let base_fock_a = fock_from_shell_potential(&basis, &overlap, &h0, &v_alpha0);
     let base_fock_b = fock_from_shell_potential(&basis, &overlap, &h0, &v_beta0);
     let coul_kernel = spin_coulomb_response_kernel(&basis, &shell_model, &amat, &q0);
-    let ch_a = ChannelBasis::from_fock(&overlap, &orth, &base_fock_a, n_alpha, kt, options.eigen_tolerance)?;
-    let ch_b = ChannelBasis::from_fock(&overlap, &orth, &base_fock_b, n_beta, kt, options.eigen_tolerance)?;
+    let ch_a = ChannelBasis::from_fock(
+        &overlap,
+        &orth,
+        &base_fock_a,
+        n_alpha,
+        kt,
+        options.eigen_tolerance,
+    )?;
+    let ch_b = ChannelBasis::from_fock(
+        &overlap,
+        &orth,
+        &base_fock_b,
+        n_beta,
+        kt,
+        options.eigen_tolerance,
+    )?;
     Ok(Some(LinearResponseGeomContext {
         basis,
         overlap,
@@ -1611,10 +1960,25 @@ impl LinearResponseGeomContext {
     /// geometry derivatives) against the production values.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn analytic_chi0_chi(&self) -> Result<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
-        let chi0 = analytic_chi0(&self.overlap, &self.ch_a, &self.ch_b, &self.subspace, self.kt)?;
+        let chi0 = analytic_chi0(
+            &self.overlap,
+            &self.ch_a,
+            &self.ch_b,
+            &self.subspace,
+            self.kt,
+        )?;
         let chi = analytic_chi(
-            &self.basis, &self.overlap, &self.h0, &self.ch_a, &self.ch_b, &self.coul_kernel,
-            &self.info, &self.subspace, self.kt, self.max_iter, self.tol,
+            &self.basis,
+            &self.overlap,
+            &self.h0,
+            &self.ch_a,
+            &self.ch_b,
+            &self.coul_kernel,
+            &self.info,
+            &self.subspace,
+            self.kt,
+            self.max_iter,
+            self.tol,
         )?;
         Ok((chi0, chi))
     }
@@ -1692,8 +2056,22 @@ fn run_spin_unrestricted(
         (Vec::new(), Vec::new())
     } else if options.hubbard_u_linear_response {
         compute_linear_response_uv(
-            &basis, overlap, h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-            options, &plus_u_sel, options.hubbard_v_cutoff, options.plus_u_v, system,
+            &basis,
+            overlap,
+            h0,
+            &orth,
+            &shell_model,
+            &amat,
+            &info,
+            n_alpha,
+            n_beta,
+            kt,
+            unpaired,
+            options,
+            &plus_u_sel,
+            options.hubbard_v_cutoff,
+            options.plus_u_v,
+            system,
         )?
     } else {
         let pairs = if options.plus_u_v {
@@ -1717,61 +2095,92 @@ fn run_spin_unrestricted(
     // the narrow guard in `run_spin_polarized` already rejected the unsupported combinations). The
     // per-atom κ / s_onsite resolve exactly as in the restricted path (element overrides, else the
     // globals); charge-dependent κ is recomputed per SCC iteration inside the context.
-    let camm_ctx: Option<SpinCammContext> =
-        if options.multipole && options.multipole_model == crate::electronic::MultipoleModel::CammOnMdftb2 {
-            if !(options.camm_damp > 0.0) {
-                return Err(Gfn1Error::InvalidInput("camm_damp (CAMM range factor κ) must be > 0".to_string()));
-            }
-            if options.camm_aes_scale < 0.0 {
-                return Err(Gfn1Error::InvalidInput("camm_aes_scale (s_AES) must be ≥ 0".to_string()));
-            }
-            if options.camm_onsite_scale < 0.0
-                || options.camm_onsite_scale_elem.iter().any(|&(_, s)| s < 0.0)
-            {
-                return Err(Gfn1Error::InvalidInput("CAMM s_onsite values must be ≥ 0".to_string()));
-            }
-            if options.camm_damp_elem.iter().any(|&(_, k)| !(k > 0.0)) {
-                return Err(Gfn1Error::InvalidInput("camm_damp_elem κ values must be > 0".to_string()));
-            }
-            let hardness: Vec<f64> = (0..nat)
-                .map(|a| shell_model.hardness[shell_model.atom_offsets[a]])
-                .collect();
-            let pos: Vec<crate::math::Vec3> = system.atoms.iter().map(|at| at.position).collect();
-            let kappa: Vec<f64> = system
-                .atoms
-                .iter()
-                .map(|atom| {
-                    options.camm_damp_elem.iter().find(|&&(z, _)| z == atom.z).map(|&(_, k)| k)
-                        .unwrap_or(options.camm_damp)
-                })
-                .collect();
-            let onsite: Vec<f64> = system
-                .atoms
-                .iter()
-                .map(|atom| {
-                    options.camm_onsite_scale_elem.iter().find(|&&(z, _)| z == atom.z).map(|&(_, s)| s)
-                        .unwrap_or(options.camm_onsite_scale)
-                })
-                .collect();
-            Some(SpinCammContext {
-                integrals: &core.integrals,
-                hardness,
-                pos,
-                kappa,
-                scale: options.camm_aes_scale,
-                onsite,
-                damp_charge: options.camm_damp_charge,
+    let camm_ctx: Option<SpinCammContext> = if options.multipole
+        && options.multipole_model == crate::electronic::MultipoleModel::CammOnMdftb2
+    {
+        if !(options.camm_damp > 0.0) {
+            return Err(Gfn1Error::InvalidInput(
+                "camm_damp (CAMM range factor κ) must be > 0".to_string(),
+            ));
+        }
+        if options.camm_aes_scale < 0.0 {
+            return Err(Gfn1Error::InvalidInput(
+                "camm_aes_scale (s_AES) must be ≥ 0".to_string(),
+            ));
+        }
+        if options.camm_onsite_scale < 0.0
+            || options.camm_onsite_scale_elem.iter().any(|&(_, s)| s < 0.0)
+        {
+            return Err(Gfn1Error::InvalidInput(
+                "CAMM s_onsite values must be ≥ 0".to_string(),
+            ));
+        }
+        if options.camm_damp_elem.iter().any(|&(_, k)| !(k > 0.0)) {
+            return Err(Gfn1Error::InvalidInput(
+                "camm_damp_elem κ values must be > 0".to_string(),
+            ));
+        }
+        let hardness: Vec<f64> = (0..nat)
+            .map(|a| shell_model.hardness[shell_model.atom_offsets[a]])
+            .collect();
+        let pos: Vec<crate::math::Vec3> = system.atoms.iter().map(|at| at.position).collect();
+        let kappa: Vec<f64> = system
+            .atoms
+            .iter()
+            .map(|atom| {
+                options
+                    .camm_damp_elem
+                    .iter()
+                    .find(|&&(z, _)| z == atom.z)
+                    .map(|&(_, k)| k)
+                    .unwrap_or(options.camm_damp)
             })
-        } else {
-            None
-        };
+            .collect();
+        let onsite: Vec<f64> = system
+            .atoms
+            .iter()
+            .map(|atom| {
+                options
+                    .camm_onsite_scale_elem
+                    .iter()
+                    .find(|&&(z, _)| z == atom.z)
+                    .map(|&(_, s)| s)
+                    .unwrap_or(options.camm_onsite_scale)
+            })
+            .collect();
+        Some(SpinCammContext {
+            integrals: &core.integrals,
+            hardness,
+            pos,
+            kappa,
+            scale: options.camm_aes_scale,
+            onsite,
+            damp_charge: options.camm_damp_charge,
+        })
+    } else {
+        None
+    };
 
     // Converge the spin-unrestricted SCC (with the resolved +U/+U+V correction, the CAMM-AES
     // shift, no probe perturbation). The shared `spin_scc_loop` is also used by the linear-response
     // orchestration (which passes no CAMM — the U response is defined CAMM-free).
     let (alpha, beta, converged, iterations) = spin_scc_loop(
-        &basis, overlap, h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-        options, &plus_u_sub, &plus_u_pairs, None, camm_ctx.as_ref(),
+        &basis,
+        overlap,
+        h0,
+        &orth,
+        &shell_model,
+        &amat,
+        &info,
+        n_alpha,
+        n_beta,
+        kt,
+        unpaired,
+        options,
+        &plus_u_sub,
+        &plus_u_pairs,
+        None,
+        camm_ctx.as_ref(),
     )?;
 
     // Final consistent quantities from the converged densities.
@@ -1785,7 +2194,8 @@ fn run_spin_unrestricted(
     let spin_potential = spin_shell_potential(&info, &final_m);
     let e_spin = spin_energy(&final_m, &spin_potential);
 
-    let scc = coulomb_energy_potential_from_matrix(&basis, &shell_model, &final_shell_charges, &amat)?;
+    let scc =
+        coulomb_energy_potential_from_matrix(&basis, &shell_model, &final_shell_charges, &amat)?;
     let band = electronic_energy(h0, &total_density);
     let atomic_charges = shell_model.atomic_charges(&basis, &final_shell_charges);
     let entropy_term = alpha.entropy + beta.entropy;
@@ -1803,7 +2213,9 @@ fn run_spin_unrestricted(
     // Converged CAMM-AES energy from the final total density (added directly, like +U/spin).
     let e_camm_final = if let Some(camm_ctx) = camm_ctx.as_ref() {
         let qm: Vec<f64> = atomic_charges.iter().map(|c| -c).collect();
-        camm_ctx.energy_fock(&basis, nat, &total_density, &qm).energy
+        camm_ctx
+            .energy_fock(&basis, nat, &total_density, &qm)
+            .energy
     } else {
         0.0
     };
@@ -1842,6 +2254,12 @@ fn run_spin_unrestricted(
     let fock = fock_from_shell_potential(&basis, overlap, h0, &scc.shell_potential);
 
     Ok(ElectronicResult {
+        calculation_id: None,
+        ml_parameters: None,
+        ml_correction_energy: 0.0,
+        solvation: None,
+        solvation_energy: Default::default(),
+        method_citations: vec!["Grimme2017GFN1", "Neugebauer2023Spin"],
         basis,
         integrals: core.integrals,
         h0: core.h0,
@@ -1850,7 +2268,7 @@ fn run_spin_unrestricted(
         energy_weighted_density: total_ew,
         orbital_energies: Vec::new(),
         occupations: Vec::new(),
-        electronic_temperature: options.electronic_temperature,
+        electronic_temperature: alpha.kt / BOLTZMANN_HARTREE_PER_K,
         fermi_level: 0.0,
         charge_order: options.charge_order.max(3),
         shell_charges: final_shell_charges,
@@ -1920,9 +2338,26 @@ fn seed_magnetization(info: &ShellInfo, magnetization: &mut [f64], unpaired: f64
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn channel_level_shift_is_the_max_one_metric_virtual_projector() {
+        use super::*;
+        let s = Matrix::from_vec(2, 2, vec![1.0, 0.2, 0.2, 1.0]).unwrap();
+        let orth = lowdin_orthogonalizer(&s, 1e-12).unwrap();
+        let mut p = Matrix::zeros(2, 2);
+        for i in 0..2 {
+            for j in 0..2 {
+                p[(i, j)] = orth.x[(i, 0)] * orth.x[(j, 0)];
+            }
+        }
+        let mut shift = Matrix::zeros(2, 2);
+        apply_level_shift(&mut shift, &s, Some(&p), 0.3);
+        let mo = orth.xt.matmul(&shift.matmul(&orth.x).unwrap()).unwrap();
+        assert!(mo[(0, 0)].abs() < 1e-14);
+        assert!((mo[(1, 1)] - 0.3).abs() < 1e-14);
+        assert!(mo[(0, 1)].abs() < 1e-14);
+    }
     use super::*;
     use crate::gradient::{analytic_gradient, AnalyticGradientOptions};
-
 
     /// Load the GFN1 parameters via the standard resolution (`GFN1_XTB_PARAM`
     /// when set, otherwise the builtin bundled parameters).
@@ -1969,8 +2404,12 @@ mod tests {
         base.spin_polarization = true;
         let mut pu = base.clone();
         pu.plus_u = true; // hubbard_u empty → empty subspace → inert
-        let e0 = crate::electronic::run_electronic(&system, &params, base).unwrap().total_free;
-        let e1 = crate::electronic::run_electronic(&system, &params, pu).unwrap().total_free;
+        let e0 = crate::electronic::run_electronic(&system, &params, base)
+            .unwrap()
+            .total_free;
+        let e1 = crate::electronic::run_electronic(&system, &params, pu)
+            .unwrap()
+            .total_free;
         assert!(
             (e0 - e1).abs() <= 1.0e-10,
             "empty +U is not a no-op: plain={e0:.12} plus_u={e1:.12}"
@@ -1986,12 +2425,9 @@ mod tests {
         let Some(params) = load_params() else {
             return;
         };
-        let system = PeriodicSystem::from_xyz_str(
-            "2\nSH\nS 0.0 0.0 0.0\nH 0.0 0.0 1.34\n",
-            0.0,
-            false,
-        )
-        .unwrap();
+        let system =
+            PeriodicSystem::from_xyz_str("2\nSH\nS 0.0 0.0 0.0\nH 0.0 0.0 1.34\n", 0.0, false)
+                .unwrap();
         let mut base = tight_options();
         base.spin_multiplicity = Some(2);
         base.spin_polarization = true;
@@ -2002,7 +2438,9 @@ mod tests {
         let mut u0 = base.clone();
         u0.plus_u = true;
         u0.hubbard_u = vec![(16, 0.0)];
-        let e_u0 = crate::electronic::run_electronic(&system, &params, u0).unwrap().total_free;
+        let e_u0 = crate::electronic::run_electronic(&system, &params, u0)
+            .unwrap()
+            .total_free;
         assert!(
             (e_plain - e_u0).abs() <= 1.0e-10,
             "U=0 is not identical to plain: {e_plain:.12} vs {e_u0:.12}"
@@ -2011,7 +2449,9 @@ mod tests {
         let mut u1 = base.clone();
         u1.plus_u = true;
         u1.hubbard_u = vec![(16, 0.5)];
-        let e_u1 = crate::electronic::run_electronic(&system, &params, u1).unwrap().total_free;
+        let e_u1 = crate::electronic::run_electronic(&system, &params, u1)
+            .unwrap()
+            .total_free;
         assert!(e_u1.is_finite(), "+U total energy is not finite");
         assert!(
             (e_u1 - e_plain).abs() > 1.0e-8,
@@ -2043,7 +2483,9 @@ mod tests {
         // plus_u with empty U → unrestricted closed-shell, no +U applied → ≈ restricted.
         let mut pu0 = base.clone();
         pu0.plus_u = true;
-        let e_pu0 = crate::electronic::run_electronic(&system, &params, pu0).unwrap().total_free;
+        let e_pu0 = crate::electronic::run_electronic(&system, &params, pu0)
+            .unwrap()
+            .total_free;
         assert!(
             (e_plain - e_pu0).abs() < 1.0e-6,
             "closed-shell +U(empty) should reduce to restricted: {e_plain:.10} vs {e_pu0:.10}"
@@ -2053,7 +2495,9 @@ mod tests {
         let mut pu = base.clone();
         pu.plus_u = true;
         pu.hubbard_u = vec![(16, 0.5)];
-        let e_pu = crate::electronic::run_electronic(&system, &params, pu).unwrap().total_free;
+        let e_pu = crate::electronic::run_electronic(&system, &params, pu)
+            .unwrap()
+            .total_free;
         assert!(e_pu.is_finite(), "closed-shell +U energy not finite");
         assert!(
             (e_pu - e_plain).abs() > 1.0e-8,
@@ -2104,7 +2548,9 @@ mod tests {
             subspace.iter().map(|a| a.u).collect::<Vec<_>>()
         );
 
-        let e_lr = crate::electronic::run_electronic(&system, &params, lr).unwrap().total_free;
+        let e_lr = crate::electronic::run_electronic(&system, &params, lr)
+            .unwrap()
+            .total_free;
         assert!(e_lr.is_finite(), "linear-response +U energy is not finite");
         assert!(
             (e_lr - e_plain).abs() > 1.0e-8,
@@ -2187,12 +2633,17 @@ mod tests {
 
         let mut gopt = AnalyticGradientOptions::default();
         gopt.electronic = base;
-        let g_plain = analytic_gradient(&system, &params, gopt.clone()).unwrap().gradient;
+        let g_plain = analytic_gradient(&system, &params, gopt.clone())
+            .unwrap()
+            .gradient;
         gopt.electronic = spin;
         let g_spin = analytic_gradient(&system, &params, gopt).unwrap().gradient;
         let mut maxdiff = 0.0_f64;
         for (a, b) in g_plain.iter().zip(g_spin.iter()) {
-            maxdiff = maxdiff.max((a.x - b.x).abs()).max((a.y - b.y).abs()).max((a.z - b.z).abs());
+            maxdiff = maxdiff
+                .max((a.x - b.x).abs())
+                .max((a.y - b.y).abs())
+                .max((a.z - b.z).abs());
         }
         assert!(
             maxdiff <= 1.0e-10,
@@ -2261,12 +2712,9 @@ mod tests {
         let Some(params) = load_params() else {
             return;
         };
-        let system = PeriodicSystem::from_xyz_str(
-            "2\nSH\nS 0.01 0.00 0.00\nH 0.02 0.03 1.34\n",
-            0.0,
-            false,
-        )
-        .unwrap();
+        let system =
+            PeriodicSystem::from_xyz_str("2\nSH\nS 0.01 0.00 0.00\nH 0.02 0.03 1.34\n", 0.0, false)
+                .unwrap();
         let mut opt = tight_options();
         opt.spin_multiplicity = Some(2);
         opt.spin_polarization = true;
@@ -2340,12 +2788,9 @@ mod tests {
         let Some(params) = load_params() else {
             return;
         };
-        let system = PeriodicSystem::from_xyz_str(
-            "2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n",
-            0.0,
-            false,
-        )
-        .unwrap();
+        let system =
+            PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false)
+                .unwrap();
         let mut opt = tight_options();
         // Finite electronic temperature to lift the near-degenerate d¹ frontier so the
         // T=0-discontinuous analytic force is well-conditioned (see the doc comment above).
@@ -2396,20 +2841,21 @@ mod tests {
         let Some(params) = load_params() else {
             return;
         };
-        let system = PeriodicSystem::from_xyz_str(
-            "2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n",
-            0.0, false,
-        )
-        .unwrap();
+        let system =
+            PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false)
+                .unwrap();
         let mut base = tight_options();
         base.electronic_temperature = 300.0;
         base.spin_multiplicity = Some(3);
         base.spin_polarization = true;
         base.plus_u = true;
         base.hubbard_u = vec![(21, 0.2)]; // fixed U on Sc (Z=21) d
-        // +U only (CAMM off).
+                                          // +U only (CAMM off).
         let res_u = crate::electronic::run_electronic(&system, &params, base.clone()).unwrap();
-        assert!(res_u.total_free.is_finite() && res_u.converged, "+U-only did not converge");
+        assert!(
+            res_u.total_free.is_finite() && res_u.converged,
+            "+U-only did not converge"
+        );
         // +U + CAMM.
         let mut camm = base.clone();
         camm.multipole = true;
@@ -2421,12 +2867,14 @@ mod tests {
         assert!(
             res_c.total_free.is_finite() && res_c.converged,
             "CAMM + +U did not converge (E={}, conv={})",
-            res_c.total_free, res_c.converged
+            res_c.total_free,
+            res_c.converged
         );
         assert!(
             (res_c.total_free - res_u.total_free).abs() > 1.0e-6,
             "CAMM had no measurable effect on the combined energy: {} vs {}",
-            res_c.total_free, res_u.total_free
+            res_c.total_free,
+            res_u.total_free
         );
     }
 
@@ -2437,42 +2885,17 @@ mod tests {
     /// `plus_u_linear_response_gradient_matches_fd` but with CAMM added — validates that the CAMM
     /// Fock in the converged spin Fock is correctly carried by the base energy-weighted-density
     /// Pulay term, so no CAMM overlap-Pulay term is missing.
-    // WIP (2026-07-01): FAILS on ScH — the "base EWD-Pulay carries the CAMM response" assumption in
-    // the doc above holds for the FROZEN-U CAMM force, but NOT for the LINEAR-RESPONSE U. The
-    // linear-response U (and its dU/dR) flow through the SCC-CPHF screened response operator (I−M)
-    // (spin.rs::analytic_chi / build_screened_operator, mirrored in plus_u_dudr), which dresses the
-    // +U probe with the base SCC feedback. When CAMM is active the converged SCC Fock ALSO contains
-    // the CAMM-AES multipole Fock, so that response operator MUST include the CAMM multipole coupling
-    // — it currently does not → χ (screened) and dχ/dR are inconsistent with the CAMM-augmented SCC →
-    // dU/dR is wrong → the consistency force fails FD (even on the 2-atom ScH: fundamental, not large-N).
-    //
-    // SCOPE (assessed 2026-07-01): this is a LARGE response-space EXPANSION, not a bounded add. The
-    // CAMM Fock depends on the density through the atomic DIPOLE μ_A and QUADRUPOLE Θ_A moments
-    // (camm_atomic_moments: μ_A = Tr(P·D̂_A), a DIFFERENT density projection than the shell-charge
-    // Mulliken population). μ/Θ cannot be re-expressed via the existing (dq,dm) shell response
-    // variables. Threading CAMM correctly requires expanding the (dq,dm) fixed point to
-    // (dq,dm,dμ,dΘ) — new response dimensions (3·nat dipole + traceless-quad per atom), the CAMM
-    // linear coupling kernel K_camm:(q,μ,Θ)→(s,vd,vq), new bare-response moment projections
-    // (∂μ/∂probe via the referenced-dipole operator), the camm_aes_shift feedback Fock, AND the
-    // geometry derivatives of all of these (referenced-dipole/quad integral derivatives, erf-cloud
-    // kernel f^(mn)_grad) for dχ/dR — mirrored in BOTH spin.rs::analytic_chi/build_screened_operator
-    // AND plus_u_dudr + its geometry-derivative sources, each stage FD-gated. This is comparable in
-    // size to the original analytic dU/dR build, so it is deferred (per the scope-gate bail-out) for
-    // the user to schedule separately. Energy single-points ARE correct (camm_plus_u_energy_converges_ni).
-    // Fixed-U + CAMM gradients are also fine (frozen U → the EWD-Pulay does carry the CAMM force).
-    // Do NOT use CAMM + LINEAR-RESPONSE-U geometry optimization until this gate passes.
-    #[ignore = "deferred (scope=b): CAMM + linear-response +U gradient needs μ/Θ moment-response \
-                variables in the SCC-CPHF (I−M) operator — a large response-space expansion"]
+    // U and dU/dR use the same plain-spGFN1 response reference. The final
+    // variational CAMM/+U SCC requires complete density feedback, since CAMM
+    // moments and +U orbital occupations are not determined by shell q/m alone.
     #[test]
     fn camm_plus_u_linear_response_gradient_matches_fd() {
         let Some(params) = load_params() else {
             return;
         };
-        let system = PeriodicSystem::from_xyz_str(
-            "2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n",
-            0.0, false,
-        )
-        .unwrap();
+        let system =
+            PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false)
+                .unwrap();
         let mut opt = tight_options();
         opt.electronic_temperature = 300.0;
         opt.spin_multiplicity = Some(3);
@@ -2484,33 +2907,46 @@ mod tests {
         opt.camm_damp = 1.0;
         opt.camm_aes_scale = 1.0;
         opt.camm_onsite_scale = 1.0;
+        opt.energy_tolerance = 1e-12;
+        opt.charge_tolerance = 1e-11;
+
+        let reference = crate::run_electronic(&system, &params, opt.clone()).unwrap();
+        assert!(reference.converged);
+        assert_eq!(reference.electronic_temperature, 300.0);
 
         let mut gopt = AnalyticGradientOptions::default();
         gopt.electronic = opt.clone();
         let ana = analytic_gradient(&system, &params, gopt).unwrap().gradient;
 
         let energy = |sys: &PeriodicSystem| -> f64 {
-            crate::electronic::run_electronic(sys, &params, opt.clone())
-                .unwrap()
-                .total_free
+            let result = crate::electronic::run_electronic(sys, &params, opt.clone()).unwrap();
+            assert!(result.converged);
+            assert_eq!(result.electronic_temperature, 300.0);
+            result.total_free
         };
         let h = 1.0e-4;
         let mut maxdiff = 0.0_f64;
+        let mut maxfine = 0.0_f64;
         for atom in 0..system.atoms.len() {
             for axis in 0..3 {
                 let fd = (energy(&displaced(&system, atom, axis, h))
                     - energy(&displaced(&system, atom, axis, -h)))
                     / (2.0 * h);
+                let fine = (energy(&displaced(&system, atom, axis, h / 2.0))
+                    - energy(&displaced(&system, atom, axis, -h / 2.0)))
+                    / h;
                 let a = match axis {
                     0 => ana[atom].x,
                     1 => ana[atom].y,
                     _ => ana[atom].z,
                 };
-                maxdiff = maxdiff.max((a - fd).abs());
+                maxdiff = maxdiff.max((a - (4.0 * fine - fd) / 3.0).abs());
+                maxfine = maxfine.max((a - fine).abs());
             }
         }
+        eprintln!("CAMM+LR+U ScH all6 components at300K: fine error={maxfine:.6e}, Richardson error={maxdiff:.6e}, iterations={}", reference.iterations);
         assert!(
-            maxdiff < 1.0e-4,
+            maxdiff < 1.0e-7,
             "CAMM + linear-response +U gradient vs FD: max diff {maxdiff:.3e} Ha/bohr"
         );
     }
@@ -2563,7 +2999,9 @@ mod tests {
         let basis = BasisSet::build(
             system,
             params,
-            crate::basis::BasisOptions { nprim: options.nprim },
+            crate::basis::BasisOptions {
+                nprim: options.nprim,
+            },
         )
         .unwrap();
         let charge = options.charge.unwrap_or(system.charge);
@@ -2583,13 +3021,35 @@ mod tests {
         let kt = options.electronic_temperature.max(0.0) * BOLTZMANN_HARTREE_PER_K;
         let subspace = crate::plus_u::correlated_subspace_auto(&basis, options.plus_u_all_d);
         let (chi0_fd, chi_fd) = fd_chi0_chi(
-            &basis, overlap, h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-            options, &subspace,
+            &basis,
+            overlap,
+            h0,
+            &orth,
+            &shell_model,
+            &amat,
+            &info,
+            n_alpha,
+            n_beta,
+            kt,
+            unpaired,
+            options,
+            &subspace,
         )
         .unwrap();
         let (chi0_an, chi_an) = analytic_chi0_chi(
-            &basis, overlap, h0, &orth, &shell_model, &amat, &info, n_alpha, n_beta, kt, unpaired,
-            options, &subspace,
+            &basis,
+            overlap,
+            h0,
+            &orth,
+            &shell_model,
+            &amat,
+            &info,
+            n_alpha,
+            n_beta,
+            kt,
+            unpaired,
+            options,
+            &subspace,
         )
         .unwrap();
         (chi0_fd, chi_fd, chi0_an, chi_an)

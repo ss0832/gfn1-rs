@@ -1,0 +1,198 @@
+% gfn1-rs v0.6.0 planning references, revision 2.
+% Scope updated to GFN1-specific ALPB/GBSA; withdrawn models removed.
+% UTF-8; citation is not a license grant. Asset licenses are recorded separately.
+
+@article{Grimme2017GFN1,
+  author = {Grimme, Stefan and Bannwarth, Christoph and Shushkov, Philip},
+  title = {A Robust and Accurate Tight-Binding Quantum Chemical Method for Structures, Vibrational Frequencies, and Noncovalent Interactions of Large Molecular Systems Parametrized for All spd-Block Elements ({Z} = 1--86)},
+  journal = {Journal of Chemical Theory and Computation},
+  year = {2017}, volume = {13}, pages = {1989--2009},
+  doi = {10.1021/acs.jctc.7b00118}
+}
+
+@article{Jha2023SOC,
+  author = {Jha, Gautam and Heine, Thomas},
+  title = {Spin--orbit coupling corrections for the {GFN-xTB} method},
+  journal = {The Journal of Chemical Physics},
+  year = {2023}, volume = {158}, pages = {044120},
+  doi = {10.1063/5.0129071}
+}
+
+@article{Cheng2023Magnetic,
+  author = {Cheng, Chi Y. and Wibowo-Teale, Andrew M.},
+  title = {Semiempirical Methods for Molecular Systems in Strong Magnetic Fields},
+  journal = {Journal of Chemical Theory and Computation},
+  year = {2023}, volume = {19}, pages = {6226--6241},
+  doi = {10.1021/acs.jctc.3c00671}
+}
+
+@article{Neugebauer2023Spin,
+  author = {Neugebauer, H. and Bädorf, B. and Ehlert, S. and Hansen, A. and Grimme, S.},
+  title = {High-throughput screening of spin states for transition metal complexes with spin-polarized extended tight-binding methods},
+  journal = {Journal of Computational Chemistry},
+  year = {2023}, volume = {44}, pages = {2120--2129},
+  doi = {10.1002/jcc.27185}
+}
+
+@article{Ehlert2021ALPB,
+  author = {Ehlert, Sebastian and Stahn, Marcel and Spicher, Sebastian and Grimme, Stefan},
+  title = {Robust and Efficient Implicit Solvation Model for Fast Semiempirical Methods},
+  journal = {Journal of Chemical Theory and Computation},
+  year = {2021}, volume = {17}, number = {7}, pages = {4250--4261},
+  doi = {10.1021/acs.jctc.1c00471},
+  note = {GFN1-specific ALPB/GBSA planning reference. Full paper, SI, and parameter files must be version-pinned and checked before implementation acceptance.}
+}
+
+@article{Li2026MLxTB,
+  author = {Li, Chenghan and Chan, Garnet Kin-Lic},
+  title = {Predictive free energy simulations through hierarchical distillation of quantum Hamiltonians},
+  journal = {Proceedings of the National Academy of Sciences},
+  year = {2026}, volume = {123}, number = {6}, pages = {e2529120123},
+  doi = {10.1073/pnas.2529120123},
+  note = {Detailed model and SI inspected in the public preprint arXiv:2509.10967v1; release adoption requires version comparison.}
+}
+
+@article{Baroni2001DFPT,
+  author = {Baroni, Stefano and de Gironcoli, Stefano and Dal Corso, Andrea and Giannozzi, Paolo},
+  title = {Phonons and related crystal properties from density-functional perturbation theory},
+  journal = {Reviews of Modern Physics},
+  year = {2001}, volume = {73}, pages = {515--562},
+  doi = {10.1103/RevModPhys.73.515}
+}
+
+@article{Bacic2020Phonons,
+  author = {Bačić, Vladimir and Heine, Thomas and Kuc, Agnieszka},
+  title = {Analytical approach to phonon calculations in the {SCC-DFTB} framework},
+  journal = {The Journal of Chemical Physics},
+  year = {2020}, volume = {153}, pages = {144109},
+  doi = {10.1063/5.0023666},
+  eprint = {2008.04642}, archivePrefix = {arXiv}
+}
+
+@article{Piccardo2015GVPT,
+  author = {Piccardo, Matteo and Bloino, Julien and Barone, Vincenzo},
+  title = {Generalized Vibrational Perturbation Theory for Rotovibrational Energies of Linear, Symmetric and Asymmetric Tops: Theory, Approximations, and Automated Approaches to Deal with Medium-to-Large Molecular Systems},
+  journal = {International Journal of Quantum Chemistry},
+  year = {2015}, volume = {115}, pages = {948--982},
+  doi = {10.1002/qua.24931}
+}
+
+@article{Buccheri2025Periodic,
+  author = {Buccheri, Alexander and Li, Rui and Deustua, J. Emiliano and Moosavi, S. Mohamad and Bygrave, Peter J. and Manby, Frederick R.},
+  title = {Periodic {GFN1-xTB} Tight Binding: A Generalized Ewald Partitioning Scheme for the Klopman--Ohno Function},
+  journal = {Journal of Chemical Theory and Computation},
+  year = {2025}, volume = {21}, pages = {1615--1625},
+  doi = {10.1021/acs.jctc.4c01234}
+}
+
+@misc{XTBSpinDocumentation,
+  author = {{xTB developers}},
+  title = {Spin-polarization: xtb documentation},
+  url = {https://xtb-docs.readthedocs.io/en/latest/spgfn.html},
+  note = {Accessed 1 November 2026. Pin the implementation commit for oracle tests.}
+}
+
+@misc{MaceOFFLicense,
+  author = {{ACEsuit}},
+  title = {{MACE-OFF} Academic Software Licence},
+  url = {https://github.com/ACEsuit/mace-off/blob/main/LICENSE.md},
+  note = {Accessed 1 November 2026; noncommercial restriction. Excluded from GPL distribution.}
+}
+
+@misc{XTBSolvationDocumentation,
+  author = {{xTB developers}},
+  title = {Implicit Solvation: GFN1-specific ALPB and GBSA parameters, grids, and reference states},
+  url = {https://xtb-docs.readthedocs.io/en/latest/gbsa.html},
+  note = {Accessed 1 November 2026. Model-specific solvent availability must be checked against the pinned implementation.}
+}
+
+@misc{XTBRepository,
+  author = {{xTB developers}},
+  title = {{xtb}: Semiempirical Extended Tight-Binding Program Package},
+  url = {https://github.com/grimme-lab/xtb},
+  note = {Accessed 1 November 2026. LGPL-3.0-or-later; pin the commit and inspect individual asset licenses before redistribution.}
+}
+
+@misc{XTBSolvationSources,
+  author = {{xTB developers}},
+  title = {{xtb} generalized Born and ALPB solvation implementation},
+  url = {https://raw.githubusercontent.com/grimme-lab/xtb/main/src/solv/gbsa.f90},
+  note = {Accessed 1 November 2026. Also inspected src/solv/sasa.f90 and src/solv/model.f90. Pin source and parameter hashes for oracle comparisons.}
+}
+
+@article{Sun2020PySCF,
+  author = {Sun, Qiming and Zhang, Xing and Banerjee, Samragni and others},
+  title = {Recent developments in the {PySCF} program package},
+  journal = {The Journal of Chemical Physics},
+  year = {2020}, volume = {153}, pages = {024109},
+  doi = {10.1063/5.0006074},
+  note = {PySCF 2.14.0 was used for independent H2 FCI/cc-pVTZ data and water-cluster PBE0/def2-SVP data. H2 uses full-active-space CASCI, two electrons, no frozen core and analytic CASCI gradients. Water clusters use analytic hybrid-DFT gradients including grid response and electronic plus nuclear dipoles.}
+}
+
+@article{Dunning1989CC,
+  author = {Dunning, Thom H.},
+  title = {Gaussian basis sets for use in correlated molecular calculations. I. The atoms boron through neon and hydrogen},
+  journal = {The Journal of Chemical Physics},
+  year = {1989}, volume = {90}, pages = {1007--1023},
+  doi = {10.1063/1.456153}
+}
+
+@article{Goerigk2017GMTKN55,
+  author = {Goerigk, Lars and Hansen, Andreas and Bauer, C. and Ehrlich, Stephan and Najibi, Asim and Grimme, Stefan},
+  title = {A look at the density functional theory zoo with the advanced {GMTKN55} database for general main group thermochemistry, kinetics and noncovalent interactions},
+  journal = {Physical Chemistry Chemical Physics},
+  year = {2017}, volume = {19}, pages = {32184--32215},
+  doi = {10.1039/C7CP04913G},
+  note = {WTMAD-2 reference normalization is 56.84 kcal/mol. Applied here only to explicit relative/reaction energy targets; custom subset ratios are separately reported.}
+}
+
+@article{Adamo1999PBE0,
+  author = {Adamo, Carlo and Barone, Vincenzo},
+  title = {Toward reliable density functional methods without adjustable parameters: The {PBE0} model},
+  journal = {The Journal of Chemical Physics},
+  year = {1999}, volume = {110}, pages = {6158--6170},
+  doi = {10.1063/1.478522}
+}
+
+@article{Weigend2005Def2,
+  author = {Weigend, Florian and Ahlrichs, Reinhart},
+  title = {Balanced basis sets of split valence, triple zeta valence and quadruple zeta valence quality for {H} to {Rn}: Design and assessment of accuracy},
+  journal = {Physical Chemistry Chemical Physics},
+  year = {2005}, volume = {7}, pages = {3297--3305},
+  doi = {10.1039/B508541A}
+}
+
+@article{Grazulis2012COD,
+  author = {Grazulis, Saulius and Daskevic, Adriana and Merkys, Andrius and others},
+  title = {Crystallography Open Database ({COD}): an open-access collection of crystal structures and platform for world-wide collaboration},
+  journal = {Nucleic Acids Research}, year = {2012}, volume = {40}, pages = {D420--D427},
+  doi = {10.1093/nar/gkr900},
+  note = {The database-data public-domain deposition policy is distinct from the article text license. Selected coordinate snapshots are pinned by COD ID, COD-tools commit and source hashes.}
+}
+
+@article{Fortes2015Spinel,
+  author = {Fortes, A. Dominic},
+  title = {Crystal structures of spinel-type {Na2MoO4} and {Na2WO4} revisited using neutron powder diffraction},
+  journal = {Acta Crystallographica Section E}, year = {2015}, volume = {71}, pages = {592--596},
+  doi = {10.1107/S2056989015008774}, note = {Na2MoO4 geometry: COD 2240655.}
+}
+
+@article{Budzianowski2006Benzene,
+  author = {Budzianowski, Armand and Katrusiak, Andrzej},
+  title = {Crystalline benzene {I} revisited},
+  journal = {Acta Crystallographica Section B}, year = {2006}, volume = {62}, pages = {94--101},
+  note = {Benzene geometry: COD 2100348; reported measurement temperature 296 K.}
+}
+
+@article{Glidewell1994Ferrocene,
+  author = {Glidewell, Christopher and Zakaria, Choudhury M. and Ferguson, George},
+  title = {Hydrogen bonding in ferrocene derivatives: structure of the 1:1 adduct of ferrocenyl(diphenyl)methanol and dimethyl sulfoxide},
+  journal = {Acta Crystallographica Section C}, year = {1994}, volume = {50}, pages = {678--681},
+  doi = {10.1107/S0108270194002180}, note = {Geometry: COD 2009668; dummy ring centroids are not nuclei.}
+}
+
+@book{Kittel2005SolidState,
+  author = {Kittel, Charles}, title = {Introduction to Solid State Physics},
+  edition = {8}, publisher = {Wiley}, year = {2005}, isbn = {9780471415268},
+  note = {Background for independently constructed ideal prototypes at explicitly declared representative lattice parameters; no experimental CIF claim.}
+}

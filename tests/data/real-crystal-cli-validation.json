@@ -1,0 +1,78 @@
+{
+  "schema": "gfn1-rs-sourced-crystal-cli-validation-v1",
+  "package_version": "0.7.0",
+  "status": "pass",
+  "source_cod_id": "9008856",
+  "source_reference": "tests/data/real-crystal-property-survey.json",
+  "source_reference_sha256": "0d0d8a3c2b226249ec80bf65d0c0fa74d7b0949fcf94e3e3ae4d6a5cb54497a2",
+  "geometry_scope": "model-relaxed descendant of the sourced cubic SiC CIF, not its original measured geometry",
+  "request_file": "examples/crystal-sic-cod9008856-relaxed-request.json",
+  "request_sha256": "a2b55070d96729103adbea01b8140e27a41039c3c16a1ba38d64ec945988226f",
+  "cli_result_sha256": "ca8f47eb260221dae78235d2690899b70f77cda9c3002482bba4a76f5a79c631",
+  "executable_sha256": "1f0516dd0c4f4255cc218233312e9cdafe2640e11c52976a1d6f381f2cda2aeb",
+  "measured_cli_rust_extension_sha256": "065255b2790d5f9de6ddd727dfed6a08884974dd53e34ff9e733db3a7e8bf31f",
+  "maximum_differences_native_units": {
+    "elastic/clamped_stiffness_hartree_per_bohr3": 5.898059818321144e-17,
+    "berry/born_effective_charges": 5.329070518200751e-15,
+    "berry/clamped_piezoelectric_au": 4.28801959218017e-17,
+    "electronic/electronic_relative_dielectric": 3.9968028886505635e-15,
+    "relaxed_piezoelectric_au": 9.8879238130678e-17,
+    "piezoelectric_strain_au": 1.5210055437364645e-14,
+    "static_dielectric_fixed_strain": 2.3092638912203256e-14,
+    "static_dielectric_free_stress": 2.4868995751603507e-14,
+    "lo_to_100_dynamical_matrix_hartree_per_bohr2_amu": 6.938893903907228e-17,
+    "lo_to_100_eigenvalues_hartree_per_bohr2_amu": 9.71445146547012e-17,
+    "lo_to_100_optical_wavenumbers_cm1": 1.3642420526593924e-12,
+    "lo_to_100_raw_acoustic_maximum_difference_cm1": 1.1664454012599763e-05
+  },
+  "conditions": {
+    "ao_cutoff_bohr": 24.0,
+    "charge_order": 3,
+    "charge_tolerance": 1e-11,
+    "coordination_cutoff_bohr": 30.0,
+    "electronic_temperature_kelvin": 300.0,
+    "enable_dispersion": true,
+    "energy_tolerance_hartree": 1e-13,
+    "ewald": "EwaldOptions { k_split: None, real_cutoff: 40.0, recip_cutoff: 0.0, sr_cutoff: 10.0, sr_width: 1.0 }",
+    "fold_time_reversal": false,
+    "gamma_centered": true,
+    "kmesh": [
+      2,
+      2,
+      2
+    ],
+    "max_scc": 1000,
+    "mixing": 0.4,
+    "nprim": 0,
+    "scc_accelerator": "auto"
+  },
+  "resources": {
+    "cp": {
+      "absolute_tolerance": null,
+      "max_iterations": null,
+      "relative_tolerance": null
+    },
+    "threads": 2,
+    "workspace_budget_bytes": 2147483648
+  },
+  "reference_physical_extension_sha256": "75f06d31ca8e58d21169a2e6e369cf47e30c0e0249d24dcc5c4cf1c723e099f4",
+  "raw_lo_to_wavenumbers_cm1": {
+    "reference": [
+      -1.0255217711390202e-05,
+      -6.334110888508094e-06,
+      2.2148091851029087e-06,
+      679.0828624247118,
+      679.0828624263517,
+      987.0731012500877
+    ],
+    "cli": [
+      -5.353197649096138e-06,
+      5.330343124091669e-06,
+      9.942146014609707e-06,
+      679.0828624247112,
+      679.0828624263515,
+      987.073101250089
+    ]
+  },
+  "zero_mode_comparison": "Compare dynamical matrices/eigenvalues directly; three signed acoustic frequencies below1e-3cm^-1 retain numerical sqrt amplification rather than being forced to zero."
+}

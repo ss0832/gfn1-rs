@@ -1,0 +1,24 @@
+LicenseRef-COD-Public-Domain
+
+This identifier records the Crystallography Open Database (COD) contributor
+public-domain dedication for crystallographic data. It does not describe the
+license of journal article text, figures, COD-tools program code, or unrelated
+commercial crystallographic databases.
+
+Policy source: S. Grazulis et al., Crystallography Open Database (COD): an
+open-access collection of crystal structures and platform for world-wide
+collaboration, Nucleic Acids Research 40, D420-D427 (2012),
+https://doi.org/10.1093/nar/gkr900 , PMCID PMC3245043. Its data-deposition section
+states that published and personal-communication structural data deposited to
+COD are put into the public domain. Original COD CIF notices also identify the
+COD and request proper attribution of the originating scientific articles.
+
+The fixture export retains COD IDs, original scientific references, snapshot
+commit and source-text hashes. Only crystallographic cell and atom-site data
+are exported. Contact details, local processing paths and unrelated CIF text
+are omitted. Source files are read from the pinned COD-tools test snapshot,
+with transformations explicitly recorded. No claim is made that the processed
+fixtures are byte-identical to a current COD server response.
+
+Independently generated ideal-prototype coordinates and new numerical validation
+results are CC0-1.0. The generator and validation software are GPL-3.0-or-later.

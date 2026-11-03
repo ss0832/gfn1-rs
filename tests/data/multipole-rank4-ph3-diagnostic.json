@@ -1,0 +1,180 @@
+{
+  "schema": "gfn1-rs-high-rank-cold-scc-repair-v2",
+  "package_version": "0.6.0",
+  "dependency_lockfile_sha256": "8990ac3315cb0587f994474d821cc0fc0bbcef89977ac38515171a135480d640",
+  "status": "resolved_0K_and_all_cartesian_gradients_pass",
+  "model": {
+    "multipole": true,
+    "multipole_order": 4,
+    "parameters_refitted": false
+  },
+  "atoms_bohr": [
+    {
+      "Z": 15,
+      "position_bohr": [
+        0.18897261246257702,
+        0.37794522492515403,
+        -0.18897261246257702
+      ]
+    },
+    {
+      "Z": 1,
+      "position_bohr": [
+        2.343260394535955,
+        0.2834589186938655,
+        1.3606028097305545
+      ]
+    },
+    {
+      "Z": 1,
+      "position_bohr": [
+        -0.9448630623128851,
+        2.3054658720434396,
+        1.1527329360217198
+      ]
+    },
+    {
+      "Z": 1,
+      "position_bohr": [
+        -1.020452107297916,
+        -1.7196507734094508,
+        1.2472192422530084
+      ]
+    }
+  ],
+  "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+  "requested_temperature_K": 0,
+  "actual_temperature_K": 0,
+  "requested_energy_tolerance": 1e-13,
+  "requested_charge_tolerance": 1e-11,
+  "root_causes": [
+    "The joint charge/moment fixed-point map oscillates on this stiff high-rank model.",
+    "Tiny Krylov responses lose accuracy when subtracting a fixed charge bias; unit-amplitude evaluation restores the linear response.",
+    "Energy differences become unresolved before the strict orbital-gradient tolerance is met; roundoff-scale steps are accepted only when the physical residual decreases.",
+    "Global Aufbau refilling after minimization discards a stable restricted non-Aufbau determinant minimum; occupation-subspace canonicalization must retain its density."
+  ],
+  "resolved_state": {
+    "iterations": 17,
+    "energy_hartree": -4.149169099975802,
+    "max_abs_FP_minus_SW": 4.7684078907650473e-14,
+    "orbital_energies_hartree": [
+      -0.9946089789681777,
+      -0.9243701972601966,
+      -0.7226652408676816,
+      -0.47641298013920735,
+      -0.4494018841398217,
+      -0.40340359190017955,
+      -0.07097718459308507,
+      -0.06293202700752007,
+      -0.058675725690774734,
+      0.1707290142615653,
+      0.25034127490394287,
+      0.4578581371104013,
+      0.8752820114052053,
+      0.9488294851092477,
+      1.3046397554038827
+    ],
+    "occupations": [
+      0.0,
+      0.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "analytic_gradient_hartree_per_bohr": [
+      -0.008578115489927093,
+      0.04682398526150867,
+      0.004037267725746595,
+      0.01874066826578244,
+      -0.0055313476072520636,
+      0.0031754544908043935,
+      0.004488040197069059,
+      -0.0054656509699601,
+      -0.020418861991789872,
+      -0.014650592972924398,
+      -0.035826986684296444,
+      0.013206139775238853
+    ],
+    "richardson_gradient_hartree_per_bohr": [
+      -0.008578115447595755,
+      0.046823985218047426,
+      0.0040372676949710735,
+      0.018740668218756678,
+      -0.005531347584408763,
+      0.003175454491947486,
+      0.004488040235746856,
+      -0.0054656510251049895,
+      -0.020418862036741814,
+      -0.014650592978782129,
+      -0.035826986620376054,
+      0.013206139761745561
+    ],
+    "fine_metrics": {
+      "maximum_absolute_error": 5.204673879377619e-10,
+      "maximum_error_over_local_tolerance": 0.0004442507100004436,
+      "pass": true,
+      "passed_components": 12,
+      "rms_error": 2.8198449835991026e-10,
+      "tested_components": 12,
+      "worst_flat_index": 0
+    },
+    "richardson_metrics": {
+      "maximum_absolute_error": 6.392038981450909e-11,
+      "maximum_error_over_local_tolerance": 4.9710846716498405e-05,
+      "pass": true,
+      "passed_components": 12,
+      "rms_error": 3.8968262413465015e-11,
+      "tested_components": 12,
+      "worst_flat_index": 10
+    }
+  },
+  "scope": "Restricted integer-occupation determinant minimum at 0 K, retaining non-Aufbau occupation labels; not a fractional ensemble or chemical-accuracy certification. Multipole nuclear derivatives remain supported through gradients.",
+  "finite_difference_steps_bohr": [
+    0.0004,
+    0.0002,
+    0.0001
+  ],
+  "source_sha256": {
+    "src/electronic.rs": "9113c95dd9a550cfd7ef4687e8118557a0492937729ceb31d2b9c79efc68513c",
+    "src/trah.rs": "fcf5f4882f28ded3da34a14e36f96e624a3e80e50b7c0c01367cce2743dd1739",
+    "tests/ph3_rank4.rs": "192827bafff035a63934342b59b733e6324fd639a51a0bfbabe38e3854880ca3",
+    "tests/nuclear_derivative_audit.rs": "881eb0c0107e92b883eec3073a282bdaa854795b902e17d33c206c8c729f93b8"
+  },
+  "previous_failure": {
+    "schema": "gfn1-rs-extended-scc-convergence-diagnostic-v1",
+    "package_version": "0.6.0-dev.1",
+    "status": "unresolved_model_convergence_limit",
+    "system_xyz_angstrom": "4\nasymmetric phosphine\nP .1 .2 -.1\nH 1.24 .15 .72\nH -.5 1.22 .61\nH -.54 -.91 .66\n",
+    "model": {
+      "multipole": true,
+      "multipole_order": 4
+    },
+    "requested_temperature_K": 0,
+    "actual_fallback_temperature_K": 3000,
+    "energy_tolerance": 1e-13,
+    "charge_tolerance": 1e-11,
+    "max_scc_per_requested_rung": 1000,
+    "initial_mixing_values_tested": [
+      0.4,
+      0.1
+    ],
+    "diagnostic": {
+      "case": "multipole-rank4",
+      "error": "FD audit state: converged=true, iterations=115, requested temperature=0, actual temperature=3000",
+      "orders": [],
+      "status": "calculation_error"
+    },
+    "acceptance": "Rejected as a requested-temperature derivative test. No 0 K PH3 gradient pass is claimed.",
+    "separate_positive_case": "multipole-rank4-hcl-t0; all six nuclear gradient components at three steps, independently checked without changing the electronic temperature"
+  }
+}

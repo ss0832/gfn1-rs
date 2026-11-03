@@ -59,11 +59,9 @@ pub(crate) fn directional_response_hessian_vv(
         coordination_cutoff,
         include_cn_h0,
     )?;
-    let g = response_electronic_gradient(
-        system, electronic, &kernel, &grad_ctx, p_v, p_v, w_v, q_v,
-    )?;
-    Ok(g
-        .iter()
+    let g =
+        response_electronic_gradient(system, electronic, &kernel, &grad_ctx, p_v, p_v, w_v, q_v)?;
+    Ok(g.iter()
         .enumerate()
         .map(|(at, grad)| grad.x * v[3 * at] + grad.y * v[3 * at + 1] + grad.z * v[3 * at + 2])
         .sum())
@@ -137,15 +135,13 @@ pub(crate) fn directional_response_hessian_derivative(
         e.density = p_v.clone();
         e
     };
-    total += cvv(
-        &crate::hessian::fixed_density_cn_h0_hessian(
-            system,
-            params,
-            &elec_pc,
-            coordination_cutoff,
-        )?
-        .hessian,
-    );
+    total += cvv(&crate::hessian::fixed_density_cn_h0_hessian(
+        system,
+        params,
+        &elec_pc,
+        coordination_cutoff,
+    )?
+    .hessian);
     total += cvv(&crate::hessian::fixed_density_cn_h0_pulay_cross_hessian(
         system,
         params,
@@ -163,9 +159,7 @@ pub(crate) fn directional_response_hessian_derivative(
         let mut e = electronic.clone();
         e.density = p_v.clone();
         e.energy_weighted_density = w_v.clone();
-        total += cvv(
-            &crate::hessian::fixed_density_pulay_hessian(system, params, &e)?.hessian,
-        );
+        total += cvv(&crate::hessian::fixed_density_pulay_hessian(system, params, &e)?.hessian);
     }
     let kernel = response_shell_scc_kernel(system, params, electronic)?;
     let kq_v = crate::linalg::matrix_vector_product(&kernel, q_v)?;
@@ -174,12 +168,9 @@ pub(crate) fn directional_response_hessian_derivative(
         for s in 0..nshell {
             e.shell_scc_potential[s] += kq_v[s];
         }
-        let h1 = cvv(
-            &crate::hessian::fixed_density_pulay_hessian(system, params, &e)?.hessian,
-        );
-        let h0 = cvv(
-            &crate::hessian::fixed_density_pulay_hessian(system, params, electronic)?.hessian,
-        );
+        let h1 = cvv(&crate::hessian::fixed_density_pulay_hessian(system, params, &e)?.hessian);
+        let h0 =
+            cvv(&crate::hessian::fixed_density_pulay_hessian(system, params, electronic)?.hessian);
         total += h1 - h0;
     }
     {
@@ -234,14 +225,7 @@ pub(crate) fn directional_response_hessian_derivative(
             .collect()
     };
     let bg = crate::response::cpxtb::response_gradient_background_motion(
-        system,
-        electronic,
-        &grad_ctx,
-        &kernel,
-        p_v,
-        q_v,
-        &chain,
-        v_pot_v,
+        system, electronic, &grad_ctx, &kernel, p_v, q_v, &chain, v_pot_v,
     )?;
     let dot = |grad: &[crate::math::Vec3]| -> f64 {
         grad.iter()
@@ -258,6 +242,15 @@ pub(crate) fn directional_response_hessian_derivative(
 /// the direction-INDEPENDENT frozen third-derivative slabs. The dense mode
 /// reuses it across all ~C(n+2,3) polarization directions.
 pub struct FiniteTThirdReference {
+    backend: ThermalCubicBackend,
+}
+
+enum ThermalCubicBackend {
+    Scalar(Box<ScalarThermalReference>),
+    Variational(Box<crate::third_derivative::CubicReference>),
+}
+
+struct ScalarThermalReference {
     electronic: crate::electronic::ElectronicResult,
     cphf: crate::response::cpxtb::GammaCartesianCpxtbResult,
     ctx: crate::response::charge_space::ChargeSpaceContext,
@@ -268,23 +261,120 @@ pub struct FiniteTThirdReference {
 }
 
 impl FiniteTThirdReference {
+    /// Conservative container/workspace estimate, not a process-RSS bound.
+    /// The current thermal implementation retains two frozen Cartesian FC3
+    /// slab families and Cartesian first responses; it is not quadratic-memory.
+    pub fn estimated_workspace_bytes(
+        system: &PeriodicSystem,
+        params: &Gfn1Parameters,
+        options: &crate::hessian::AnalyticHessianOptions,
+    ) -> Result<usize> {
+        let basis = crate::BasisSet::build(
+            system,
+            params,
+            crate::BasisOptions {
+                nprim: options.electronic_options.nprim,
+            },
+        )?;
+        let n = basis.len() as u128;
+        let ns = basis.shells.len() as u128;
+        if options.electronic_options.ml_model.is_some() || options.electronic_options.solvation.is_some() {
+            let bytes = n
+                .checked_mul(n)
+                .and_then(|x| x.checked_mul(112 * 8))
+                .and_then(|x| {
+                    ns.checked_mul(ns)
+                        .and_then(|y| y.checked_mul(16 * 8))
+                        .and_then(|y| x.checked_add(y))
+                })
+                .ok_or_else(|| {
+                    crate::Gfn1Error::InvalidInput("thermal ML workspace overflow".into())
+                })?;
+            return usize::try_from(bytes).map_err(|_| {
+                crate::Gfn1Error::InvalidInput("thermal ML workspace exceeds address space".into())
+            });
+        }
+        let d = (system.atoms.len() as u128)
+            .checked_mul(3)
+            .ok_or_else(|| crate::Gfn1Error::InvalidInput("thermal FC3 size overflow".into()))?;
+        let overflow = || crate::Gfn1Error::InvalidInput("thermal FC3 workspace overflow".into());
+        let terms = [
+            d.checked_pow(3).and_then(|x| x.checked_mul(24)),
+            n.checked_pow(2).and_then(|x| {
+                d.checked_mul(12)
+                    .and_then(|y| y.checked_add(256))
+                    .and_then(|y| x.checked_mul(y))
+            }),
+            n.checked_pow(3).and_then(|x| x.checked_mul(16)),
+            ns.checked_pow(2).and_then(|x| x.checked_mul(128)),
+        ];
+        let bytes = terms
+            .into_iter()
+            .try_fold(0u128, |sum, term| {
+                sum.checked_add(term.ok_or_else(overflow)?)
+                    .ok_or_else(overflow)
+            })?
+            .checked_mul(8)
+            .ok_or_else(overflow)?;
+        usize::try_from(bytes).map_err(|_| {
+            crate::Gfn1Error::InvalidInput("thermal FC3 workspace exceeds address space".into())
+        })
+    }
+
     pub fn build(
         system: &PeriodicSystem,
         params: &Gfn1Parameters,
         options: &crate::hessian::AnalyticHessianOptions,
         coordination_cutoff: f64,
     ) -> Result<Self> {
+        Self::build_with_budget(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            512 * 1024 * 1024,
+        )
+    }
+
+    pub fn build_with_budget(
+        system: &PeriodicSystem,
+        params: &Gfn1Parameters,
+        options: &crate::hessian::AnalyticHessianOptions,
+        coordination_cutoff: f64,
+        memory_budget_bytes: usize,
+    ) -> Result<Self> {
+        let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
+        let estimate = Self::estimated_workspace_bytes(system, params, options)?;
+        if estimate > memory_budget_bytes {
+            return Err(crate::Gfn1Error::InvalidInput(format!(
+                "thermal FC3 reference/workspace estimate {estimate} bytes exceeds budget {memory_budget_bytes}"
+            )));
+        }
+        if options.electronic_options.ml_model.is_some() || options.electronic_options.solvation.is_some() {
+            crate::variational_derivatives::validate_cutoff(options, coordination_cutoff)?;
+            let reference = crate::third_derivative::CubicReference::build(
+                system,
+                params,
+                &options.electronic_options,
+                memory_budget_bytes,
+            )?;
+            return Ok(Self {
+                backend: ThermalCubicBackend::Variational(Box::new(reference)),
+            });
+        }
         crate::terms::require_order(
             &options.electronic_options,
             params,
             3,
             "the finite-temperature analytic third derivative",
         )?;
-        let electronic = crate::electronic::run_electronic(
-            system,
-            params,
-            options.electronic_options.clone(),
-        )?;
+        let electronic =
+            crate::electronic::run_electronic(system, params, options.electronic_options.clone())?;
+        if !electronic.converged {
+            return Err(crate::Gfn1Error::InvalidInput(
+                "thermal FC3 requires a converged SCF reference".into(),
+            ));
+        }
         let include_cn_h0 = options.electronic_options.hamiltonian.enable_cn_hamiltonian;
         let ao_opts = crate::response::cpxtb::AoDerivativeOptions {
             coordination_cutoff,
@@ -297,9 +387,8 @@ impl FiniteTThirdReference {
             ao_opts,
             crate::response::cpxtb::CpxtbOptions::default(),
         )?;
-        let ctx = crate::response::charge_space::ChargeSpaceContext::build(
-            system, params, &electronic,
-        )?;
+        let ctx =
+            crate::response::charge_space::ChargeSpaceContext::build(system, params, &electronic)?;
         let include_disp =
             options.include_dispersion && options.electronic_options.enable_dispersion;
         let disp_ref = if include_disp {
@@ -316,22 +405,36 @@ impl FiniteTThirdReference {
             include_disp,
         )?;
         let so3 = crate::hessian::fixed_density_scalar_overlap_third_derivative(
-            system, params, &electronic,
+            system,
+            params,
+            &electronic,
         )?;
         let cn_grad = if include_cn_h0 {
-            Some(crate::hessian::cn_gradient_matrix(system, coordination_cutoff)?)
+            Some(crate::hessian::cn_gradient_matrix(
+                system,
+                coordination_cutoff,
+            )?)
         } else {
             None
         };
         Ok(Self {
-            electronic,
-            cphf,
-            ctx,
-            frozen,
-            so3,
-            cn_grad,
-            include_cn_h0,
+            backend: ThermalCubicBackend::Scalar(Box::new(ScalarThermalReference {
+                electronic,
+                cphf,
+                ctx,
+                frozen,
+                so3,
+                cn_grad,
+                include_cn_h0,
+            })),
         })
+    }
+
+    pub fn electronic(&self) -> &crate::electronic::ElectronicResult {
+        match &self.backend {
+            ThermalCubicBackend::Scalar(reference) => &reference.electronic,
+            ThermalCubicBackend::Variational(reference) => reference.electronic(),
+        }
     }
 }
 
@@ -352,6 +455,10 @@ pub fn directional_third_with_reference(
             ndof
         )));
     }
+    let reference = match &reference.backend {
+        ThermalCubicBackend::Scalar(reference) => reference,
+        ThermalCubicBackend::Variational(reference) => return reference.directional(v),
+    };
     let electronic = &reference.electronic;
     let include_cn_h0 = reference.include_cn_h0;
     let (field, v_pot_v) = crate::fourth_derivative::assemble::directional_first_order_legs(
@@ -417,10 +524,7 @@ pub fn directional_third_with_reference(
             .map(|at| (0..ndof).map(|c| v[c] * cn_grad[at][c]).sum())
             .collect();
         total += cvv(&crate::hessian::fixed_density_pulay_cn_h0_response(
-            system,
-            params,
-            electronic,
-            &cn_grad_v,
+            system, params, electronic, &cn_grad_v,
         )?);
     }
 
@@ -485,9 +589,59 @@ pub fn third_derivative_finite_t_dense(
     options: &crate::hessian::AnalyticHessianOptions,
     coordination_cutoff: f64,
 ) -> Result<crate::third_derivative::SymmetricThird> {
+    third_derivative_finite_t_dense_with_budget(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        512 * 1024 * 1024,
+    )
+}
+
+pub fn third_derivative_finite_t_dense_with_budget(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &crate::hessian::AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    memory_budget_bytes: usize,
+) -> Result<crate::third_derivative::SymmetricThird> {
+    let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
     let ndof = 3 * system.atoms.len();
     let dofs: Vec<usize> = (0..ndof).collect();
-    third_finite_t_polarized(system, params, options, coordination_cutoff, &dofs)
+    third_finite_t_polarized(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        &dofs,
+        memory_budget_bytes,
+    )
+}
+
+/// Contract the finite-temperature analytic FC3 with a direction, using O(n²)
+/// directional evaluations and O(n²) storage, without expanding a cubic tensor.
+pub fn third_derivative_finite_t_vector(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &crate::hessian::AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    direction: &[f64],
+) -> Result<Matrix> {
+    let n = 3 * system.atoms.len();
+    if direction.len() != n || direction.iter().any(|x| !x.is_finite()) {
+        return Err(crate::error::Gfn1Error::InvalidInput(
+            "finite-temperature cubic direction must contain 3N finite values".into(),
+        ));
+    }
+    if crate::variational_derivatives::supports_cartesian(options, coordination_cutoff) {
+        return crate::variational_derivatives::cubic_vector(
+            system, params, options.clone(), coordination_cutoff, direction,
+        );
+    }
+    let reference = FiniteTThirdReference::build(system, params, options, coordination_cutoff)?;
+    crate::derivative_assembly::cubic_contraction(direction, |v| {
+        directional_third_with_reference(system, params, coordination_cutoff, &reference, v)
+    })
 }
 
 /// The `|dofs|³` sub-tensor of the dense finite-temperature third derivative
@@ -508,7 +662,14 @@ pub fn third_derivative_finite_t_block(
             )));
         }
     }
-    third_finite_t_polarized(system, params, options, coordination_cutoff, dofs)
+    third_finite_t_polarized(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        dofs,
+        512 * 1024 * 1024,
+    )
 }
 
 fn third_finite_t_polarized(
@@ -517,72 +678,27 @@ fn third_finite_t_polarized(
     options: &crate::hessian::AnalyticHessianOptions,
     coordination_cutoff: f64,
     dofs: &[usize],
+    memory_budget_bytes: usize,
 ) -> Result<crate::third_derivative::SymmetricThird> {
-    use rayon::prelude::*;
-    use std::collections::{BTreeMap, HashMap};
-
-    let reference = FiniteTThirdReference::build(system, params, options, coordination_cutoff)?;
-    let ndof = 3 * system.atoms.len();
-    let m = dofs.len();
-
-    // Phase 1: deduplicate the subset directions of every canonical triple.
-    let mut key_index: HashMap<Vec<(usize, u8)>, usize> = HashMap::new();
-    let mut keys: Vec<Vec<(usize, u8)>> = Vec::new();
-    // Per canonical triple: the 7 (sign, key) polarization terms.
-    let mut plan: Vec<((usize, usize, usize), Vec<(f64, usize)>)> = Vec::new();
-    for k in 0..m {
-        for j in 0..=k {
-            for i in 0..=j {
-                let idxs = [dofs[i], dofs[j], dofs[k]];
-                let mut terms = Vec::with_capacity(7);
-                for mask in 1u8..8 {
-                    let mut dir: BTreeMap<usize, u8> = BTreeMap::new();
-                    for (bit, &dof) in idxs.iter().enumerate() {
-                        if mask & (1 << bit) != 0 {
-                            *dir.entry(dof).or_insert(0) += 1;
-                        }
-                    }
-                    let key: Vec<(usize, u8)> = dir.into_iter().collect();
-                    let sign = if (3 - mask.count_ones()) % 2 == 0 {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let idx = *key_index.entry(key.clone()).or_insert_with(|| {
-                        keys.push(key);
-                        keys.len() - 1
-                    });
-                    terms.push((sign, idx));
-                }
-                plan.push(((i, j, k), terms));
-            }
-        }
+    let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
+    if crate::variational_derivatives::supports_cartesian(options, coordination_cutoff) {
+        return crate::variational_derivatives::cubic_packed(
+            system, params, options.clone(), coordination_cutoff, dofs, memory_budget_bytes,
+        );
     }
-
-    // Phase 2: evaluate each distinct direction once, in parallel, against
-    // the shared reference.
-    let values: Result<Vec<f64>> = keys
-        .par_iter()
-        .map(|key| {
-            let mut v = vec![0.0_f64; ndof];
-            for &(dof, weight) in key {
-                v[dof] = weight as f64;
-            }
-            directional_third_with_reference(system, params, coordination_cutoff, &reference, &v)
-        })
-        .collect();
-    let values = values?;
-
-    // Phase 3: assemble the packed tensor.
-    let mut store = crate::third_derivative::SymmetricThird::zeros(m);
-    for ((i, j, k), terms) in plan {
-        let mut t = 0.0;
-        for (sign, idx) in terms {
-            t += sign * values[idx];
-        }
-        store.add(i, j, k, t / 6.0);
+    let workspace = FiniteTThirdReference::estimated_workspace_bytes(system, params, options)?;
+    let plan = crate::derivative_assembly::CartesianAssembly::new(
+        3, dofs, 3 * system.atoms.len(), memory_budget_bytes, workspace, 0, 8, 128,
+    )?;
+    if dofs.is_empty() {
+        return crate::third_derivative::SymmetricThird::try_zeros(0, memory_budget_bytes);
     }
-    Ok(store)
+    let reference = FiniteTThirdReference::build_with_budget(
+        system, params, options, coordination_cutoff, memory_budget_bytes,
+    )?;
+    plan.cubic(|v| directional_third_with_reference(
+        system, params, coordination_cutoff, &reference, v,
+    ))
 }
 
 /// The six coefficient-motion blocks of the response-gradient derivative,
@@ -655,15 +771,13 @@ fn response_coefficient_motion_block_values(
     // `quartic_t0_equality_cn_bisection`: `enable_cn_hamiltonian = false` is
     // not a supported FC4 configuration.
     let _ = include_cn_h0;
-    out[0] = cvv(
-        &crate::hessian::fixed_density_cn_h0_hessian(
-            system,
-            params,
-            &elec_p,
-            coordination_cutoff,
-        )?
-        .hessian,
-    );
+    out[0] = cvv(&crate::hessian::fixed_density_cn_h0_hessian(
+        system,
+        params,
+        &elec_p,
+        coordination_cutoff,
+    )?
+    .hessian);
     out[1] = cvv(&crate::hessian::fixed_density_cn_h0_pulay_cross_hessian(
         system,
         params,
@@ -749,6 +863,16 @@ pub(crate) fn directional_fourth_with_reference(
     reference: &FiniteTThirdReference,
     v: &[f64],
 ) -> Result<f64> {
+    let reference = match &reference.backend {
+        ThermalCubicBackend::Scalar(reference) => reference,
+
+        ThermalCubicBackend::Variational(reference) if options.electronic_options.solvation.is_some() => {
+            return reference.directional_fourth(v)
+        }
+        ThermalCubicBackend::Variational(_) => {
+            return Err(crate::Gfn1Error::InvalidInput("structural ML FC4 is not implemented".into()))
+        }
+    };
     let ndof = 3 * system.atoms.len();
     let electronic = &reference.electronic;
     let include_cn_h0 = reference.include_cn_h0;
@@ -811,14 +935,8 @@ pub(crate) fn directional_fourth_with_reference(
         let dgamma_v_qv: Vec<f64> = (0..nshell)
             .map(|s| (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum())
             .collect();
-        let second = ctx.second_order_field(
-            &field,
-            &field,
-            &f_vv,
-            &s_vv,
-            &dgamma_v_qv,
-            &dgamma_v_qv,
-        )?;
+        let second =
+            ctx.second_order_field(&field, &field, &f_vv, &s_vv, &dgamma_v_qv, &dgamma_v_qv)?;
         let d2vdr_q = crate::hessian::shell_scalar_potential_second_derivatives(
             system,
             basis,
@@ -826,8 +944,13 @@ pub(crate) fn directional_fourth_with_reference(
             params,
         )?;
         let kernel = response_shell_scc_kernel(system, params, electronic)?;
-        let chain =
-            kernel_chain_vec(system, params, electronic, &field.bundle.shell_charges, nshell)?;
+        let chain = kernel_chain_vec(
+            system,
+            params,
+            electronic,
+            &field.bundle.shell_charges,
+            nshell,
+        )?;
         let v_pot_vv: Vec<f64> = (0..nshell)
             .map(|s| {
                 let geo2: f64 = (0..ndof)
@@ -1018,8 +1141,7 @@ pub(crate) fn directional_fourth_with_reference(
             * (qq_of(&q_sum)?
                 - qq_of(&field.bundle.shell_charges)?
                 - qq_of(&second.bundle.shell_charges)?);
-        let g_mixed =
-            dot(&bg_a.scc_dp_pot) + dot(&bg_b.scc_p0) + dot(&bg_a.scc_chain) + qq_mixed;
+        let g_mixed = dot(&bg_a.scc_dp_pot) + dot(&bg_b.scc_p0) + dot(&bg_a.scc_chain) + qq_mixed;
         total += 3.0 * g_mixed;
     }
     // ∂B(X^v): the block thirds with the first-order slots.
@@ -1071,8 +1193,13 @@ pub(crate) fn directional_fourth_with_reference(
         let dgamma_v_qv: Vec<f64> = (0..nshell)
             .map(|s| (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum())
             .collect();
-        let chain11 =
-            kernel_chain_vec(system, params, electronic, &field.bundle.shell_charges, nshell)?;
+        let chain11 = kernel_chain_vec(
+            system,
+            params,
+            electronic,
+            &field.bundle.shell_charges,
+            nshell,
+        )?;
         let bg_grad = |p: &Matrix, pot: &[f64]| -> f64 {
             crate::response::cpxtb::background_overlap_gradient_scalar(&grad_ctx, p, pot, v)
         };
@@ -1125,11 +1252,12 @@ pub(crate) fn directional_fourth_with_reference(
             e_cnv.coordination_numbers = cn_v;
             let mut e_cn0 = e_cnv.clone();
             e_cn0.coordination_numbers = vec![0.0; nat];
-            total += cvv(
-                &crate::hessian::fixed_density_pulay_hessian(system, params, &e_cnv)?.hessian,
-            ) - cvv(
-                &crate::hessian::fixed_density_pulay_hessian(system, params, &e_cn0)?.hessian,
-            );
+            total +=
+                cvv(&crate::hessian::fixed_density_pulay_hessian(system, params, &e_cnv)?.hessian)
+                    - cvv(
+                        &crate::hessian::fixed_density_pulay_hessian(system, params, &e_cn0)?
+                            .hessian,
+                    );
         }
         // so_q block P₀→P¹ cache motion.
         {
@@ -1153,8 +1281,13 @@ pub(crate) fn directional_fourth_with_reference(
         // (−P₀chain∂²S twice), and the E'''' motion −P₀chain₄∇S.
         total += 2.0 * bg_grad(&field.bundle.density, &chain11);
         total += 2.0 * bg_hess(&electronic.density, &chain11);
-        let chain4 =
-            kernel_chain4_vec(system, params, electronic, &field.bundle.shell_charges, nshell)?;
+        let chain4 = kernel_chain4_vec(
+            system,
+            params,
+            electronic,
+            &field.bundle.shell_charges,
+            nshell,
+        )?;
         total += bg_grad(&electronic.density, &chain4);
     }
     Ok(total)
@@ -1207,87 +1340,28 @@ fn fourth_finite_t_polarized(
     coordination_cutoff: f64,
     dofs: &[usize],
 ) -> Result<crate::fourth_derivative::SymmetricFourth> {
-    use rayon::prelude::*;
-    use std::collections::{BTreeMap, HashMap};
-
-    crate::terms::require_order(
-        &options.electronic_options,
-        params,
-        4,
-        "fourth_derivative_finite_t",
+    let limits = crate::fourth_derivative::QuarticAssemblyOptions::default();
+    if crate::variational_derivatives::supports_cartesian(options, coordination_cutoff) {
+        return crate::fourth_derivative::assemble::assemble_polarized_quartic(
+            system, params, options, coordination_cutoff, dofs, &limits,
+        );
+    }
+    crate::terms::require_order(&options.electronic_options, params, 4, "fourth_derivative_finite_t")?;
+    let budget = limits.memory_budget_bytes;
+    let workspace = FiniteTThirdReference::estimated_workspace_bytes(system, params, options)?;
+    let plan = crate::derivative_assembly::CartesianAssembly::new(
+        4, dofs, 3 * system.atoms.len(), budget, workspace, 0,
+        limits.max_parallel_directions, limits.batch_quadruples,
     )?;
-    let reference = FiniteTThirdReference::build(system, params, options, coordination_cutoff)?;
-    let ndof = 3 * system.atoms.len();
-    let m = dofs.len();
-
-    // Phase 1: deduplicate the subset directions of every canonical
-    // quadruple (15 polarization terms each).
-    let mut key_index: HashMap<Vec<(usize, u8)>, usize> = HashMap::new();
-    let mut keys: Vec<Vec<(usize, u8)>> = Vec::new();
-    #[allow(clippy::type_complexity)]
-    let mut plan: Vec<((usize, usize, usize, usize), Vec<(f64, usize)>)> = Vec::new();
-    for l in 0..m {
-        for k in 0..=l {
-            for j in 0..=k {
-                for i in 0..=j {
-                    let idxs = [dofs[i], dofs[j], dofs[k], dofs[l]];
-                    let mut terms = Vec::with_capacity(15);
-                    for mask in 1u8..16 {
-                        let mut dir: BTreeMap<usize, u8> = BTreeMap::new();
-                        for (bit, &dof) in idxs.iter().enumerate() {
-                            if mask & (1 << bit) != 0 {
-                                *dir.entry(dof).or_insert(0) += 1;
-                            }
-                        }
-                        let key: Vec<(usize, u8)> = dir.into_iter().collect();
-                        let sign = if (4 - mask.count_ones()) % 2 == 0 {
-                            1.0
-                        } else {
-                            -1.0
-                        };
-                        let idx = *key_index.entry(key.clone()).or_insert_with(|| {
-                            keys.push(key);
-                            keys.len() - 1
-                        });
-                        terms.push((sign, idx));
-                    }
-                    plan.push(((i, j, k, l), terms));
-                }
-            }
-        }
+    if dofs.is_empty() {
+        return crate::fourth_derivative::SymmetricFourth::try_zeros(0, budget);
     }
-
-    // Phase 2: evaluate each distinct direction once, in parallel, against
-    // the shared reference.
-    let values: Result<Vec<f64>> = keys
-        .par_iter()
-        .map(|key| {
-            let mut v = vec![0.0_f64; ndof];
-            for &(dof, weight) in key {
-                v[dof] = weight as f64;
-            }
-            directional_fourth_with_reference(
-                system,
-                params,
-                options,
-                coordination_cutoff,
-                &reference,
-                &v,
-            )
-        })
-        .collect();
-    let values = values?;
-
-    // Phase 3: assemble the packed tensor.
-    let mut store = crate::fourth_derivative::SymmetricFourth::zeros(m);
-    for ((i, j, k, l), terms) in plan {
-        let mut t = 0.0;
-        for (sign, idx) in terms {
-            t += sign * values[idx];
-        }
-        store.add(i, j, k, l, t / 24.0);
-    }
-    Ok(store)
+    let reference = FiniteTThirdReference::build_with_budget(
+        system, params, options, coordination_cutoff, budget,
+    )?;
+    plan.quartic(|v| directional_fourth_with_reference(
+        system, params, options, coordination_cutoff, &reference, v,
+    ))
 }
 
 /// Onsite `E''''` chain potential: `E''''_A · (q_A)³` per shell.
@@ -1611,7 +1685,7 @@ mod tests {
     ///
     /// `#[ignore]`: the reference needs four finite-temperature Ni(CO)₄
     /// Hessians (~10 min in reltest). Validated at delta(h) 6.25e-10,
-    /// delta(h/2) 1.57e-10, ratio 3.98 (2026-08-11); run explicitly with
+    /// delta(h/2) 1.57e-10, ratio 3.98; run explicitly with
     /// `cargo test --profile reltest -- --ignored directional_third_finite_t`.
     /// The always-on protection is the T=0 equality gate above plus the fast
     /// finite-T second-order charge-space gates.
@@ -1710,6 +1784,12 @@ mod tests {
         // (d) evaluated at an arbitrary geometry with everything reconverged.
         let d_at = |sys: &PeriodicSystem| -> f64 {
             let r = super::FiniteTThirdReference::build(sys, &params, &options, cutoff).unwrap();
+            let r = match &r.backend {
+                super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+                super::ThermalCubicBackend::Variational(_) => {
+                    unreachable!("scalar response diagnostic")
+                }
+            };
             let (field, v_pot_v) =
                 crate::fourth_derivative::assemble::directional_first_order_legs(
                     sys,
@@ -1813,6 +1893,12 @@ mod tests {
         }
         let parts_at = |sys: &PeriodicSystem| -> Parts {
             let r = super::FiniteTThirdReference::build(sys, &params, &options, cutoff).unwrap();
+            let r = match &r.backend {
+                super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+                super::ThermalCubicBackend::Variational(_) => {
+                    unreachable!("scalar response diagnostic")
+                }
+            };
             let (field, v_pot_v) =
                 crate::fourth_derivative::assemble::directional_first_order_legs(
                     sys,
@@ -1915,6 +2001,12 @@ mod tests {
 
         // ---- assembly-side bracket values at the reference ----
         let r = super::FiniteTThirdReference::build(&system, &params, &options, cutoff).unwrap();
+        let r = match &r.backend {
+            super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+            super::ThermalCubicBackend::Variational(_) => {
+                unreachable!("scalar response diagnostic")
+            }
+        };
         let (field, _v_pot_v) = crate::fourth_derivative::assemble::directional_first_order_legs(
             &system,
             &params,
@@ -1980,12 +2072,9 @@ mod tests {
                     f_vv.as_mut_slice()[k] += cn.as_slice()[k] + scc.as_slice()[k];
                 }
             }
-            let s_vv = crate::hessian::directional_overlap_second_matrix(
-                &system,
-                &r.electronic.basis,
-                &v,
-            )
-            .unwrap();
+            let s_vv =
+                crate::hessian::directional_overlap_second_matrix(&system, &r.electronic.basis, &v)
+                    .unwrap();
             let dgamma_qv = crate::hessian::shell_scalar_potential_first_derivatives(
                 &system,
                 basis,
@@ -2087,6 +2176,12 @@ mod tests {
 
         let blocks_at = |sys: &PeriodicSystem| -> [f64; 6] {
             let r = super::FiniteTThirdReference::build(sys, &params, &options, cutoff).unwrap();
+            let r = match &r.backend {
+                super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+                super::ThermalCubicBackend::Variational(_) => {
+                    unreachable!("scalar response diagnostic")
+                }
+            };
             let (field, _) = crate::fourth_derivative::assemble::directional_first_order_legs(
                 sys,
                 &params,
@@ -2124,6 +2219,12 @@ mod tests {
 
         // Reference: blocks with X² legs, plus ∂G analytic-piece probes.
         let r = super::FiniteTThirdReference::build(&system, &params, &options, cutoff).unwrap();
+        let r = match &r.backend {
+            super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+            super::ThermalCubicBackend::Variational(_) => {
+                unreachable!("scalar response diagnostic")
+            }
+        };
         let (field, v_pot_v) = crate::fourth_derivative::assemble::directional_first_order_legs(
             &system,
             &params,
@@ -2179,8 +2280,8 @@ mod tests {
         )
         .unwrap();
         let kernel = response_shell_scc_kernel(&system, &params, &r.electronic).unwrap();
-        let kq1 = crate::linalg::matrix_vector_product(&kernel, &field.bundle.shell_charges)
-            .unwrap();
+        let kq1 =
+            crate::linalg::matrix_vector_product(&kernel, &field.bundle.shell_charges).unwrap();
         let t4 = crate::response::cpxtb::background_overlap_hessian_scalar(
             &system,
             &r.electronic.basis,
@@ -2243,12 +2344,15 @@ mod tests {
             for s in 0..nshell {
                 e1.shell_scc_potential[s] += dpot[s];
             }
-            cvv(&crate::hessian::fixed_density_pulay_hessian(&system, &params, &e1)
-                .unwrap()
-                .hessian)
-                - cvv(&crate::hessian::fixed_density_pulay_hessian(&system, &params, &e0)
+            cvv(
+                &crate::hessian::fixed_density_pulay_hessian(&system, &params, &e1)
                     .unwrap()
-                    .hessian)
+                    .hessian,
+            ) - cvv(
+                &crate::hessian::fixed_density_pulay_hessian(&system, &params, &e0)
+                    .unwrap()
+                    .hessian,
+            )
         };
         let vp_plus_kq: Vec<f64> = (0..nshell).map(|s| v_pot_v[s] + kq1[s]).collect();
         let pw_vmot = pulay_delta(
@@ -2262,8 +2366,10 @@ mod tests {
             let mut e = r.electronic.clone();
             e.density = field.bundle.density.clone();
             e.shell_charges = field.bundle.shell_charges.clone();
-            cvv(&crate::hessian::fixed_density_scalar_overlap_hessian(&system, &params, &e)
-                .unwrap())
+            cvv(
+                &crate::hessian::fixed_density_scalar_overlap_hessian(&system, &params, &e)
+                    .unwrap(),
+            )
         };
         eprintln!(
             "cache probes: pw_vmot {pw_vmot:+.9e} (target +2.029647e-6)  pv_pmot {pv_pmot:+.9e}  \
@@ -2284,12 +2390,15 @@ mod tests {
             e_cnv.coordination_numbers = cn_v;
             let mut e_cn0 = e_cnv.clone();
             e_cn0.coordination_numbers = vec![0.0; nat];
-            cvv(&crate::hessian::fixed_density_pulay_hessian(&system, &params, &e_cnv)
-                .unwrap()
-                .hessian)
-                - cvv(&crate::hessian::fixed_density_pulay_hessian(&system, &params, &e_cn0)
+            cvv(
+                &crate::hessian::fixed_density_pulay_hessian(&system, &params, &e_cnv)
                     .unwrap()
-                    .hessian)
+                    .hessian,
+            ) - cvv(
+                &crate::hessian::fixed_density_pulay_hessian(&system, &params, &e_cn0)
+                    .unwrap()
+                    .hessian,
+            )
         };
         eprintln!("pw_cnmot {pw_cnmot:+.9e} (target -2.620817e-6)");
         assert!(t4.is_finite() && u4.is_finite() && u1.is_finite());
@@ -2328,6 +2437,12 @@ mod tests {
         // The four family scalars G_fam(X¹, X¹) at a reconverged geometry.
         let g_at = |sys: &PeriodicSystem| -> [f64; 4] {
             let r = super::FiniteTThirdReference::build(sys, &params, &options, cutoff).unwrap();
+            let r = match &r.backend {
+                super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+                super::ThermalCubicBackend::Variational(_) => {
+                    unreachable!("scalar response diagnostic")
+                }
+            };
             let (field, v_pot_v) =
                 crate::fourth_derivative::assemble::directional_first_order_legs(
                     sys,
@@ -2392,6 +2507,12 @@ mod tests {
         // G_fam(X², X¹) mixed at the reference (same construction as the 3G
         // term of the production assembly).
         let r = super::FiniteTThirdReference::build(&system, &params, &options, cutoff).unwrap();
+        let r = match &r.backend {
+            super::ThermalCubicBackend::Scalar(reference) => reference.as_ref(),
+            super::ThermalCubicBackend::Variational(_) => {
+                unreachable!("scalar response diagnostic")
+            }
+        };
         let (field, v_pot_v) = crate::fourth_derivative::assemble::directional_first_order_legs(
             &system,
             &params,
@@ -2472,14 +2593,11 @@ mod tests {
             .map(|s| field.bundle.shell_charges[s] + second.shell_charges[s])
             .collect();
         let qq_mixed = 0.5
-            * (qq_of(&q_sum)
-                - qq_of(&field.bundle.shell_charges)
-                - qq_of(&second.shell_charges));
+            * (qq_of(&q_sum) - qq_of(&field.bundle.shell_charges) - qq_of(&second.shell_charges));
         // NOTE the mixed dp_pot family: slot P² against V¹ — but the TRUE
         // D_v of the dp_pot family also moves the V¹ leg (V¹ → V²): probe
         // BOTH pieces.
-        let kq_vv =
-            crate::linalg::matrix_vector_product(&kernel, &second.shell_charges).unwrap();
+        let kq_vv = crate::linalg::matrix_vector_product(&kernel, &second.shell_charges).unwrap();
         let g_mixed_dp_a = dot(&bg_a.scc_dp_pot); // P²·V¹
         let bg_c = crate::response::cpxtb::response_gradient_background_motion(
             &system,
@@ -2527,8 +2645,8 @@ mod tests {
     /// against `directional_fourth_derivative` at 5–50 K is a finite-`T`
     /// branch effect, not an order-4 inventory gap.
     ///
-    /// **`enable_cn_hamiltonian = false` is not a supported FC4
-    /// configuration.** Both quartic paths keep the CN blocks regardless of
+    /// **`enable_cn_hamiltonian = false` is now rejected by both FC4
+    /// front ends.** Both quartic paths keep the CN blocks regardless of
     /// the flag (the reference `dsedcn` is populated either way), and they
     /// agree with each other only while both do: gating the finite-T side
     /// alone widened the deltas to `2.4e-5` / `2.3e-5`. Fixing this means
@@ -2561,12 +2679,17 @@ mod tests {
                     .map(|k| 0.23 - 0.11 * ((k % 4) as f64) + 0.05 * ((k * 7 % 5) as f64))
                     .collect();
                 let mine =
-                    super::directional_fourth_finite_t(&system, &params, &options, cutoff, &v)
-                        .unwrap();
+                    super::directional_fourth_finite_t(&system, &params, &options, cutoff, &v);
                 let reference = crate::fourth_derivative::directional_fourth_derivative(
                     &system, &params, &options, cutoff, &v,
-                )
-                .unwrap();
+                );
+                if !cn {
+                    for error in [mine.unwrap_err(), reference.unwrap_err()] {
+                        assert!(error.to_string().contains("enable_cn_hamiltonian=false"));
+                    }
+                    continue;
+                }
+                let (mine, reference) = (mine.unwrap(), reference.unwrap());
                 let delta = (mine - reference).abs();
                 println!(
                     "{name:>16} cn={cn:<5}: mine {mine:+.12e}  five-stage {reference:+.12e}  \
@@ -2729,8 +2852,7 @@ mod tests {
             for c in 0..=d {
                 for b in 0..=c {
                     for a in 0..=b {
-                        worst = worst
-                            .max((mine.get(a, b, c, d) - reference.get(a, b, c, d)).abs());
+                        worst = worst.max((mine.get(a, b, c, d) - reference.get(a, b, c, d)).abs());
                         scale = scale.max(reference.get(a, b, c, d).abs());
                     }
                 }
@@ -2763,10 +2885,9 @@ mod tests {
         options.electronic_options.charge_tolerance = 1.0e-12;
         let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
         let dofs = [0usize, 2, 4, 7];
-        let block = super::fourth_derivative_finite_t_block(
-            &system, &params, &options, cutoff, &dofs,
-        )
-        .unwrap();
+        let block =
+            super::fourth_derivative_finite_t_block(&system, &params, &options, cutoff, &dofs)
+                .unwrap();
         let w = [0.61, -0.34, 0.87, 0.22];
         let contracted = block.contract_vvvv(&w).unwrap();
         let ndof = 3 * system.atoms.len();
@@ -2851,8 +2972,8 @@ mod tests {
         options.electronic_options.energy_tolerance = 1.0e-14;
         options.electronic_options.charge_tolerance = 1.0e-12;
         let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
-        let electronic = run_electronic(&system, &params, options.electronic_options.clone())
-            .unwrap();
+        let electronic =
+            run_electronic(&system, &params, options.electronic_options.clone()).unwrap();
         assert!(
             electronic
                 .occupations
@@ -2930,9 +3051,8 @@ mod tests {
         for k in 0..dofs.len() {
             for j in 0..=k {
                 for i in 0..=j {
-                    worst = worst.max(
-                        (block.get(i, j, k) - dense.get(dofs[i], dofs[j], dofs[k])).abs(),
-                    );
+                    worst = worst
+                        .max((block.get(i, j, k) - dense.get(dofs[i], dofs[j], dofs[k])).abs());
                 }
             }
         }
@@ -2942,7 +3062,11 @@ mod tests {
         );
         // Out-of-range DOF is rejected.
         assert!(super::third_derivative_finite_t_block(
-            &system, &params, &options, cutoff, &[0, 9]
+            &system,
+            &params,
+            &options,
+            cutoff,
+            &[0, 9]
         )
         .is_err());
     }
@@ -3014,17 +3138,18 @@ mod tests {
             &v,
         )
         .unwrap();
-        let (second, _v_pot_vv) = crate::fourth_derivative::assemble::directional_second_order_legs(
-            &system,
-            &params,
-            &electronic,
-            &ctx,
-            &field,
-            cutoff,
-            include_cn_h0,
-            &v,
-        )
-        .unwrap();
+        let (second, _v_pot_vv) =
+            crate::fourth_derivative::assemble::directional_second_order_legs(
+                &system,
+                &params,
+                &electronic,
+                &ctx,
+                &field,
+                cutoff,
+                include_cn_h0,
+                &v,
+            )
+            .unwrap();
 
         // B1: response motion.
         let b1 = directional_response_hessian_vv(
@@ -3068,10 +3193,8 @@ mod tests {
             include_cn_h0,
         )
         .unwrap();
-        let chain = ctx.kernel_chain_potential(
-            &field.bundle.shell_charges,
-            &field.bundle.shell_charges,
-        );
+        let chain =
+            ctx.kernel_chain_potential(&field.bundle.shell_charges, &field.bundle.shell_charges);
         let bg = crate::response::cpxtb::response_gradient_background_motion(
             &system,
             &electronic,
@@ -3172,15 +3295,9 @@ mod tests {
                 }
             }
             let kern = response_shell_scc_kernel(sys, &params, &el).unwrap();
-            let gctx = ResponseGradientContext::new(
-                sys,
-                &el.basis,
-                &params,
-                &el,
-                cutoff,
-                include_cn_h0,
-            )
-            .unwrap();
+            let gctx =
+                ResponseGradientContext::new(sys, &el.basis, &params, &el, cutoff, include_cn_h0)
+                    .unwrap();
             let terms = crate::response::cpxtb::response_electronic_gradient_terms(
                 sys, &el, &kern, &gctx, &pv, &pv, &wv, &qv,
             )
@@ -3246,36 +3363,36 @@ mod tests {
             b2 - b2_geo,
         );
         let fd_total: f64 = fd_fam.iter().sum();
-        eprintln!("  fd_total {fd_total:.12e}  (fd_total - reference {:.3e})", fd_total - reference);
+        eprintln!(
+            "  fd_total {fd_total:.12e}  (fd_total - reference {:.3e})",
+            fd_total - reference
+        );
 
         // ---- path slot probes (the path is linear in each response slot) ----
         let nbas = electronic.basis.len();
         let zero_m = crate::linalg::Matrix::zeros(nbas, nbas);
         let zero_q = vec![0.0_f64; nshell];
-        let path_slots = |p: &crate::linalg::Matrix,
-                          w: &crate::linalg::Matrix,
-                          q: &[f64],
-                          vp: &[f64]|
-         -> f64 {
-            let m = crate::third_derivative::frozen_hessian_density_path(
-                &system,
-                &params,
-                &electronic,
-                cutoff,
-                p,
-                w,
-                q,
-                vp,
-            )
-            .unwrap();
-            let mut acc = 0.0;
-            for a in 0..ndof {
-                for b in 0..ndof {
-                    acc += v[a] * v[b] * m[(a, b)];
+        let path_slots =
+            |p: &crate::linalg::Matrix, w: &crate::linalg::Matrix, q: &[f64], vp: &[f64]| -> f64 {
+                let m = crate::third_derivative::frozen_hessian_density_path(
+                    &system,
+                    &params,
+                    &electronic,
+                    cutoff,
+                    p,
+                    w,
+                    q,
+                    vp,
+                )
+                .unwrap();
+                let mut acc = 0.0;
+                for a in 0..ndof {
+                    for b in 0..ndof {
+                        acc += v[a] * v[b] * m[(a, b)];
+                    }
                 }
-            }
-            acc
-        };
+                acc
+            };
         let ch_p = path_slots(&field.bundle.density, &zero_m, &zero_q, &zero_q);
         let ch_w = path_slots(&zero_m, &field.bundle.energy_weighted, &zero_q, &zero_q);
         let ch_q = path_slots(&zero_m, &zero_m, &field.bundle.shell_charges, &zero_q);
@@ -3407,17 +3524,15 @@ mod tests {
             e.density = field.bundle.density.clone();
             e
         };
-        let d_cnh0 = cvv(
-            &crate::hessian::fixed_density_cn_h0_hessian(&system, &params, &elec_pc, cutoff)
-                .unwrap()
-                .hessian,
-        );
-        let d_cross = cvv(
-            &crate::hessian::fixed_density_cn_h0_pulay_cross_hessian(
-                &system, &params, &elec_pc, cutoff,
-            )
-            .unwrap(),
-        );
+        let d_cnh0 = cvv(&crate::hessian::fixed_density_cn_h0_hessian(
+            &system, &params, &elec_pc, cutoff,
+        )
+        .unwrap()
+        .hessian);
+        let d_cross = cvv(&crate::hessian::fixed_density_cn_h0_pulay_cross_hessian(
+            &system, &params, &elec_pc, cutoff,
+        )
+        .unwrap());
         let d_pulay_pw = {
             let mut e = electronic.clone();
             e.density = field.bundle.density.clone();
@@ -3438,24 +3553,25 @@ mod tests {
                     .unwrap()
                     .hessian,
             );
-            let h0 = cvv(
-                &crate::hessian::fixed_density_pulay_hessian(&system, &params, &electronic)
-                    .unwrap()
-                    .hessian,
-            );
+            let h0 =
+                cvv(
+                    &crate::hessian::fixed_density_pulay_hessian(&system, &params, &electronic)
+                        .unwrap()
+                        .hessian,
+                );
             h1 - h0
         };
         let kq_v: Vec<f64> = {
-            let kq = crate::linalg::matrix_vector_product(&kernel, &field.bundle.shell_charges)
-                .unwrap();
+            let kq =
+                crate::linalg::matrix_vector_product(&kernel, &field.bundle.shell_charges).unwrap();
             kq
         };
         let d_pulay_vtot = pulay_v_probe(&v_pot_v);
         let d_pulay_vkq = pulay_v_probe(&kq_v);
-        let d_so_p = cvv(
-            &crate::hessian::fixed_density_scalar_overlap_hessian(&system, &params, &elec_pc)
-                .unwrap(),
-        );
+        let d_so_p = cvv(&crate::hessian::fixed_density_scalar_overlap_hessian(
+            &system, &params, &elec_pc,
+        )
+        .unwrap());
         let d_so_q = {
             let mut e = electronic.clone();
             e.shell_charges = field.bundle.shell_charges.clone();

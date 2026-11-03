@@ -94,6 +94,9 @@ use crate::system::PeriodicSystem;
 use rayon::prelude::*;
 use std::f64::consts::PI;
 
+#[path = "polarization_response.rs"]
+pub mod response;
+
 /// Polarization in atomic units (`e / bohr^2`) converted to SI (`C / m^2`):
 /// `e / a0^2` with the SI-exact elementary charge `e = 1.602176634e-19 C` and the
 /// CODATA-2018 Bohr radius `a0 = 5.29177210903e-11 m`. Evaluates to `57.2147…`.
@@ -239,7 +242,7 @@ pub fn pbc_berry_polarization(
     berry: &BerryPolarizationOptions,
 ) -> Result<BerryPolarizationResult> {
     let _profile = crate::profile::scope("pbc.polarization.berry");
-    let lattice = system.lattice.as_ref().ok_or_else(|| {
+    system.lattice.as_ref().ok_or_else(|| {
         Gfn1Error::InvalidInput(
             "pbc_berry_polarization requires a periodic system with a lattice".to_string(),
         )
@@ -261,6 +264,25 @@ pub fn pbc_berry_polarization(
     }
 
     let scf = run_pbc_scc(system, params, options, pbc)?;
+    pbc_berry_polarization_from_scc(system, &scf, options, pbc, berry)
+}
+
+/// Evaluate the same Berry phase without repeating an already converged SCC.
+pub fn pbc_berry_polarization_from_scc(
+    system: &PeriodicSystem,
+    scf: &PbcSccResult,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+    berry: &BerryPolarizationOptions,
+) -> Result<BerryPolarizationResult> {
+    let lattice = system.lattice.as_ref().ok_or_else(|| {
+        Gfn1Error::InvalidInput("Berry polarization requires a periodic lattice".into())
+    })?;
+    if options.multipole || options.charge.unwrap_or(system.charge).abs() > 1e-8 {
+        return Err(Gfn1Error::InvalidInput(
+            "Berry polarization requires a neutral scalar cell without multipole SCC".into(),
+        ));
+    }
     if !scf.converged {
         return Err(Gfn1Error::InvalidInput(
             "pbc_berry_polarization requires a converged periodic SCC".to_string(),
@@ -358,7 +380,7 @@ pub fn pbc_berry_polarization(
             .map(|s| -> Result<(f64, f64)> {
                 let base = string_base(d, s, mesh);
                 string_berry_phase(
-                    &scf,
+                    scf,
                     &vao,
                     &blocks,
                     n,

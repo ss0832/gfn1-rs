@@ -26,8 +26,6 @@ use crate::linalg::{
 use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
 use crate::system::PeriodicSystem;
-use faer::linalg::solvers::Solve;
-use faer::Mat as FaerMat;
 
 const DIST_EPS: f64 = 1.0e-12;
 const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
@@ -59,8 +57,10 @@ pub struct CpxtbOptions {
 impl Default for CpxtbOptions {
     fn default() -> Self {
         Self {
-            tol: 1.0e-8,
-            max_iter: 100,
+            tol: crate::resources::current_cp()
+                .absolute_tolerance
+                .unwrap_or(1.0e-8),
+            max_iter: crate::resources::current_cp().iterations(100),
         }
     }
 }
@@ -265,7 +265,7 @@ pub fn solve_nonpbc_cpxtb_hessian_response(
     };
     let scalar_derivatives = {
         let _profile = crate::profile::scope("cphf.scalar_derivatives");
-        shell_scalar_potential_derivatives(system, basis, params, &electronic.shell_charges)?
+        reference_shell_potential_derivatives(system, basis, params, electronic)?
     };
     let cn_derivatives = if ao_options.include_cn_h0 {
         let _profile = crate::profile::scope("cphf.cn_derivatives");
@@ -593,7 +593,7 @@ pub fn build_cpxtb_setup(
     let transition =
         transition_shell_charges(basis, &mos, occupations, &electronic.integrals.overlap)?;
     let scalar_derivatives =
-        shell_scalar_potential_derivatives(system, basis, params, &electronic.shell_charges)?;
+        reference_shell_potential_derivatives(system, basis, params, electronic)?;
     let cn_derivatives = if ao_options.include_cn_h0 {
         Some(coordination_number_derivatives(
             system,
@@ -750,7 +750,7 @@ pub fn static_metric_response_sector(
     let occupations = &electronic.occupations;
     let shell_kernel = response_shell_scc_kernel(system, params, electronic)?;
     let scalar_derivatives =
-        shell_scalar_potential_derivatives(system, basis, params, &electronic.shell_charges)?;
+        reference_shell_potential_derivatives(system, basis, params, electronic)?;
     let cn_derivatives = if ao_options.include_cn_h0 {
         Some(coordination_number_derivatives(
             system,
@@ -1765,8 +1765,16 @@ pub(crate) fn background_overlap_gradient_scalar(
         let pot_pair = pot[pair.shell_mu] + pot[pair.shell_nu];
         let t = -(dp * pot_pair);
         let (va, vk) = (
-            [v[3 * pair.atom_mu], v[3 * pair.atom_mu + 1], v[3 * pair.atom_mu + 2]],
-            [v[3 * pair.atom_nu], v[3 * pair.atom_nu + 1], v[3 * pair.atom_nu + 2]],
+            [
+                v[3 * pair.atom_mu],
+                v[3 * pair.atom_mu + 1],
+                v[3 * pair.atom_mu + 2],
+            ],
+            [
+                v[3 * pair.atom_nu],
+                v[3 * pair.atom_nu + 1],
+                v[3 * pair.atom_nu + 2],
+            ],
         );
         acc += t
             * (pair.d_bra.x * va[0]
@@ -1807,8 +1815,16 @@ pub(crate) fn background_overlap_hessian_scalar(
             ra,
             rk,
         );
-        let va = [v[3 * pair.atom_mu], v[3 * pair.atom_mu + 1], v[3 * pair.atom_mu + 2]];
-        let vk = [v[3 * pair.atom_nu], v[3 * pair.atom_nu + 1], v[3 * pair.atom_nu + 2]];
+        let va = [
+            v[3 * pair.atom_mu],
+            v[3 * pair.atom_mu + 1],
+            v[3 * pair.atom_mu + 2],
+        ];
+        let vk = [
+            v[3 * pair.atom_nu],
+            v[3 * pair.atom_nu + 1],
+            v[3 * pair.atom_nu + 2],
+        ];
         let mut s2 = 0.0;
         for a in 0..3 {
             for b in 0..3 {
@@ -1853,6 +1869,12 @@ pub fn response_shell_scc_kernel(
     // property was silently inconsistent with charge_order ≥ 4 energies.)
     model.charge_order = electronic.charge_order.max(3);
     let mut kernel = effective_coulomb_matrix(system, &electronic.basis, &model);
+    if let Some(solvent) = &electronic.solvation {
+        let b = solvent.shell_kernel(&electronic.basis);
+        for (x, y) in kernel.as_mut_slice().iter_mut().zip(b.as_slice()) {
+            *x += y;
+        }
+    }
     let atomic_charges = model.atomic_charges(&electronic.basis, &electronic.shell_charges);
     for (atom, &qat) in atomic_charges.iter().enumerate() {
         let count = model.atom_shell_counts[atom];
@@ -1960,9 +1982,8 @@ pub(crate) fn cartesian_ao_derivative_matrices_raw(
                 shell_mu,
                 shell_nu,
             )?;
-            let scalar_shift = 0.5
-                * (shell_scc_potential[shell_mu]
-                    + shell_scc_potential[shell_nu]);
+            let scalar_shift =
+                0.5 * (shell_scc_potential[shell_mu] + shell_scc_potential[shell_nu]);
             add_center_derivative(
                 &mut out,
                 atom_mu,
@@ -2195,7 +2216,10 @@ fn shell_polynomial_log_derivative(si: &BasisShell, sj: &BasisShell, rvec: Vec3,
 /// Per-Cartesian-DOF derivative of the atomic coordination numbers (`∂CN_A/∂R`),
 /// the input the CN-coupled `dh0/dR` skeleton needs. Exposed for reuse by
 /// [`crate::plus_u_dudr`].
-pub(crate) fn coordination_number_derivatives(system: &PeriodicSystem, cutoff: f64) -> Result<Vec<Vec<f64>>> {
+pub(crate) fn coordination_number_derivatives(
+    system: &PeriodicSystem,
+    cutoff: f64,
+) -> Result<Vec<Vec<f64>>> {
     let nat = system.atoms.len();
     let ndim = 3 * nat;
     let mut out = vec![vec![0.0_f64; nat]; ndim];
@@ -2230,6 +2254,28 @@ pub(crate) fn coordination_number_derivatives(system: &PeriodicSystem, cutoff: f
 /// shell charges, `∂v_c/∂R = (∂A/∂R)·q` per Cartesian DOF (the `dA/dR·q` term of
 /// `dv_c/dR`; the implicit `A·dq/dR` piece is the CPHF response, handled by the
 /// caller). Exposed for reuse by [`crate::plus_u_dudr`].
+fn reference_shell_potential_derivatives(
+    system: &PeriodicSystem,
+    basis: &BasisSet,
+    params: &Gfn1Parameters,
+    electronic: &ElectronicResult,
+) -> Result<Vec<Vec<f64>>> {
+    if electronic.ml_parameters.is_some() {
+        return Err(Gfn1Error::InvalidInput("ML nuclear CP-SCC skeletons require structural parameter response; only static field response is currently connected".into()));
+    }
+    let mut out =
+        shell_scalar_potential_derivatives(system, basis, params, &electronic.shell_charges)?;
+    if let Some(solvent) = &electronic.solvation {
+        let explicit = solvent.potential_geometry_derivatives(&electronic.atomic_charges)?;
+        for (c, row) in out.iter_mut().enumerate() {
+            for (s, x) in row.iter_mut().enumerate() {
+                *x += explicit[c][basis.shells[s].atom_index];
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub(crate) fn shell_scalar_potential_derivatives(
     system: &PeriodicSystem,
     basis: &BasisSet,
@@ -2975,7 +3021,9 @@ where
             }
         })
         .collect::<Vec<_>>();
-    let target = tol.max(0.0) * norm(rhs).max(1.0);
+    let target =
+        crate::resources::current_cp().residual_target(tol.max(0.), tol.max(0.), norm(rhs));
+    let max_iter = crate::resources::current_cp().iterations(max_iter);
     let mut x = vec![0.0_f64; rhs.len()];
     let mut r = rhs.to_vec();
     let mut best_resid = norm(&r);
@@ -3119,9 +3167,13 @@ fn solve_cpxtb_dense_batch(
             ));
         }
     }
-    let faer_operator = FaerMat::from_fn(n, n, |i, j| operator[(i, j)]);
-    let rhs_matrix = FaerMat::from_fn(n, rhs_vectors.len(), |i, j| rhs_vectors[j][i]);
-    let solution_matrix = faer_operator.partial_piv_lu().solve(&rhs_matrix);
+    let mut rhs_matrix = Matrix::zeros(n, rhs_vectors.len());
+    for i in 0..n {
+        for j in 0..rhs_vectors.len() {
+            rhs_matrix[(i, j)] = rhs_vectors[j][i];
+        }
+    }
+    let solution_matrix = crate::linalg::DenseLu::factor(operator)?.solve_matrix(&rhs_matrix)?;
     let mut out = Vec::with_capacity(rhs_vectors.len());
     for (col, rhs) in rhs_vectors.iter().enumerate() {
         let amplitudes = (0..n)
@@ -3141,7 +3193,8 @@ fn solve_cpxtb_dense_batch(
             amplitudes,
             iterations: 0,
             residual_norm,
-            converged: residual_norm <= 1.0e-8_f64.max(1.0e-10 * norm(rhs)),
+            converged: residual_norm
+                <= crate::resources::current_cp().residual_target(1e-8, 1e-10, norm(rhs)),
             route: CpxtbRoute::Dense,
         });
     }
@@ -3246,7 +3299,8 @@ impl CpxtbLowRank {
             }
             let ig = 1.0 / gap;
             let weight = occupation_scales[p] * ig;
-            if !(ig.is_finite() && weight.is_finite() && weight.abs() <= CPXTB_LOW_RANK_MAX_WEIGHT) {
+            if !(ig.is_finite() && weight.is_finite() && weight.abs() <= CPXTB_LOW_RANK_MAX_WEIGHT)
+            {
                 return Err(Gfn1Error::InvalidInput(
                     "charge-space CPXTB reduction: occupation/gap weight overflowed".to_string(),
                 ));
@@ -3338,14 +3392,18 @@ impl CpxtbLowRank {
                     residual_ss += d * d;
                 }
                 let residual_norm = residual_ss.sqrt();
-                let finite = residual_norm.is_finite()
-                    && amplitudes.iter().all(|v| v.is_finite());
+                let finite = residual_norm.is_finite() && amplitudes.iter().all(|v| v.is_finite());
                 out.push(CpxtbSolution {
                     amplitudes,
                     iterations: 0,
                     residual_norm,
                     converged: finite
-                        && residual_norm <= 1.0e-8_f64.max(1.0e-10 * norm(rhs)),
+                        && residual_norm
+                            <= crate::resources::current_cp().residual_target(
+                                1e-8,
+                                1e-10,
+                                norm(rhs),
+                            ),
                     route: CpxtbRoute::ChargeSpace,
                 });
             }
@@ -3373,6 +3431,35 @@ fn solve_cpxtb_all(
     rhs_vectors: &[Vec<f64>],
     cpxtb_options: CpxtbOptions,
 ) -> Result<Vec<CpxtbSolution>> {
+    if !cpxtb_options.tol.is_finite() || cpxtb_options.tol <= 0. {
+        return Err(Gfn1Error::InvalidInput(
+            "CP tolerance must be finite and positive".into(),
+        ));
+    }
+    let verify = |mut solutions: Vec<CpxtbSolution>| {
+        for (solution, rhs) in solutions.iter_mut().zip(rhs_vectors) {
+            solution.converged = solution.residual_norm.is_finite()
+                && solution.residual_norm
+                    <= crate::resources::current_cp().residual_target(
+                        cpxtb_options.tol,
+                        1e-10,
+                        norm(rhs),
+                    );
+        }
+        solutions
+    };
+    let checked = |solutions: Vec<CpxtbSolution>| -> Result<Vec<CpxtbSolution>> {
+        let cp = crate::resources::current_cp();
+        if (cp.absolute_tolerance.is_some() || cp.relative_tolerance.is_some())
+            && solutions.iter().any(|s| !s.converged)
+        {
+            let residual = solutions.iter().map(|s| s.residual_norm).fold(0., f64::max);
+            return Err(Gfn1Error::LinearAlgebra(format!(
+                "CP residual {residual:e} did not meet the configured tolerance"
+            )));
+        }
+        Ok(solutions)
+    };
     if rhs_vectors.is_empty() {
         return Ok(Vec::new());
     }
@@ -3386,6 +3473,7 @@ fn solve_cpxtb_all(
             occupation_scales,
         ) {
             if let Ok(solutions) = low_rank.solve_batch(rhs_vectors) {
+                let solutions = verify(solutions);
                 if solutions.iter().all(|s| s.converged) {
                     return Ok(solutions);
                 }
@@ -3404,7 +3492,9 @@ fn solve_cpxtb_all(
     if npair <= CPXTB_DENSE_FALLBACK_MAX_DIM {
         let _profile = crate::profile::scope("cphf.solve_dense");
         let operator = build_dense_cpxtb_operator(npair, &matvec)?;
-        return solve_cpxtb_dense_batch(&operator, rhs_vectors);
+        return solve_cpxtb_dense_batch(&operator, rhs_vectors)
+            .map(verify)
+            .and_then(checked);
     }
     let _profile = crate::profile::scope("cphf.solve_pcg");
     let mut out = Vec::with_capacity(rhs_vectors.len());
@@ -3417,7 +3507,7 @@ fn solve_cpxtb_all(
             cpxtb_options.max_iter,
         )?);
     }
-    Ok(out)
+    checked(out)
 }
 
 fn trace_product(a: &Matrix, b: &Matrix) -> f64 {
@@ -3713,8 +3803,8 @@ mod tests {
         let mut pcg_worst = 0.0_f64;
         let mut pcg_solutions = Vec::new();
         for rhs in &setup.rhs_vectors {
-            let s = solve_cpxtb_preconditioned(&matvec, rhs, &setup.orbital_gaps, 1.0e-9, 400)
-                .unwrap();
+            let s =
+                solve_cpxtb_preconditioned(&matvec, rhs, &setup.orbital_gaps, 1.0e-9, 400).unwrap();
             pcg_iters += s.iterations;
             pcg_worst = pcg_worst.max(s.residual_norm);
             pcg_solutions.push(s);
@@ -3736,14 +3826,7 @@ mod tests {
         let t0 = Instant::now();
         let mut diag_iters = 0usize;
         for rhs in &setup.rhs_vectors {
-            let (_, it, _) = pcg_with_guess(
-                &matvec,
-                rhs,
-                &diag,
-                &vec![0.0; npair],
-                1.0e-9,
-                400,
-            );
+            let (_, it, _) = pcg_with_guess(&matvec, rhs, &diag, &vec![0.0; npair], 1.0e-9, 400);
             diag_iters += it;
         }
         let diag_time = t0.elapsed().as_secs_f64();
@@ -3760,14 +3843,8 @@ mod tests {
         let mut warm_iters = 0usize;
         let mut previous = vec![0.0_f64; npair];
         for rhs in &setup.rhs_vectors {
-            let (x, it, _) = pcg_with_guess(
-                &matvec,
-                rhs,
-                &setup.orbital_gaps,
-                &previous,
-                1.0e-9,
-                400,
-            );
+            let (x, it, _) =
+                pcg_with_guess(&matvec, rhs, &setup.orbital_gaps, &previous, 1.0e-9, 400);
             warm_iters += it;
             previous = x;
         }
@@ -3783,14 +3860,8 @@ mod tests {
         //     issues it (`response_stage.rs`: tol 1e-11, max_iter 4000), one RHS.
         let rhs0 = &setup.rhs_vectors[0];
         let t0 = Instant::now();
-        let adjoint_pcg = solve_cpxtb_preconditioned(
-            &matvec,
-            rhs0,
-            &setup.orbital_gaps,
-            1.0e-11,
-            4000,
-        )
-        .unwrap();
+        let adjoint_pcg =
+            solve_cpxtb_preconditioned(&matvec, rhs0, &setup.orbital_gaps, 1.0e-11, 4000).unwrap();
         let adjoint_pcg_time = t0.elapsed().as_secs_f64();
         let t0 = Instant::now();
         let adjoint_direct = setup.solve_adjoint(rhs0, 1.0e-11, 4000).unwrap();
@@ -3857,10 +3928,11 @@ mod tests {
             let n = electronic.basis.len();
             let nshell = electronic.basis.shells.len();
             let t0 = Instant::now();
-            let ctx =
-                crate::response::charge_space::ChargeSpaceContext::build(
-                    &system, &params, &electronic,
-                );
+            let ctx = crate::response::charge_space::ChargeSpaceContext::build(
+                &system,
+                &params,
+                &electronic,
+            );
             let elapsed = t0.elapsed().as_secs_f64();
             match ctx {
                 Ok(_) => eprintln!(
@@ -4071,7 +4143,11 @@ mod tests {
         for (label, xyz, temperature) in [
             ("water", WATER.to_string(), 0.0),
             ("stretched H10", stretched_h10_xyz(), 0.0),
-            ("distorted Ni(CO)4 3000 K", NI_CO4_DISTORTED.to_string(), 3000.0),
+            (
+                "distorted Ni(CO)4 3000 K",
+                NI_CO4_DISTORTED.to_string(),
+                3000.0,
+            ),
             ("water 2x2x2", water_grid_xyz(2, 2, 2), 0.0),
         ] {
             let (setup, _) = setup_for(&xyz, temperature);
@@ -4109,7 +4185,11 @@ mod tests {
     fn charge_space_amplitudes_solve_the_explicit_pair_space_operator() {
         for (label, xyz, temperature) in [
             ("water", WATER.to_string(), 0.0),
-            ("distorted Ni(CO)4 3000 K", NI_CO4_DISTORTED.to_string(), 3000.0),
+            (
+                "distorted Ni(CO)4 3000 K",
+                NI_CO4_DISTORTED.to_string(),
+                3000.0,
+            ),
         ] {
             let (setup, _) = setup_for(&xyz, temperature);
             let low_rank = CpxtbLowRank::build(
@@ -4196,7 +4276,10 @@ mod tests {
                 solution.iterations, 0,
                 "the direct charge-space route must not iterate"
             );
-            assert!(solution.converged, "direct charge-space route did not converge");
+            assert!(
+                solution.converged,
+                "direct charge-space route did not converge"
+            );
         }
         eprintln!(
             "near-degenerate CP ({npair} unknowns, {} RHS): Krylov iterations worst \

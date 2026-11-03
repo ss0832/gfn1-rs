@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::error::{Gfn1Error, Result};
 use crate::math::{reciprocal_vectors_2pi, Mat3, Vec3};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 
 const DET_EPS: f64 = 1.0e-14;
@@ -15,11 +15,52 @@ struct LatticeListCacheKey {
     include_zero: bool,
 }
 
-static IMAGE_OFFSET_CACHE: OnceLock<Mutex<HashMap<LatticeListCacheKey, Vec<ImageOffset>>>> =
+// Cell optimization produces a new bitwise cell key at every trial. Retain a
+// bounded FIFO working set instead of every cell ever visited in the process.
+const LATTICE_CACHE_ENTRIES: usize = 32;
+const LATTICE_CACHE_BYTES: usize = 8 * 1024 * 1024;
+struct LatticeListCache<T> {
+    entries: HashMap<LatticeListCacheKey, Vec<T>>,
+    order: VecDeque<LatticeListCacheKey>,
+    bytes: usize,
+}
+impl<T: Clone> LatticeListCache<T> {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            bytes: 0,
+        }
+    }
+    fn get(&self, key: &LatticeListCacheKey) -> Option<&Vec<T>> {
+        self.entries.get(key)
+    }
+    fn insert(&mut self, key: LatticeListCacheKey, values: &[T]) {
+        let Some(bytes) = values.len().checked_mul(std::mem::size_of::<T>()) else {
+            return;
+        };
+        if bytes > LATTICE_CACHE_BYTES || self.entries.contains_key(&key) {
+            return;
+        }
+        while self.entries.len() >= LATTICE_CACHE_ENTRIES
+            || self.bytes + bytes > LATTICE_CACHE_BYTES
+        {
+            let Some(old) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(value) = self.entries.remove(&old) {
+                self.bytes -= value.len() * std::mem::size_of::<T>();
+            }
+        }
+        self.entries.insert(key, values.to_vec());
+        self.order.push_back(key);
+        self.bytes += bytes;
+    }
+}
+
+static IMAGE_OFFSET_CACHE: OnceLock<Mutex<LatticeListCache<ImageOffset>>> = OnceLock::new();
+static RECIPROCAL_VECTOR_CACHE: OnceLock<Mutex<LatticeListCache<([i32; 3], Vec3)>>> =
     OnceLock::new();
-static RECIPROCAL_VECTOR_CACHE: OnceLock<
-    Mutex<HashMap<LatticeListCacheKey, Vec<([i32; 3], Vec3)>>>,
-> = OnceLock::new();
 
 fn cache_key(
     cell: Mat3,
@@ -262,7 +303,7 @@ impl Lattice {
 
     pub fn image_offsets(&self, cutoff: f64) -> Vec<ImageOffset> {
         let key = cache_key(self.cell, self.periodic, cutoff, false);
-        let cache = IMAGE_OFFSET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let cache = IMAGE_OFFSET_CACHE.get_or_init(|| Mutex::new(LatticeListCache::new()));
         if let Some(cached) = cache
             .lock()
             .expect("image offset cache poisoned")
@@ -291,7 +332,7 @@ impl Lattice {
         cache
             .lock()
             .expect("image offset cache poisoned")
-            .insert(key, out.clone());
+            .insert(key, &out);
         out
     }
 
@@ -315,7 +356,7 @@ impl Lattice {
         include_zero: bool,
     ) -> Vec<([i32; 3], Vec3)> {
         let key = cache_key(self.cell, self.periodic, cutoff, include_zero);
-        let cache = RECIPROCAL_VECTOR_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let cache = RECIPROCAL_VECTOR_CACHE.get_or_init(|| Mutex::new(LatticeListCache::new()));
         if let Some(cached) = cache
             .lock()
             .expect("reciprocal vector cache poisoned")
@@ -353,7 +394,7 @@ impl Lattice {
         cache
             .lock()
             .expect("reciprocal vector cache poisoned")
-            .insert(key, out.clone());
+            .insert(key, &out);
         out
     }
 
@@ -373,6 +414,43 @@ pub fn reciprocal_index_ranges_from_basis(basis: [Vec3; 3], cutoff: f64) -> [i32
         range[axis] = (cutoff / h).ceil() as i32 + 1;
     }
     range
+}
+
+#[cfg(test)]
+mod bounded_cache_tests {
+    use super::*;
+    #[test]
+    fn repeated_cell_trials_bound_retained_geometry_memory() {
+        let mut cache = LatticeListCache::<u8>::new();
+        let mut key = cache_key(
+            Mat3::from_columns(
+                Vec3::new(5., 0., 0.),
+                Vec3::new(0., 6., 0.),
+                Vec3::new(0., 0., 7.),
+            ),
+            [true; 3],
+            20.,
+            false,
+        );
+        for i in 0..1000 {
+            key.cell_bits[0] = i;
+            cache.insert(key, &[1, 2, 3, 4]);
+        }
+        assert_eq!(cache.entries.len(), LATTICE_CACHE_ENTRIES);
+        assert_eq!(cache.get(&key).unwrap(), &[1, 2, 3, 4]);
+        let payload = vec![7; 3 * 1024 * 1024];
+        for i in 1000..1010 {
+            key.cell_bits[0] = i;
+            cache.insert(key, &payload);
+        }
+        assert!(cache.bytes <= LATTICE_CACHE_BYTES);
+        assert_eq!(cache.get(&key).unwrap(), &payload);
+        let before = cache.bytes;
+        key.cell_bits[0] = 2000;
+        cache.insert(key, &vec![0; LATTICE_CACHE_BYTES + 1]);
+        assert!(cache.get(&key).is_none());
+        assert_eq!(cache.bytes, before);
+    }
 }
 
 fn basis_plane_height(basis: [Vec3; 3], axis: usize) -> f64 {

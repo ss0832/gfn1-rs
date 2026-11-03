@@ -82,8 +82,7 @@ pub fn directional_fourth_geometric_with(
     let mut acc = 0.0;
     if options.include_repulsion {
         let _p = crate::profile::scope("fc4.stage1.repulsion");
-        let rep = crate::repulsion::repulsion_fourth_derivative(system, params)?;
-        acc += rep.contract_vvvv(v)?;
+        acc += crate::repulsion::repulsion_directional_jet(system, params, v)?.d4;
     }
     if options.include_halogen {
         let _p = crate::profile::scope("fc4.stage1.halogen");
@@ -91,16 +90,15 @@ pub fn directional_fourth_geometric_with(
     }
     if options.include_fixed_scc {
         let _p = crate::profile::scope("fc4.stage1.fixed_scc");
-        let scc = crate::hessian::fixed_shell_charge_scc_fourth_derivative(
+        acc += crate::hessian::fixed_shell_charge_scc_fourth_directional(
             system,
             &electronic.basis,
             &electronic.shell_charges,
             params,
+            v,
         )?;
-        acc += scc.contract_vvvv(v)?;
     }
-    let include_disp =
-        options.include_dispersion && options.electronic_options.enable_dispersion;
+    let include_disp = options.include_dispersion && options.electronic_options.enable_dispersion;
     if include_disp {
         let _p = crate::profile::scope("fc4.stage1.dispersion");
         acc += crate::dispersion::dispersion_fourth_directional(
@@ -173,9 +171,8 @@ pub(crate) fn directional_fourth_frozen_density_with(
     // Gated scalar-wise against exactly that nested path by `directional_fourth_tests`.
     {
         let _p = crate::profile::scope("fc4.stage2.pulay_fourth");
-        acc += crate::hessian::directional_fixed_density_pulay_fourth(
-            system, params, electronic, v,
-        )?;
+        acc +=
+            crate::hessian::directional_fixed_density_pulay_fourth(system, params, electronic, v)?;
     }
     {
         let _p = crate::profile::scope("fc4.stage2.cn_h0_fourth");
@@ -270,8 +267,9 @@ fn third_density_path_vvv(
         let t0: &[Matrix] = match pulay_third_reference {
             Some(cached) => cached,
             None => {
-                owned_t0 =
-                    crate::hessian::fixed_density_pulay_third_derivative(system, params, electronic)?;
+                owned_t0 = crate::hessian::fixed_density_pulay_third_derivative(
+                    system, params, electronic,
+                )?;
                 &owned_t0
             }
         };
@@ -307,15 +305,13 @@ fn third_density_path_vvv(
     {
         let mut e1 = electronic.clone();
         e1.density = p_v.clone();
-        let t1 = crate::hessian::fixed_density_scalar_overlap_third_derivative(
-            system, params, &e1,
-        )?;
+        let t1 =
+            crate::hessian::fixed_density_scalar_overlap_third_derivative(system, params, &e1)?;
         *acc += contract_slabs_vvv(&t1, v);
         let mut e2 = electronic.clone();
         e2.shell_charges = q_v.to_vec();
-        let t2 = crate::hessian::fixed_density_scalar_overlap_third_derivative(
-            system, params, &e2,
-        )?;
+        let t2 =
+            crate::hessian::fixed_density_scalar_overlap_third_derivative(system, params, &e2)?;
         *acc += contract_slabs_vvv(&t2, v);
     }
     Ok(())
@@ -502,12 +498,8 @@ pub(crate) fn directional_fourth_hessian_path_stage_with(
         acc += 2.0 * (contract_vv(&h2, v) - contract_vv(&h1, v));
         // CN-cache response of the DOCTORED Pulay Hessian (only the `2P·h0` channel carries CN).
         let cn_response = cn_first_response(system, coordination_cutoff, v)?;
-        let h_cn = crate::hessian::fixed_density_pulay_cn_h0_response(
-            system,
-            params,
-            &e1,
-            &cn_response,
-        )?;
+        let h_cn =
+            crate::hessian::fixed_density_pulay_cn_h0_response(system, params, &e1, &cn_response)?;
         acc += contract_vv(&h_cn, v);
     }
     // Scalar-overlap `(P^v, q^v)` bilinear, multiplicity 2.
@@ -636,9 +628,8 @@ pub fn directional_fourth_cn_response_stage(
     {
         let _p = crate::profile::scope("fc4.stage4.cn_second_response");
         let cn_vv = cn_second_response(system, coordination_cutoff, v)?;
-        let h = crate::hessian::fixed_density_pulay_cn_h0_response(
-            system, params, electronic, &cn_vv,
-        )?;
+        let h =
+            crate::hessian::fixed_density_pulay_cn_h0_response(system, params, electronic, &cn_vv)?;
         acc += contract_vv(&h, v);
     }
 
@@ -793,10 +784,9 @@ mod tests {
                     system, params, electronic, &v_geo_d, &zeros, c, d,
                 )
                 .unwrap();
-                let sov = crate::response::cpxtb::overlap_second_derivative_matrix(
-                    system, basis, c, d,
-                )
-                .unwrap();
+                let sov =
+                    crate::response::cpxtb::overlap_second_derivative_matrix(system, basis, c, d)
+                        .unwrap();
                 for k in 0..n * n {
                     f_vv.as_mut_slice()[k] +=
                         w * (bare.as_slice()[k] + cn_block.as_slice()[k] + scc.as_slice()[k]);
@@ -829,10 +819,8 @@ mod tests {
         let kernel =
             crate::response::cpxtb::response_shell_scc_kernel(system, params, electronic).unwrap();
         // Onsite anharmonic chain: per shell `E'''_A · (q^v_A)²` (the ∂²V/∂q² term).
-        let chain = ctx.kernel_chain_potential(
-            &field.bundle.shell_charges,
-            &field.bundle.shell_charges,
-        );
+        let chain =
+            ctx.kernel_chain_potential(&field.bundle.shell_charges, &field.bundle.shell_charges);
         let v_pot_vv: Vec<f64> = (0..nshell)
             .map(|s| {
                 let geo2: f64 = (0..ndof)
@@ -842,8 +830,7 @@ mod tests {
                             .sum::<f64>()
                     })
                     .sum();
-                let cross: f64 =
-                    2.0 * (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum::<f64>();
+                let cross: f64 = 2.0 * (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum::<f64>();
                 let kq: f64 = (0..nshell)
                     .map(|t| kernel[(s, t)] * second.shell_charges[t])
                     .sum();
@@ -877,8 +864,7 @@ mod tests {
         let mut worst = 0.0_f64;
         for c in 0..path.len() {
             for k in 0..path[c].as_slice().len() {
-                let identity =
-                    t_sum[c].as_slice()[k] - t_q[c].as_slice()[k] - t_u[c].as_slice()[k];
+                let identity = t_sum[c].as_slice()[k] - t_q[c].as_slice()[k] - t_u[c].as_slice()[k];
                 worst = worst.max((path[c].as_slice()[k] - identity).abs());
             }
         }
@@ -945,7 +931,8 @@ mod tests {
             }
             sys
         };
-        let fd_at = |h: f64| -> f64 { (path_vv(&displace(h)) - path_vv(&displace(-h))) / (2.0 * h) };
+        let fd_at =
+            |h: f64| -> f64 { (path_vv(&displace(h)) - path_vv(&displace(-h))) / (2.0 * h) };
         // Step choice: this stage's analytic value is so close to the FD that at h = 1e-4 the
         // residual (~2e-14 abs, ~2e-10 rel) is already BELOW the central-difference roundoff floor
         // (which grows as 1/h), so halving h there makes the residual grow — noise, not a missing
@@ -988,14 +975,21 @@ mod tests {
         let cn_v = cn_first_response(&system, cutoff, &v).unwrap();
 
         let t = crate::hessian::fixed_density_pulay_third_cn_response(
-            &system, &params, &electronic, cutoff, &cn_v,
+            &system,
+            &params,
+            &electronic,
+            cutoff,
+            &cn_v,
         )
         .unwrap();
         let analytic = contract_slabs_vvv(&t, &v);
 
         let hess_vv = |sys: &PeriodicSystem| -> f64 {
             let m = crate::hessian::fixed_density_pulay_cn_h0_response(
-                sys, &params, &electronic, &cn_v,
+                sys,
+                &params,
+                &electronic,
+                &cn_v,
             )
             .unwrap();
             contract_vv(&m, &v)
@@ -1054,9 +1048,8 @@ mod tests {
         let cn_resp_vv = |sys: &PeriodicSystem| -> f64 {
             let el = run_electronic(sys, &params, options.clone()).unwrap();
             let cn_v = cn_first_response(sys, cutoff, &v).unwrap();
-            let m =
-                crate::hessian::fixed_density_pulay_cn_h0_response(sys, &params, &el, &cn_v)
-                    .unwrap();
+            let m = crate::hessian::fixed_density_pulay_cn_h0_response(sys, &params, &el, &cn_v)
+                .unwrap();
             contract_vv(&m, &v)
         };
         let displace = |step: f64| -> PeriodicSystem {
@@ -1180,15 +1173,13 @@ mod tests {
             let p3 =
                 crate::hessian::fixed_density_pulay_third_derivative(sys, &params, &el).unwrap();
             acc += contract_slabs_vvv(&p3, &v);
-            let c3 = crate::hessian::fixed_density_cn_h0_third_derivative(
-                sys, &params, &el, cutoff,
-            )
-            .unwrap();
+            let c3 =
+                crate::hessian::fixed_density_cn_h0_third_derivative(sys, &params, &el, cutoff)
+                    .unwrap();
             acc += contract_slabs_vvv(&c3, &v);
-            let s3 = crate::hessian::fixed_density_scalar_overlap_third_derivative(
-                sys, &params, &el,
-            )
-            .unwrap();
+            let s3 =
+                crate::hessian::fixed_density_scalar_overlap_third_derivative(sys, &params, &el)
+                    .unwrap();
             acc += contract_slabs_vvv(&s3, &v);
             acc
         };
@@ -1201,9 +1192,8 @@ mod tests {
             }
             sys
         };
-        let fd_at = |h: f64| -> f64 {
-            (third_vvv(&displace(h)) - third_vvv(&displace(-h))) / (2.0 * h)
-        };
+        let fd_at =
+            |h: f64| -> f64 { (third_vvv(&displace(h)) - third_vvv(&displace(-h))) / (2.0 * h) };
         let h1 = 1.0e-4;
         let fd1 = fd_at(h1);
         let delta1 = (analytic - fd1).abs();
@@ -1243,16 +1233,15 @@ mod tests {
         options.electronic_options.enable_dispersion = true;
         options.electronic_options.energy_tolerance = 1.0e-11;
         options.electronic_options.charge_tolerance = 1.0e-9;
-        let electronic = run_electronic(&system, &params, options.electronic_options.clone())
-            .unwrap();
+        let electronic =
+            run_electronic(&system, &params, options.electronic_options.clone()).unwrap();
         let ndof = 3 * system.atoms.len();
         let v: Vec<f64> = (0..ndof)
             .map(|k| 0.11 + 0.07 * ((k * 13 % 7) as f64) - 0.15 * ((k % 3) as f64))
             .collect();
 
         let analytic =
-            directional_fourth_geometric_with(&system, &params, &electronic, &options, &v)
-                .unwrap();
+            directional_fourth_geometric_with(&system, &params, &electronic, &options, &v).unwrap();
 
         // FD reference: the same terms' directional third derivative at R ± hv.
         let third_vvv = |sys: &PeriodicSystem, el: &crate::electronic::ElectronicResult| -> f64 {

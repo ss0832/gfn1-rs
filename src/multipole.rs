@@ -2514,8 +2514,8 @@ fn camm_aes_potentials(
                 }
                 // Off-site GFN2-AES (erf-cloud, q–μ, q–Θ, μ–μ only), scaled by s_AES.
                 // Element-specific range factor: σ_AB = √(κ_A·κ_B)·σ^HP (symmetric geometric mean).
-                let sigma =
-                    (kappa[a] * kappa[b]).sqrt() * exchange_sigma_pair(atom_hardness[a], atom_hardness[b]);
+                let sigma = (kappa[a] * kappa[b]).sqrt()
+                    * exchange_sigma_pair(atom_hardness[a], atom_hardness[b]);
                 let x = atom_pos[a] - atom_pos[b];
                 let f01 = f_mn_cloud(x, sigma, 0, 1); // q_A felt by μ_B
                 let f02 = f_mn_cloud(x, sigma, 0, 2); // q_A felt by Θ_B
@@ -2658,8 +2658,17 @@ pub fn camm_aes_gradient(
     let dip = &moments.dipole;
     let quad = &moments.quad;
     let q = atomic_charges;
-    let (s, vd, vq) =
-        camm_aes_potentials(nat, atom_hardness, atom_pos, dip, quad, q, kappa, scale, onsite_scale);
+    let (s, vd, vq) = camm_aes_potentials(
+        nat,
+        atom_hardness,
+        atom_pos,
+        dip,
+        quad,
+        q,
+        kappa,
+        scale,
+        onsite_scale,
+    );
 
     // (1) Off-site kernel force (erf-cloud, q–μ/q–Θ/μ–μ only, ×s_AES). `gforce(a,b)` = ∂/∂R_a of
     // the ordered-pair energy; grad_a = Σ_{b≠a} ½(gforce(a,b) − gforce(b,a)) (mirrors
@@ -3557,8 +3566,8 @@ mod tests {
     }
 
     fn load_params() -> Option<crate::params::Gfn1Parameters> {
-        let params = crate::params::Gfn1Parameters::resolve(None)
-            .expect("GFN1 parameter resolution failed");
+        let params =
+            crate::params::Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         Some(params)
     }
 
@@ -4690,20 +4699,23 @@ mod tests {
             .map(|a| if system.atoms[a].z == 8 { 1.3 } else { 0.8 })
             .collect();
         let scale = 0.7_f64; // exercise the s_AES scaling too
-        // Per-element s_onsite (O vs H) exercises the per-atom on-site-penalty path.
+                             // Per-element s_onsite (O vs H) exercises the per-atom on-site-penalty path.
         let onsite: Vec<f64> = (0..nat)
             .map(|a| if system.atoms[a].z == 8 { 0.6 } else { 0.4 })
             .collect();
         let energy_at = |p: &Matrix| -> f64 {
             let q = atomic_population(&basis, &ints.overlap, p, nat);
             let m = camm_atomic_moments(&basis, nat, &ints, p, &atom_pos);
-            camm_aes_energy_fock(&basis, nat, &eta, &atom_pos, &ints, &m, &q, &kappa, scale, &onsite)
-                .energy
+            camm_aes_energy_fock(
+                &basis, nat, &eta, &atom_pos, &ints, &m, &q, &kappa, scale, &onsite,
+            )
+            .energy
         };
         let q0 = atomic_population(&basis, &ints.overlap, &p0, nat);
         let m0 = camm_atomic_moments(&basis, nat, &ints, &p0, &atom_pos);
-        let f = camm_aes_energy_fock(&basis, nat, &eta, &atom_pos, &ints, &m0, &q0, &kappa, scale,
-            &onsite)
+        let f = camm_aes_energy_fock(
+            &basis, nat, &eta, &atom_pos, &ints, &m0, &q0, &kappa, scale, &onsite,
+        )
         .fock;
         let mut dp = Matrix::zeros(n, n);
         for i in 0..n {
@@ -4796,17 +4808,26 @@ mod tests {
         assert!(res.converged, "CAMM-on-mDFTB2 SCC did not converge");
         let e_camm = res.total_internal;
         assert!((e_camm - e_gfn1).abs() > 1.0e-6, "CAMM ≡ GFN1 (no effect)");
-        assert!((e_camm - e_md).abs() > 1.0e-8, "CAMM ≡ mDFTB2 (off-site not replaced)");
+        assert!(
+            (e_camm - e_md).abs() > 1.0e-8,
+            "CAMM ≡ mDFTB2 (off-site not replaced)"
+        );
         // s_AES scales the off-site AES away.
         let mut camm0 = camm.clone();
         camm0.camm_aes_scale = 0.0;
         let e_camm0 = run(camm0).unwrap().total_internal;
-        assert!((e_camm - e_camm0).abs() > 1.0e-7, "camm_aes_scale had no effect");
+        assert!(
+            (e_camm - e_camm0).abs() > 1.0e-7,
+            "camm_aes_scale had no effect"
+        );
         // camm_damp (κ) re-balances the contact region (range-selective).
         let mut camm_k = camm.clone();
         camm_k.camm_damp = 1.5;
         let e_camm_k = run(camm_k).unwrap().total_internal;
-        assert!((e_camm - e_camm_k).abs() > 1.0e-8, "camm_damp had no effect");
+        assert!(
+            (e_camm - e_camm_k).abs() > 1.0e-8,
+            "camm_damp had no effect"
+        );
         eprintln!(
             "water dimer: GFN1 {e_gfn1:.6}  mDFTB2 {e_md:.6}  CAMM {e_camm:.6}  CAMM(s=0) {e_camm0:.6}  CAMM(κ=1.5) {e_camm_k:.6}"
         );

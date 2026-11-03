@@ -15,6 +15,141 @@ fn load_params() -> Option<Gfn1Parameters> {
     Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
 }
 
+#[test]
+fn analytic_excited_hessian_matches_all_gradient_components() {
+    let parameters = Gfn1Parameters::builtin().unwrap();
+    for (name,xyz,state,temperature) in [
+        ("water-S1-300K","3\nwater\nO .02 -.01 .03\nH .958 .02 -.01\nH -.25 .925 .04\n",0,300.),
+        ("water-S3-0K","3\nwater\nO .02 -.01 .03\nH .958 .02 -.01\nH -.25 .925 .04\n",2,0.),
+        ("ethylene-S1-300K","6\nethylene\nC -.67 .01 -.02\nC .67 -.01 .02\nH -1.23 .92 .03\nH -1.24 -.93 -.01\nH 1.24 .93 -.02\nH 1.23 -.92 .04\n",0,300.),
+    ] {
+        let system = PeriodicSystem::from_xyz_str(xyz,0.,false).unwrap();
+        let electronic = ElectronicOptions { electronic_temperature:temperature,energy_tolerance:1e-13,
+            charge_tolerance:1e-11,max_scc:1000,..Default::default() };
+        let options = TdaOptions {n_states:5,spin:TdaSpin::Singlet};
+        let result = gfn1_rs::td::solve_tda_hessian_analytic(&system,&parameters,&electronic,state,options).unwrap();
+        let ndof=3*system.atoms.len();
+        let mut maximum=0.0_f64;
+        for column in 0..ndof {
+            let mut differences=Vec::new();
+            for step in [1e-3,5e-4] {
+                let plus=solve_tda_gradient_analytic(&displaced(&system,column/3,column%3,step),&parameters,&electronic,state,options).unwrap();
+                let minus=solve_tda_gradient_analytic(&displaced(&system,column/3,column%3,-step),&parameters,&electronic,state,options).unwrap();
+                differences.push(plus.gradient.iter().zip(&minus.gradient).flat_map(|(a,b)|((*a-*b)*(0.5/step)).to_array()).collect::<Vec<_>>());
+            }
+            for row in 0..ndof {
+                let reference=(4.*differences[1][row]-differences[0][row])/3.;
+                maximum=maximum.max((result.hessian[(row,column)]-reference).abs());
+            }
+        }
+        eprintln!("{name} analytic excited Hessian: {ndof}x{ndof} FD error {maximum:e}");
+        assert!(maximum<5e-6,"{name}: {maximum:e}");
+        for row in 0..ndof {for axis in 0..3 {
+            assert!((0..system.atoms.len()).map(|atom|result.hessian[(row,3*atom+axis)]).sum::<f64>().abs()<1e-8);
+        }}
+    }
+}
+
+#[test]
+fn fractional_tda_and_rpa_include_occupation_response() {
+    let params = Gfn1Parameters::builtin().unwrap();
+    let molecule =
+        PeriodicSystem::from_xyz_str("2\nthermal H2\nH 0 0 0\nH .74 0 0\n", 0., false).unwrap();
+    let options = ElectronicOptions {
+        electronic_temperature: 30000.,
+        max_scc: 1000,
+        energy_tolerance: 1e-13,
+        charge_tolerance: 1e-11,
+        ..Default::default()
+    };
+    let electronic = run_electronic(&molecule, &params, options.clone()).unwrap();
+    assert!(electronic
+        .occupations
+        .iter()
+        .any(|&n| n.abs().min((2. - n).abs()) > 1e-4));
+    let td_options = TdaOptions {
+        n_states: 1,
+        spin: TdaSpin::Singlet,
+    };
+
+    use gfn1_rs::{
+        solve_rpa, solve_rpa_gradient_analytic, solve_rpa_hessian_analytic,
+        solve_tda_hessian_analytic,
+    };
+    let tda = solve_tda(&molecule, &params, &electronic, td_options).unwrap();
+
+    assert!(tda.pairs.len() > 1);
+    assert!(tda
+        .pairs
+        .iter()
+        .all(|&(i, a)| electronic.occupations[i] - electronic.occupations[a] > 1e-10));
+    let rpa = solve_rpa(&molecule, &params, &electronic, td_options).unwrap();
+    assert_eq!(rpa.pairs, tda.pairs);
+    let triplet = TdaOptions {
+        spin: TdaSpin::Triplet,
+        ..td_options
+    };
+    let uncoupled = solve_tda(&molecule, &params, &electronic, triplet).unwrap();
+    let uncoupled_rpa = solve_rpa(&molecule, &params, &electronic, triplet).unwrap();
+    assert!(
+        (uncoupled.states[0].excitation_energy - uncoupled_rpa.states[0].excitation_energy).abs()
+            < 1e-10
+    );
+    let step = 1e-4;
+    for (gradient, hessian) in [
+        (
+            solve_tda_gradient_analytic as fn(&_, &_, &_, _, _) -> _,
+            solve_tda_hessian_analytic as fn(&_, &_, &_, _, _) -> _,
+        ),
+        (solve_rpa_gradient_analytic, solve_rpa_hessian_analytic),
+    ] {
+        let g: gfn1_rs::TdaGradientResult =
+            gradient(&molecule, &params, &options, 0, td_options).unwrap();
+        let h: gfn1_rs::TdaHessianResult =
+            hessian(&molecule, &params, &options, 0, td_options).unwrap();
+        for column in 0..6 {
+            let plus = displaced(&molecule, column / 3, column % 3, step);
+            let minus = displaced(&molecule, column / 3, column % 3, -step);
+            let gp = gradient(&plus, &params, &options, 0, td_options).unwrap();
+            let gm = gradient(&minus, &params, &options, 0, td_options).unwrap();
+            let fd = (gp.total_energy - gm.total_energy) / (2. * step);
+            assert!((g.gradient[column / 3].to_array()[column % 3] - fd).abs() < 1e-7);
+            for row in 0..6 {
+                let fd2 =
+                    (gp.gradient[row / 3] - gm.gradient[row / 3]).to_array()[row % 3] / (2. * step);
+                assert!((h.hessian[(row, column)] - fd2).abs() < 1e-6);
+            }
+        }
+    }
+    let numerical = solve_tda_gradient(&molecule, &params, &options, 0, td_options, step).unwrap();
+    let semi = solve_tda_gradient_seminumerical(&molecule, &params, &options, 0, td_options, step)
+        .unwrap();
+    let analytic =
+        solve_tda_gradient_analytic(&molecule, &params, &options, 0, td_options).unwrap();
+    assert!(max_component_diff(&semi.gradient, &analytic.gradient) < 1e-7);
+    assert!(max_component_diff(&numerical.gradient, &analytic.gradient) < 1e-7);
+    let mut periodic = molecule;
+    periodic.lattice = Some(
+        gfn1_rs::lattice::Lattice::from_vectors(
+            Vec3::new(25., 0., 0.),
+            Vec3::new(0., 25., 0.),
+            Vec3::new(0., 0., 25.),
+            [true; 3],
+        )
+        .unwrap(),
+    );
+
+    let pbc = gfn1_rs::PbcOptions::for_electronic(&options).unwrap();
+    let optical =
+        gfn1_rs::solve_optical_td_dfpt(&periodic, &params, &options, &pbc, None, 1).unwrap();
+    assert_eq!(optical.transitions, tda.pairs.len());
+    assert!(optical.excitation_energies[0] > 0.0);
+    let analytic =
+        solve_tda_gradient_analytic(&periodic, &params, &options, 0, td_options).unwrap();
+    let numerical = solve_tda_gradient(&periodic, &params, &options, 0, td_options, step).unwrap();
+    assert!(max_component_diff(&numerical.gradient, &analytic.gradient) < 1e-7);
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers for the analytic-gradient audit gates.
 // ---------------------------------------------------------------------------
@@ -51,8 +186,9 @@ fn max_component_diff(a: &[Vec3], b: &[Vec3]) -> f64 {
 }
 
 fn max_norm(a: &[Vec3]) -> f64 {
-    a.iter()
-        .fold(0.0_f64, |m, v| m.max(v.x.abs()).max(v.y.abs()).max(v.z.abs()))
+    a.iter().fold(0.0_f64, |m, v| {
+        m.max(v.x.abs()).max(v.y.abs()).max(v.z.abs())
+    })
 }
 
 /// `sum_A dE/dR_A` — zero for any translationally invariant energy.
@@ -751,8 +887,7 @@ fn tda_analytic_gradient_matches_fd_with_h_ladder() {
             }
             gated += 1;
             let mu = td.states[state].transition_dipole;
-            brightest =
-                brightest.max((mu.x * mu.x + mu.y * mu.y + mu.z * mu.z).sqrt());
+            brightest = brightest.max((mu.x * mu.x + mu.y * mu.y + mu.z * mu.z).sqrt());
 
             let ana = solve_tda_gradient_analytic(&system, &params, &eo, state, tda).unwrap();
             assert!(
@@ -871,7 +1006,10 @@ fn tda_near_degenerate_root_gradient() {
         }
     }
     let (lo, gap) = pair;
-    eprintln!("formaldehyde near-degenerate pair S{lo}/S{}: gap {gap:.3e} Ha", lo + 1);
+    eprintln!(
+        "formaldehyde near-degenerate pair S{lo}/S{}: gap {gap:.3e} Ha",
+        lo + 1
+    );
     assert!(
         gap < 5.0e-3,
         "fixture no longer has a near-degenerate pair (closest gap {gap:.3e} Ha)"
@@ -1067,9 +1205,7 @@ fn tda_gradient_method_dispatch_and_cross_consistency() {
 
         let semi_vs_ana = max_component_diff(&semi.gradient, &ana.gradient);
         let fd_vs_ana = max_component_diff(&fd.gradient, &ana.gradient);
-        eprintln!(
-            "water S{state}: |semi-ana| = {semi_vs_ana:.3e}  |fd-ana| = {fd_vs_ana:.3e}"
-        );
+        eprintln!("water S{state}: |semi-ana| = {semi_vs_ana:.3e}  |fd-ana| = {fd_vs_ana:.3e}");
         assert!(
             semi_vs_ana < 1.0e-6,
             "semi-numerical vs analytic state {state}: {semi_vs_ana:.3e} Ha/bohr"
@@ -1079,8 +1215,7 @@ fn tda_gradient_method_dispatch_and_cross_consistency() {
             "full FD vs analytic state {state}: {fd_vs_ana:.3e} Ha/bohr"
         );
     }
-    // The periodic dispatch: `Analytic` routes to the Gamma-point analytic path,
-    // `SemiNumerical` is non-periodic only and must say so.
+    // The periodic dispatch selects the Gamma response without changing methods.
     let cell = PeriodicSystem::from_xyz_str(
         "3\nLattice=\"11 0 0 0 11 0 0 0 11\" pbc=\"T T T\"\n\
          O 0.0 0.0 0.08\nH 0.79 0.59 0.0\nH -0.74 0.57 0.0\n",
@@ -1088,22 +1223,15 @@ fn tda_gradient_method_dispatch_and_cross_consistency() {
         false,
     )
     .unwrap();
-    let pbc_disp = solve_tda_gradient_method(
-        &cell,
-        &params,
-        &eo,
-        0,
-        tda,
-        h,
-        TdaGradientMethod::Analytic,
-    )
-    .unwrap();
+    let pbc_disp =
+        solve_tda_gradient_method(&cell, &params, &eo, 0, tda, h, TdaGradientMethod::Analytic)
+            .unwrap();
     let pbc_direct = solve_tda_gradient_analytic(&cell, &params, &eo, 0, tda).unwrap();
     assert_eq!(
         max_component_diff(&pbc_disp.gradient, &pbc_direct.gradient),
         0.0
     );
-    let err = solve_tda_gradient_method(
+    let semi = solve_tda_gradient_method(
         &cell,
         &params,
         &eo,
@@ -1111,11 +1239,9 @@ fn tda_gradient_method_dispatch_and_cross_consistency() {
         tda,
         h,
         TdaGradientMethod::SemiNumerical,
-    );
-    assert!(
-        err.is_err(),
-        "semi-numerical TDA gradient must reject periodic systems"
-    );
+    )
+    .unwrap();
+    assert!(max_component_diff(&semi.gradient, &pbc_direct.gradient) < 1e-6);
 }
 
 /// **Gate (d2) — large-box Gamma-point PBC reduces to the molecular limit.**
@@ -1237,4 +1363,163 @@ fn kmesh_gamma_reduces_to_pbc_gamma_gradient_and_matches_fd_on_a_chain() {
         s.y,
         s.z
     );
+}
+
+#[test]
+fn tda_manifold_hessian_matches_all_cartesian_mean_energy_differences() {
+    use gfn1_rs::solve_tda_manifold_hessian_analytic;
+    let system =
+        PeriodicSystem::from_xyz_str(include_str!("../examples/methane.xyz"), 0., false).unwrap();
+    let params = Gfn1Parameters::builtin().unwrap();
+    let options = ElectronicOptions {
+        electronic_temperature: 0.,
+        energy_tolerance: 1e-13,
+        charge_tolerance: 1e-11,
+        ..Default::default()
+    };
+    let td_options = TdaOptions {
+        n_states: 3,
+        spin: TdaSpin::Singlet,
+    };
+    let ordinary = gfn1_rs::solve_tda_hessian_analytic(&system, &params, &options, 0, td_options);
+    assert!(ordinary
+        .unwrap_err()
+        .to_string()
+        .contains("3-fold degenerate"));
+    let result =
+        solve_tda_manifold_hessian_analytic(&system, &params, &options, 0, td_options).unwrap();
+    assert_eq!(result.roots, 0..3);
+    let mean = |geometry: &PeriodicSystem| {
+        let electronic = run_electronic(geometry, &params, options.clone()).unwrap();
+        let td = solve_tda(geometry, &params, &electronic, td_options).unwrap();
+        electronic.total_free + td.states.iter().map(|s| s.excitation_energy).sum::<f64>() / 3.
+    };
+    let ndof = 3 * system.atoms.len();
+    let mut maximum = 0.0_f64;
+    let center = mean(&system);
+    for a in 0..ndof {
+        for b in 0..=a {
+            let moved = |da, db| {
+                let first = displaced(&system, a / 3, a % 3, da);
+                displaced(&first, b / 3, b % 3, db)
+            };
+            let difference = |h: f64| {
+                if a == b {
+                    (mean(&moved(h, 0.)) - 2. * center + mean(&moved(-h, 0.))) / (h * h)
+                } else {
+                    (mean(&moved(h, h)) - mean(&moved(h, -h)) - mean(&moved(-h, h))
+                        + mean(&moved(-h, -h)))
+                        / (4. * h * h)
+                }
+            };
+            let fd = (4. * difference(5e-4) - difference(1e-3)) / 3.;
+            let error = (result.mean.hessian[(a, b)] - fd).abs();
+            assert!(error.is_finite());
+            assert_eq!(result.mean.hessian[(a, b)], result.mean.hessian[(b, a)]);
+            maximum = maximum.max(error);
+        }
+    }
+    eprintln!(
+        "methane TDA mean Hessian {ndof}x{ndof} maximum FD difference {maximum:.3e} Ha/bohr²"
+    );
+    assert!(maximum < 1e-5);
+}
+
+#[test]
+fn cli_ni_co4_degeneracy_and_manifold_gradients() {
+    use std::process::Command;
+    let xyz = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/ni_co4.xyz");
+    let run = |options: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_gfn1-rs"))
+            .arg(xyz)
+            .args(["--tda-grad", "--etemp", "0", "--threads", "2"])
+            .args(options)
+            .output()
+            .unwrap()
+    };
+    for method in ["analytic", "semi-numerical", "numerical"] {
+        let failure = run(&["--tda-gradient-method", method]);
+        assert!(!failure.status.success());
+        assert!(String::from_utf8_lossy(&failure.stderr).contains("5-fold degenerate"));
+    }
+    let mut results = Vec::new();
+    for args in [
+        vec!["--tda-manifold-average"],
+        vec![
+            "--tda-manifold-average",
+            "--tda-gradient-method",
+            "semi-numerical",
+        ],
+        vec![
+            "--tda-manifold-average",
+            "--tda-gradient-method",
+            "numerical",
+        ],
+    ] {
+        let output = run(&args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("tda_manifold_size 5"));
+        if args.len() == 1 {
+            assert!(text.contains("tda_gradient_method  analytic"));
+        }
+        let gradient = text
+            .split_once("tda_manifold_average_gradient (Hartree/bohr)")
+            .unwrap()
+            .1
+            .split_whitespace()
+            .map(|x| x.parse::<f64>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(gradient.len(), 27);
+        results.push(gradient);
+    }
+    for gradient in &results[1..] {
+        let error = results[0]
+            .iter()
+            .zip(gradient)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0., f64::max);
+        eprintln!("Ni(CO)4 manifold maximum 27-component difference {error:.3e} Ha/bohr");
+        assert!(error < 1e-5);
+    }
+}
+
+#[test]
+fn fractional_degenerate_orbital_block_has_tda_and_rpa_hessians() {
+    use gfn1_rs::{
+        solve_rpa_manifold_gradient_analytic, solve_rpa_manifold_hessian_analytic,
+        solve_tda_manifold_gradient, solve_tda_manifold_hessian_analytic,
+    };
+    let system = PeriodicSystem::from_xyz_str(include_str!("../examples/methane.xyz"), 0., false).unwrap();
+    let params = Gfn1Parameters::builtin().unwrap();
+    let electronic = ElectronicOptions {
+        electronic_temperature: 30000.,
+        energy_tolerance: 1e-12,
+        charge_tolerance: 1e-11,
+        ..Default::default()
+    };
+    let reference = run_electronic(&system, &params, electronic.clone()).unwrap();
+    assert!(reference.orbital_energies.windows(2).zip(reference.occupations.iter())
+        .any(|(energies, &f)| (energies[1] - energies[0]).abs() < 1e-10 && f > 1e-6 && f < 2. - 1e-6));
+    // With the GFN1 triplet charge coupling zero, the full-TD square-root
+    // trace must reduce to TDA, including the internal degenerate-root term.
+    let options = TdaOptions { spin: TdaSpin::Triplet, n_states: 5 };
+    let tda = solve_tda_manifold_hessian_analytic(&system, &params, &electronic, 0, options).unwrap();
+    let rpa = solve_rpa_manifold_hessian_analytic(&system, &params, &electronic, 0, options).unwrap();
+    assert_eq!(tda.roots, rpa.roots);
+    assert!(tda.roots.len() > 1);
+    assert!(tda.mean.hessian.as_slice().iter().all(|v| v.is_finite()));
+    assert!(tda.mean.hessian.max_abs_diff(&rpa.mean.hessian) < 1e-7);
+    let tda = solve_tda_manifold_gradient(
+        &system, &params, &electronic, 0, options, 1e-4, TdaGradientMethod::Analytic,
+    ).unwrap();
+    let rpa = solve_rpa_manifold_gradient_analytic(&system, &params, &electronic, 0, options).unwrap();
+    assert_eq!(tda.roots, rpa.roots);
+    for (a, b) in tda.mean.gradient.iter().zip(rpa.mean.gradient) {
+        assert!((*a - b).norm() < 1e-9);
+    }
 }

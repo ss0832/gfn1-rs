@@ -28,6 +28,12 @@ pub fn require_order(
 
 Current coverage (`terms::active_terms`):
 
+The order-4 capability check additionally requires
+`hamiltonian.enable_cn_hamiltonian = true`. Both strict and finite-temperature
+analytic FC4 reject CN-disabled calculations before SCF, because their frozen
+CN stages have not been derived for that modified Hamiltonian. This restriction
+does not lower the order-1/2/3 capability checks.
+
 | Term | Active when | `max_analytic_order` |
 | --- | --- | --- |
 | `repulsion` | always | **4** |
@@ -42,14 +48,17 @@ Current coverage (`terms::active_terms`):
 | `DFT+U/+U+V` | `plus_u` | 1 |
 | `spin polarization (spGFN1)` | `spin_polarization` | 1 |
 | `external electric field` | `external_field.electric_field.is_some()` | 1 |
+| `GFN1 ALPB/GBSA` | `solvation` | 4 |
+| `structural ML Hamiltonian` | `ml_model` | **3** molecular canonical free energy; **2** periodic DFPT |
 
 So **stock GFN1 passes `require_order(4)`** (and fails at order 5 — nothing
-implements order 5). Any experimental model flag caps the ladder at the gradient.
+implements order 5). Most experimental flags cap the ladder at the gradient;
+the separately dispatched molecular ML path supports Hessian and FC3.
 
-Fermi smearing is deliberately **not** a registry row: whether the occupations are
-actually fractional is only known after the SCC converges (the default 300 K
-leaves gapped molecules at integer occupations), so the third/fourth-derivative
-drivers keep a runtime occupation-based guard as the authority for that modifier.
+Fermi smearing is deliberately **not** a registry row. Standard molecular
+FC3/FC4 entry points select canonical analytic free-energy response at positive
+electronic temperature, including fractional/degenerate occupations; the T=0
+integer-occupation backend is retained. Temperature is never changed by dispatch.
 
 Call sites: `hessian` (order 2), `third_derivative` (order 3),
 `third_derivative::finite_t` (order 3), `fourth_derivative` (order 4).
@@ -63,6 +72,21 @@ Call sites: `hessian` (order 2), `third_derivative` (order 3),
 [rust-api.md](rust-api.md#entry-points-by-task).
 
 ## 2. Hessian
+
+### Reduced two-body D3 chain
+
+For stock GFN1 (`s9=0`), the two-body D3 Hessian is assembled exactly in
+(Cartesian R, atomic CN) space. Each interpolated C6 pair stores six scalar
+partials in two CN variables; normalized reference weights retain their full
+first/second derivatives. The final chain is
+`H_RR + J_CN^T H_CN,CN J_CN + H_R,CN J_CN + transpose + sum_i E_CN_i H_CN_i`.
+Radial pair and self-image counting match the original energy. This avoids
+the full-Cartesian `nat*nat` C6 jet table, which alone would store about
+10.5 GB of Hessian doubles at 110 atoms. CN jets and compact C6 partials
+replace that table; this is an allocation estimate, not an RSS measurement.
+Independent full-geometry jets remain the ATM route and regression reference.
+Mixed-element molecules, periodic water and self-images agree with that
+reference, and the existing gradient/Hessian/FC3/FC4 D3 gates remain active.
 
 `analytic_hessian(&system, &params, AnalyticHessianOptions)` →
 `AnalyticHessianResult`. `AnalyticHessianOptions` toggles each block
@@ -81,6 +105,39 @@ than silently dropping them.
 ## 3. Third derivative (cubic force constants, FC3)
 
 `T_abc = ∂³E/∂R_a∂R_b∂R_c`. Two routes, both non-periodic.
+
+### Shared-reference direct contractions and structural ML
+
+`third_derivative::CubicReference::build(system, params, electronic, budget)`
+builds one converged canonical reference and charge-space response
+factorization. `directional(v)` returns `E'''[v,v,v]`; `mixed(u,v,w)` returns
+`E'''[u,v,w]` by polarization; `directional_derivatives(v)` returns E through
+E''' along v. At T=0 it evaluates an overlap-normalized occupied trial space.
+At positive T it uses all metric-orthonormalized MOs, the full first
+occupation-matrix response and analytic entropy-trace divided differences.
+Off-diagonal occupation response is retained inside fractional degenerate
+blocks. Both use first-order CP-SCC and the variational 2n+1 rule. The direct route does not
+materialize Cartesian FC3 slabs; its workspace estimate is checked separately
+from tensor storage. The legacy non-ML vector API retains its slab-based
+electronic assembly, so use `CubicReference` for direct scalar contractions.
+
+Structure-local ML level jets, their H0/CN coupling and the correction energy
+are included consistently through order three. `analytic_hessian` and standard
+analytic FC3 dense/vector/block entry points dispatch to this complete ML
+energy path, including fractional occupations. Partial-term ML Hessian options
+and ML FC4 remain rejected. `analytic_hessian_from_result` does not reconstruct this ML
+reference and retains its guard. Python exposes `third_derivative_contractions`
+for batched directional cubics with a shared reference.
+
+The reusable `tests/profiling/profile_contracted_fc3.rs` driver compares full
+FC3 contraction with the shared directional reference on water/NH3/CH4 and
+reports stage timings, allocation counts and numerical differences. Run
+`cargo test --profile reltest --test profile_contracted_fc3` with both
+`RAYON_NUM_THREADS=1` and `GFN1_FAER_THREADS=1` for a serial comparison.
+Memory counters measure additional live Rust allocations per stage; a reused
+reference's retained storage is separate from a direction's extra bytes.
+The old timing table's external receipt is not included in this source base,
+so it is not presented as a v0.7.0 performance measurement.
 
 ### 3.1 Strict closed form (2n+1, no finite differences)
 
@@ -182,7 +239,7 @@ Not re-exported at the crate root, and no CLI or Python binding.
 
 ### 3.4 Front ends
 
-- CLI: `--third-derivative` (alias `--cubic`), `--matrices` to print each slab.
+- CLI: `--third-derivative` (alias `--cubic`) prints Cartesian slabs in Hartree/bohr³ for molecules and supported periodic references.
   **Non-periodic only** — a lattice-bearing input is rejected.
 - Python: `third_derivative`, `third_derivative_vector`, `third_derivative_block`
   (closed form) and `third_derivative_along` (seminumerical directional);
@@ -192,8 +249,11 @@ Not re-exported at the crate root, and no CLI or Python binding.
 
 ## 4. Fourth derivative (quartic force constants, FC4)
 
-`Q_abcd = ∂⁴E/∂R_a∂R_b∂R_c∂R_d`. New in v0.5.0, non-periodic, **integer
-occupations only**.
+`--fourth-derivative` (alias `--quartic`) prints dense molecular components in
+Hartree/bohr⁴ using zero-based Cartesian indices.
+
+`Q_abcd = ∂⁴F/∂R_a∂R_b∂R_c∂R_d`. Non-periodic; standard entry points
+support both integer T=0 occupations and the canonical thermal ensemble.
 
 The names are **not** re-exported at the crate root; import them from the module:
 
@@ -249,7 +309,7 @@ seminumerical reference, with an exact `h²` ratio of 4.00.
 
 Set `GFN1_PROFILE=1` for a per-stage `gfn1_profile_ms` breakdown
 (`fc4.reference.*`, `fc4.legs.*`, `fc4.stage1..5.*`);
-`cargo run --profile reltest --example profile_fc4` times the directional and
+`cargo test --profile reltest --test profile_fc4` times the directional and
 dense drivers on the gate geometries.
 
 Every stage is now **one-pass directional**: no step of the directional quartic
@@ -345,8 +405,12 @@ let e4 = directional_fourth_with_reference(&system, &params, &options, cutoff, &
 let scf = reference.electronic();
 ```
 
-Both guards (the order-4 registry check and the integer-occupation check) live in
-`QuarticReference::build`, so every entry point carries them.
+The order-4 registry check and temperature-specific backend selection live in
+`QuarticReference::build`, so scalar, dense, block, semidiagonal and reused
+reference entry points all support smearing. The thermal backend includes the
+third chemical-potential response and confluent spectral limits. The five-stage
+description above applies to the retained T=0 backend; positive T uses the
+analytic product-rule spectral assembly described in [finite-temperature.md](finite-temperature.md).
 
 Gate results: reconstructed-tensor `vvvv` vs the directional quartic `6.8e-16`
 (skew HF) / `4.5e-17` (water block); element-wise vs the seminumerical reference
@@ -359,8 +423,19 @@ Public methods: `zeros`, `n`, `len`, `is_empty`, `index`, `add`, `get`, `scale`,
 `add_from`, `contract_last(v) -> SymmetricThird`, `contract_last2(v, w) -> Matrix`,
 `contract_vvvv(v) -> f64`, `block(dofs) -> Vec<Matrix>`.
 
-Memory: 300 DOF is ≈ 2.8 GB dense but ≈ 120 MB packed. There is no hard cap on
-`n` in the type itself.
+Memory for 300 DOF: **64.8 GB dense** (`8*n^4`) and **2.7543306 GB packed**
+(`8*binomial(n+3,4)`), in decimal bytes. Packed output is not scratch memory.
+Fallible `try_zeros` rejects size/allocator overflow. Analytic assembly uses
+`QuarticAssemblyOptions`: a default 512 MiB budget, batches of 2,048
+quadruples, up to four concurrent directions and an explicit workspace reserve.
+Available threads and the workspace budget can lower the concurrency. The
+assembly retains the packed output and lower-order directional values, with
+bounded worker scratch. For FC4 the additional directional cache is cubic in
+the number of selected coordinates. The estimate does not represent process RSS.
+`fourth_derivative_analytic_block_with_limits` exposes custom limits.
+`fourth_derivative_analytic_semidiagonal` computes mode-pair quartics directly,
+without a full Cartesian FC4. References carry a stable electronic-model and
+geometry identity; incompatible reuse is rejected.
 
 ### 4.4 Seminumerical fallback
 
@@ -371,8 +446,8 @@ pub fn directional_fourth_seminumerical(
 ```
 
 A central FD of the analytic third derivative along `v`. It is both the
-verification reference for the analytic assembly and the production fallback for
-Fermi-smeared systems.
+verification reference for the analytic assembly, including Fermi-smeared
+systems. The standard analytic FC4 routes also support smearing without FD.
 
 ### 4.5 Dispersion / halogen quartics
 
@@ -425,6 +500,47 @@ None. FC4 is a Rust-library API only — no CLI flag, no Python binding.
 ---
 
 ## 5. The verification-gate philosophy
+
+### Full Cartesian revalidation
+
+`tests/nuclear_derivative_audit.rs` checks every Cartesian component on its
+declared molecular, periodic, SOC/ML, field, solvent, spin, experimental-model
+and classical-term fixtures. Run the extended audit explicitly:
+
+```bash
+cargo test --profile reltest --test nuclear_derivative_audit -- --ignored --nocapture --test-threads=4
+```
+
+Set `GFN1_FAER_THREADS=1` and `RAYON_NUM_THREADS=2` for the recorded controls.
+The default output directory is `target/validation/nuclear-derivatives`;
+`GFN1_VALIDATION_DIR` overrides it. `GFN1_DERIVATIVE_AUDIT_CASE` selects one
+diagnostic case within the selected test group; zero matched cases fail.
+
+Order n is compared with central differences of the analytic order n-1 for
+every displaced coordinate, at three halved steps. Thus a d-DOF quartic audit
+compares all d^4 entries, including zeros and every index permutation. Numerical
+tensors are neither symmetrized nor projected. Fine-step and Richardson values
+must each satisfy the local per-component absolute/relative tolerance. Raw
+analytic tensors, all three numerical tensors, error metrics, units, SCF controls
+and the exact audit-driver hash are retained in each case's JSON record.
+Unsupported higher orders are reported separately from successful comparisons.
+
+The distributed summary is `tests/data/nuclear-derivatives-report.json`; its
+SHA-256-linked `nuclear-derivatives-raw.json.gz` contains all numerical arrays
+and the earlier failed measurements. Regenerate both from full-group output
+directories, in replacement order, with `tests/validation/collect_derivative_audits.py
+--input <initial-output> --input <periodic-output> --input <extended-output>`.
+Diagnostic subsets cannot replace a complete group. The separate
+`multipole-rank4-ph3-diagnostic.json` records the repaired 0 K PH3 state, all
+12 gradient components and the earlier failed fallback attempt.
+
+The v0.6.0 collection covers 42 cases and 48,345 Cartesian components. All
+four groups are rerun with `private-gemm-x86 0.1.22`, including all 23
+extended-model cases and PH3. Each case records the dependency lockfile hash;
+the collector's `--require-current-lockfile` option rejects stale results.
+Earlier failed measurements remain separate historical evidence. The backend
+update comparison, independent matrix checks and complete regression gates
+are in `tests/data/backend-update-audit.json`.
 
 This explains the shape of the test suite, and is the standard any new derivative
 order must meet before it lands.
@@ -497,3 +613,203 @@ versions are in `tests/`:
 Tests resolve parameters with `Gfn1Parameters::resolve(None)`, so they run against
 the bundled parametrization and **no longer silently no-op** when
 `GFN1_XTB_PARAM` is unset.
+
+### Independent full-component field audit
+
+The extended `cotton_mouton` test compares every existing Cotton-Mouton component
+for M0 and M1 with an independent mixed fourth derivative of total energy.
+All 27 components per model passed on asymmetric water using three electric and
+magnetic field steps and Richardson extrapolation. The maximum extrapolated
+absolute discrepancies were 6.66e-4 (M0) and 3.35e-4 (M1) atomic units in the
+updated Linux audit. The finest mixed energy differences amplify floating-point
+roundoff; all three steps and the unchanged component tolerances are recorded.
+This is a
+finite-field response of the Mulliken dipole, not an analytic fourth-order
+electronic response. The current `[k][i][j]` API covers
+`d² alpha_ij / d B_k²`; it does not supply the full mixed-`B_k B_l` tensor or
+an orientationally averaged experimental birefringence coefficient.
+All components and step-ladder values are in
+`tests/data/cotton-mouton-audit.json`.
+
+Run the reproducible independent energy audit with:
+
+```text
+cargo test --profile reltest --test cotton_mouton -- --include-ignored --nocapture
+```
+
+### Real molecular VPT2 execution
+
+`cargo test --profile reltest --test validate_vpt2` optimizes H2, D2, HF and
+water and evaluates PES-only VPT2. It independently checks every normal-mode
+cubic and semidiagonal quartic force-field component using three steps of
+Hessian differences. The one-mode cases also match the closed perturbation
+formula `omega + Phi4/(8 omega^2) - 5 Phi3^2/(24 omega^4)`.
+Raw force fields, finite-difference arrays, masses and optimized geometries are
+in `tests/data/vpt2-molecular-audit.json`. Fundamental wavenumbers (cm^-1):
+
+| System | Harmonic | PES-only VPT2 |
+| --- | --- | --- |
+| H2 | 5014.81 | 4395.37 |
+| D2 | 3547.68 | 3237.67 |
+| HF | 3834.89 | 3604.79 |
+| H2O | 1438.12, 3675.15, 3786.82 | 1381.96, 3531.11, 3612.96 |
+
+The public CLI was checked with `examples/water.xyz --opt --opt-gtol 1e-8
+--etemp 0 --vpt2-pes`, giving the same spectrum and a PES-only zero-point energy
+of 0.02007480167455 Eh. These checks validate execution, units and perturbation
+algebra within the GFN1 potential; Watson/Coriolis terms, anharmonic intensities
+and experimental frequency accuracy remain outside this calculation.
+
+
+
+### VPT2 reference geometry and solvation
+
+`--vpt2-pes` tests stationarity on the electronic free-energy surface
+selected for that invocation. Use the same charge, electronic temperature,
+Hamiltonian and model when optimizing the reference geometry. An ALPB/GBSA
+minimum generally has a nonzero gas-phase gradient. Repeat the solvent flags
+when running the analytic VPT2 calculation.
+
+```sh
+gfn1-rs examples/water.xyz --alpb water --opt --opt-gtol 1e-7 --opt-output water_alpb_opt.xyz
+gfn1-rs water_alpb_opt.xyz --alpb water --vpt2-pes
+```
+
+Molecular ALPB and GBSA support the total canonical free-energy Hessian, FC3
+and FC4, including fractional electronic occupations. The variational
+response differentiates the Born, SASA, H-bond, shape and CM5 terms with the
+same geometry and SCC charges as the energy. The fourth derivative uses
+second-order charge and density response in a normalized trial density.
+Cartesian tensors and VPT2 mode force constants follow by polarization of
+analytic directional derivatives. An exact switch of a Born or SASA branch
+can be non-differentiable at higher order and is diagnosed when the selected
+direction encounters the switch. The VPT2 stationarity and positive-curvature
+checks also apply to the solvated surface.
+
+The Cartesian audit uses 81 Hessian, 729 cubic and 6,561 quartic components
+per condition. With a central displacement of `1e-4 bohr`, the maximum
+absolute differences from the next-lower analytic derivative are:
+
+| Water model | Electronic temperature | Hessian (Ha/bohr²) | FC3 (Ha/bohr³) | FC4 (Ha/bohr⁴) |
+| --- | ---: | ---: | ---: | ---: |
+| ALPB | 0 K | 5.29e-9 | 2.43e-8 | 1.14e-7 |
+| ALPB | 30,000 K | 4.91e-9 | 2.52e-8 | 1.39e-7 |
+| GBSA | 0 K | 5.30e-9 | 2.43e-8 | 1.14e-7 |
+| GBSA | 30,000 K | 4.92e-9 | 2.51e-8 | 1.39e-7 |
+
+At the supplied Ni(CO)₄ ALPB/water optimized geometry and 300 K electronic
+temperature, the full 27×27 analytic Hessian agrees with differences of
+analytic gradients to `2.31e-9 Hartree/bohr²` in WSL. Its stationary point
+passes the projected Hessian check. The nonresonant PES-only VPT2 driver
+then encounters an overtone/combination coupling with a denominator of
+`-3.83e-5 Hartree` (magnitude about `8.4 cm^-1`). The default resonance
+threshold is `10 cm^-1`. Treating those states together requires a GVPT2
+polyad.
+
+
+### Cartesian FC3 and FC4 assembly in v0.7.2
+
+For complete molecular energies with matching coordination cutoffs, packed
+thermal FC3 uses a stationary trial density through first order. Gas-phase FC4
+up to 30 Cartesian coordinates and solvated FC4 use it through second order. The free-energy functional, including the
+canonical entropy when active, is expanded analytically at the reference
+geometry. The stage-by-stage response route serves larger gas-phase FC4
+references and supported component selections. Zero-temperature gas-phase Cartesian FC3 uses the
+direct closed-form tensor. Molecular thermal and periodic Cartesian FC3 share
+the bounded packed polarization driver.
+
+The cubic and quartic CLI print directly from the packed tensor in the existing
+Cartesian index order. Thread and workspace limits apply to the assembly.
+The analytic periodic nuclear derivative routes in this release reach FC3.
+
+
+The variational reference tightens the SCC thresholds to at most `1e-12`
+Hartree and `1e-11` in the charge residual. Near-degenerate thermal orbitals
+are transported together with the Fermi matrix response.
+
+Ubuntu WSL verification at 300 K used Richardson-extrapolated differences of
+the analytic Hessian. The largest absolute difference includes every ordered
+Cartesian component.
+
+| System | FC3 components | Max FC3 difference (Hartree/bohr³) | FC4 components | Max FC4 difference (Hartree/bohr⁴) |
+| --- | ---: | ---: | ---: | ---: |
+| Water, gas | 729 | 4.27e-12 | 6561 | 2.37e-9 |
+| Water, ALPB/water | 729 | 1.87e-12 | 6561 | 2.33e-9 |
+| Ni(CO)4, gas | 19683 | 8.44e-8 | 531441 | 2.48e-5 |
+
+With four workers, the water CLI benchmark changed from 1.68 s to 0.11 s
+for gas FC3 and 78.39 s to 0.14 s for gas FC4. ALPB FC4 changed from
+2.70 s to 0.15 s. Process peak RSS for these water runs was about 15 MiB.
+The Ni(CO)4 FC3 run took 2.82 s and about 18 MiB peak RSS. For its FC4
+check, a second Richardson extrapolation combined Hessian differences at
+`2e-3`, `1e-3` and `5e-4` bohr. The maximum error across the 531,441
+components passed the `1e-4 Hartree/bohr^4` test threshold.
+
+A tighter WSL audit at the same geometry and 300 K used SCC energy and
+charge tolerances of 1e-14 Hartree and 3e-14 e. It displaced all 27
+Cartesian coordinates independently and differentiated analytic FC3.
+Three Richardson levels with steps 0.008, 0.004, 0.002 and 0.001 bohr
+gave a maximum absolute difference of 4.69e-6 Hartree/bohr⁴ and RMS
+difference of 2.93e-7 across all 531,441 entries. A separate two-level
+extrapolation of Hessian differences at 0.002, 0.001 and 0.0005 bohr
+gave 5.04e-6 maximum difference with symmetry-related displacement pairs
+reconstructed. On this fixture, the analytic reference itself moved by
+1.22e-5 Hartree/bohr⁴ when the SCC tolerances were tightened from 1e-12
+Hartree and 1e-11 e. The maximum difference stayed above 1e-8 across
+the smaller steps and extra extrapolation levels.
+
+
+### File-backed Cartesian derivatives
+
+```sh
+gfn1-rs examples/ni_co4.xyz --cubic-file ni-fc3.bin
+gfn1-rs examples/ni_co4.xyz --quartic-file ni-fc4.bin
+```
+
+The file options stream only the canonical symmetry entries. File-backed FC4
+accepts more than 30 Cartesian degrees of freedom. The terminal and expanded
+Python-list output retain their 30-DOF limit. The configured memory budget
+still covers the electronic reference, worker scratch and lower-order
+direction caches. The file route reduces the batch size and worker count when
+needed to fit that budget. Full FC4 still has quartic evaluation and file-size scaling.
+
+A WSL run on propane (11 atoms, 33 Cartesian degrees of freedom) used the ASE
+G2 geometry, ALPB water and a zero electronic temperature. With eight threads,
+the CLI wrote all 58,905 packed entries in 35.58 s. Its process peak RSS was
+18,132 KiB and the output was 471,264 bytes including the header.
+The ALPB water surface uses a 230-point Lebedev grid. Displacements of 0.01
+and 0.005 bohr crossed SASA branches for some coordinates. All positive
+and negative Cartesian displacements up to 0.0025 bohr stayed in the
+reference branches, so only those steps were used for local extrapolation.
+At 0.0025, 0.00125 and 0.000625 bohr, central differences of independently
+converged analytic FC3 along all 33 coordinates followed by two Richardson
+levels gave a maximum absolute difference of 3.96e-9 Hartree/bohr⁴ and an
+RMS difference of 5.56e-11 across all 1,185,921 ordered FC4 entries.
+
+In Rust, pass `DerivativeStorageOptions { disk_storage: true, ..Default::default() }`
+to `third_derivative_with_storage` or `fourth_derivative_with_storage`.
+Both return `DerivativeOutput::File` with the path and shape. Use
+`PackedDerivativeFile::open` and `get(&[a,b,c,d])` to read a component. Use
+three indices for FC3. With `disk_storage: false`, the result is
+`DerivativeOutput::Memory`.
+
+Python native `third_derivative` and `fourth_derivative`, and ASE
+`get_third_derivative` and `get_fourth_derivative`, take the keyword
+`disk_storage=True`. Pass `output_path` to name the file or omit it for
+a generated path in the operating system's temporary directory. Delete the
+file when finished. Existing paths are protected. An incomplete write has
+an invalid header and normal calculation failures remove the partial file.
+
+```python
+meta = atoms.calc.get_fourth_derivative(atoms=atoms, disk_storage=True)
+packed = np.memmap(meta["path"], mode="r", dtype="<f8",
+                   offset=meta["offset_bytes"], shape=(meta["packed_entries"],))
+```
+
+The file has an 8-byte magic (`GFN1FC3` or `GFN1FC4` followed by NUL), a
+little-endian u64 DOF count, a little-endian u64 packed-entry count, and
+little-endian f64 values starting at byte 24. Units are Hartree/bohr³ for
+FC3 and Hartree/bohr⁴ for FC4, including files produced through ASE.
+For sorted zero-based indices `a <= b <= c <= d`, the FC4 offset in the
+payload is `a + C(b+1,2) + C(c+2,3) + C(d+3,4)`. FC3 uses the first three
+terms. Here `C(n,k)` is a binomial coefficient.

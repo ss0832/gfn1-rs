@@ -33,8 +33,8 @@
 //! The same two **distorted** cells every other periodic third-derivative gate uses: a skewed
 //! 2-atom diamond cell and a skewed zincblende BN cell.
 //!
-//! The distortion is not cosmetic: perfect diamond has a triply degenerate `t2` frontier, where
-//! the k-point band extraction is documented to be fragile (`docs/pbc.md` §2b).
+//! These retained nonsymmetric fixtures complement the exact-degenerate finite-temperature B2
+//! fixture below. The native complex spectral response handles degenerate band blocks directly.
 //!
 //! The *pair* is not redundant either, though the reason is narrower than it first looks. On a
 //! **Gamma-only** mesh the homonuclear `diamond-skew` cell has an essentially vanishing charge
@@ -46,8 +46,8 @@
 //! Every gate below reports the scale of what it is comparing and asserts it is non-zero, rather
 //! than relying on either statement staying true.
 //!
-//! Every gate is `#[ignore]`d: the accuracy gate alone costs `2 · 2 · nnz(v)` analytic k-point
-//! Hessians per fixture.
+//! The expensive component and step-ladder gates are explicitly ignored; run them with
+//! `--include-ignored`. Lightweight API and thermal-limit checks run in the standard suite.
 
 use gfn1_rs::pbc::{
     pbc_gamma_third_analytic_vector, pbc_kpoint_third_analytic_block,
@@ -146,10 +146,8 @@ fn direction(ndof: usize, seed: u64) -> Vec<f64> {
 /// value is the better number), near 1 means a genuinely `h`-independent discrepancy, i.e. a
 /// missing term.
 ///
-/// The tolerance is set from the Gamma path's published performance on these same fixtures
-/// (`|delta| ≈ 8.5e-8` / `8.0e-8`, a documented `~1e-7` tail attributed to the band/Pulay
-/// self-energy cache channel): the k-point assembly inherits that assembly, so it inherits that
-/// tail, and anything materially worse is a k-specific defect.
+/// The complete CN and SCC-potential cache chains remove the former step-independent tail.
+/// The tolerance must detect its reintroduction while allowing finite-difference roundoff.
 #[test]
 #[ignore = "analytic k-point FC3: 2 x 2 x nnz(v) k-point Hessians + one analytic assembly per fixture"]
 fn kpoint_analytic_third_matches_seminumerical() {
@@ -199,7 +197,7 @@ fn kpoint_analytic_third_matches_seminumerical() {
             "{name}: the directional third is ~zero, the gate is vacuous"
         );
         assert!(
-            delta < 1.0e-6 * (1.0 + reference.abs()),
+            delta < 1.0e-9 * (1.0 + reference.abs()),
             "{name}: analytic k-point third vs seminumerical: {analytic:.10e} vs \
              {reference:.10e} (|delta| {delta:.3e})"
         );
@@ -209,7 +207,8 @@ fn kpoint_analytic_third_matches_seminumerical() {
 /// **Gamma-limit equality.** On `KMesh::gamma()` the k-point path must reproduce the production
 /// Gamma analytic third derivative.
 ///
-/// The two assemblies share the frozen half and the two response *paths* (`B6`, `bg4`, the
+/// The two assemblies share the frozen half and the two response *paths* (`B6`, the complete
+/// background and the
 /// density path), but the objects fed into them come from completely different algebra: the
 /// k-point side solves the first-order response with the complex k-point CPXTB and the
 /// second-order response with the complex resolvent / Daleckii-Krein form, while the Gamma side
@@ -231,8 +230,8 @@ fn kpoint_analytic_third_at_gamma_matches_the_gamma_path() {
 
         let via_k = pbc_kpoint_third_analytic_vector(&system, &params, &opts, &pbc, &v)
             .expect("k-point path on a Gamma mesh");
-        let via_gamma = pbc_gamma_third_analytic_vector(&system, &params, &opts, &pbc, &v)
-            .expect("Gamma path");
+        let via_gamma =
+            pbc_gamma_third_analytic_vector(&system, &params, &opts, &pbc, &v).expect("Gamma path");
         let delta = (via_k - via_gamma).abs();
         let rel = delta / (1.0 + via_gamma.abs());
         println!(
@@ -354,8 +353,7 @@ fn kpoint_analytic_third_block_matches_directional() {
 }
 
 /// The option guards are honest and — unlike the Gamma path — a Monkhorst-Pack mesh is **not**
-/// among them: an out-of-range block DOF is rejected, and a fractional (Fermi-smeared) filling
-/// is rejected with a message naming the seminumerical alternative.
+/// among them: an out-of-range block DOF is rejected. Thermal fillings are exercised separately.
 #[test]
 fn kpoint_analytic_third_guards() {
     let system = PeriodicSystem::from_xyz_str(FIXTURES[0].1, 0.0, false).expect("fixture");
@@ -365,12 +363,16 @@ fn kpoint_analytic_third_guards() {
     // Out-of-range block DOF.
     let ndof = 3 * system.atoms.len();
     // `expect_err` is unavailable: the Ok type deliberately has no `Debug`.
-    let text =
-        match pbc_kpoint_third_analytic_block(&system, &params, &electronic(), &pbc, &[0, ndof + 3])
-        {
-            Ok(_) => panic!("an out-of-range block DOF must be rejected"),
-            Err(err) => err.to_string(),
-        };
+    let text = match pbc_kpoint_third_analytic_block(
+        &system,
+        &params,
+        &electronic(),
+        &pbc,
+        &[0, ndof + 3],
+    ) {
+        Ok(_) => panic!("an out-of-range block DOF must be rejected"),
+        Err(err) => err.to_string(),
+    };
     assert!(
         text.contains("out of range"),
         "unhelpful block-DOF rejection: {text}"
@@ -384,5 +386,251 @@ fn kpoint_analytic_third_guards() {
         built.is_ok(),
         "a Monkhorst-Pack mesh must be ACCEPTED by the k-point analytic path: {:?}",
         built.err().map(|e| e.to_string())
+    );
+}
+
+fn thermal_options(temperature: f64) -> ElectronicOptions {
+    ElectronicOptions {
+        enable_dispersion: false,
+        electronic_temperature: temperature,
+        energy_tolerance: 1e-13,
+        charge_tolerance: 1e-11,
+        max_scc: 1000,
+        ..Default::default()
+    }
+}
+
+fn displace(system: &PeriodicSystem, coordinate: usize, value: f64) -> PeriodicSystem {
+    let mut shifted = system.clone();
+    let p = &mut shifted.atoms[coordinate / 3].position;
+    match coordinate % 3 {
+        0 => p.x += value,
+        1 => p.y += value,
+        _ => p.z += value,
+    }
+    shifted
+}
+
+fn thermal_component_audit(
+    name: &str,
+    xyz: &str,
+    temperature: f64,
+    degenerate: bool,
+    mesh: [usize; 3],
+) {
+    use gfn1_rs::pbc::{pbc_kpoint_hessian, pbc_kpoint_third_analytic_dense, run_pbc_scc};
+    use serde_json::json;
+    let system = PeriodicSystem::from_xyz_str(xyz, 0., false).unwrap();
+    let params = params();
+    let options = thermal_options(temperature);
+    let pbc = PbcOptions {
+        kmesh: KMesh::monkhorst_pack(mesh),
+        ao_cutoff: 20.,
+        ewald: EwaldOptions {
+            sr_cutoff: 12.,
+            ..Default::default()
+        },
+    };
+    let scf = run_pbc_scc(&system, &params, &options, &pbc).unwrap();
+    assert!(scf.converged);
+    assert_eq!(scf.electronic_temperature, temperature);
+    if mesh == [1, 1, 3] {
+        assert!(
+            scf.kpoints.len() > 1,
+            "global-Fermi fixture must retain distinct irreducible k-points"
+        );
+    }
+    let mut fractional = 0;
+    let mut degenerate_fractional = 0;
+    let mut spectra = Vec::new();
+    for ik in 0..scf.kpoints.len() {
+        let mos = gfn1_rs::pbc::hessian::kpoint_complex_mos(&scf, ik).unwrap();
+        for i in 0..mos.energies.len() {
+            if mos.occupations[i] > 1e-6 && mos.occupations[i] < 2. - 1e-6 {
+                fractional += 1;
+                for j in 0..i {
+                    if (mos.energies[i] - mos.energies[j]).abs() < 1e-10
+                        && mos.occupations[j] > 1e-6
+                        && mos.occupations[j] < 2. - 1e-6
+                    {
+                        degenerate_fractional += 1;
+                    }
+                }
+            }
+        }
+        spectra.push(json!({"k_fractional":scf.kpoints[ik].fractional,
+            "weight":scf.kpoints[ik].weight,"energies_hartree":mos.energies,
+            "occupations":mos.occupations}));
+    }
+    assert!(
+        fractional > 0,
+        "thermal fixture must actually have fractional occupations"
+    );
+    if degenerate {
+        assert!(
+            degenerate_fractional > 0,
+            "fixture must have exact fractional degeneracy"
+        );
+    }
+    let started = Instant::now();
+    let analytic = pbc_kpoint_third_analytic_dense(&system, &params, &options, &pbc).unwrap();
+    let ndof = 3 * system.atoms.len();
+    let mut references = Vec::new();
+    for h in [1e-3, 5e-4] {
+        let mut values = vec![0.; ndof * ndof * ndof];
+        for coordinate in 0..ndof {
+            let plus =
+                pbc_kpoint_hessian(&displace(&system, coordinate, h), &params, &options, &pbc)
+                    .unwrap();
+            let minus =
+                pbc_kpoint_hessian(&displace(&system, coordinate, -h), &params, &options, &pbc)
+                    .unwrap();
+            for i in 0..ndof {
+                for j in 0..ndof {
+                    values[(i * ndof + j) * ndof + coordinate] =
+                        (plus.hessian[(i, j)] - minus.hessian[(i, j)]) / (2. * h);
+                }
+            }
+        }
+        references.push(values);
+    }
+    let mut analytic_values = Vec::new();
+    let mut richardson = Vec::new();
+    let mut maximum = 0.0_f64;
+    let mut maximum_scaled = 0.0_f64;
+    for i in 0..ndof {
+        for j in 0..ndof {
+            for k in 0..ndof {
+                let index = (i * ndof + j) * ndof + k;
+                let value = analytic.get(i, j, k);
+                let numerical = (4. * references[1][index] - references[0][index]) / 3.;
+                let error = (value - numerical).abs();
+                maximum = maximum.max(error);
+                maximum_scaled =
+                    maximum_scaled.max(error / (2e-8 + 1e-7 * value.abs().max(numerical.abs())));
+                analytic_values.push(value);
+                richardson.push(numerical);
+            }
+        }
+    }
+    let v = direction(ndof, 41);
+    let vector = pbc_kpoint_third_analytic_vector(&system, &params, &options, &pbc, &v).unwrap();
+    let vector_error = (analytic.contract_vvv(&v) - vector).abs();
+    let mut acoustic_sum_rule_error = 0.0_f64;
+    for axis in 0..3 {
+        for j in 0..ndof {
+            for k in 0..ndof {
+                let sum: f64 = (0..system.atoms.len())
+                    .map(|a| analytic.get(3 * a + axis, j, k))
+                    .sum();
+                acoustic_sum_rule_error = acoustic_sum_rule_error.max(sum.abs());
+            }
+        }
+    }
+    let block_dofs = [0, 2, 3, 5];
+    let block =
+        pbc_kpoint_third_analytic_block(&system, &params, &options, &pbc, &block_dofs).unwrap();
+    let mut block_error = 0.0_f64;
+    for (i, &a) in block_dofs.iter().enumerate() {
+        for (j, &b) in block_dofs.iter().enumerate() {
+            for (k, &c) in block_dofs.iter().enumerate() {
+                block_error = block_error.max((block.get(i, j, k) - analytic.get(a, b, c)).abs());
+            }
+        }
+    }
+    let out = std::env::var_os("GFN1_KPOINT_THERMAL_AUDIT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| "target/validation/v070/pbc-kpoint-thermal-fc3".into());
+    std::fs::create_dir_all(&out).unwrap();
+    let report = json!({"schema":"gfn1-rs-kpoint-thermal-fc3-v1","package_version":env!("CARGO_PKG_VERSION"),
+        "case":name,"xyz_angstrom":xyz,"temperature_kelvin":temperature,"kmesh":mesh,
+        "fractional_bands":fractional,"exact_fractional_pairs":degenerate_fractional,"spectra":spectra,
+        "fd_steps_bohr":[1e-3,5e-4],"tested_components":ndof*ndof*ndof,
+        "analytic":analytic_values,"raw_fd":references,"richardson":richardson,
+        "max_error_hartree_per_bohr3":maximum,"max_scaled_error":maximum_scaled,
+        "dense_vector_error":vector_error,"dense_block_error":block_error,
+        "acoustic_sum_rule_error":acoustic_sum_rule_error,"elapsed_seconds":started.elapsed().as_secs_f64()});
+    std::fs::write(
+        out.join(format!("{name}.json")),
+        serde_json::to_vec_pretty(&report).unwrap(),
+    )
+    .unwrap();
+    eprintln!("{name}: {fractional} fractional bands, {degenerate_fractional} degenerate pairs; all {} FC3 components max error {maximum:e}, scaled {maximum_scaled:e}, vector {vector_error:e}, block {block_error:e}, ASR {acoustic_sum_rule_error:e}",ndof*ndof*ndof);
+    assert!(
+        maximum_scaled < 1.,
+        "all-component thermal FC3 failed: {maximum:e}"
+    );
+    assert!(vector_error < 1e-9 && block_error < 1e-9);
+    assert!(acoustic_sum_rule_error < 1e-9);
+}
+
+#[test]
+#[ignore = "complete finite-temperature k-point FC3 audit, including every Cartesian component"]
+fn thermal_kpoint_fc3_all_components() {
+    thermal_component_audit(
+        "h2-fractional",
+        "2\nLattice=\"6 0 0 0 6 0 0 0 6\" pbc=\"T T T\"\nH .13 .21 .07\nH .31 .09 1.02\n",
+        30000.,
+        false,
+        [1, 1, 2],
+    );
+    thermal_component_audit(
+        "b2-exact-fractional",
+        "2\nLattice=\"6 0 0 0 6 0 0 0 6\" pbc=\"T T T\"\nB .13 .21 .07\nB .13 .21 1.67\n",
+        3000.,
+        true,
+        [1, 1, 2],
+    );
+}
+
+#[test]
+#[ignore = "complete charged-shell finite-temperature k-point FC3 component audit"]
+fn thermal_kpoint_fc3_heteronuclear_global_fermi_level() {
+    thermal_component_audit(
+        "hf-fractional-multik",
+        "2\nLattice=\"6 0 0 0 6 0 0 0 2.8\" pbc=\"T T T\"\nF .13 .21 .07\nH .31 .09 1.02\n",
+        30000.,
+        false,
+        [1, 1, 3],
+    );
+}
+
+#[test]
+fn thermal_kpoint_fc3_gamma_reduction_and_gapped_temperature_limit() {
+    let system = PeriodicSystem::from_xyz_str(
+        "2\nLattice=\"6 0 0 0 6 0 0 0 6\" pbc=\"T T T\"\nH .13 .21 .07\nH .31 .09 1.02\n",
+        0.,
+        false,
+    )
+    .unwrap();
+    let params = params();
+    let pbc = PbcOptions {
+        ao_cutoff: 20.,
+        ewald: EwaldOptions {
+            sr_cutoff: 12.,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let v = direction(6, 41);
+    let thermal = thermal_options(30000.);
+    let k = pbc_kpoint_third_analytic_vector(&system, &params, &thermal, &pbc, &v).unwrap();
+    let g = pbc_gamma_third_analytic_vector(&system, &params, &thermal, &pbc, &v).unwrap();
+    assert!(
+        (k - g).abs() < 2e-8,
+        "thermal Gamma reduction differs: {k:e}, {g:e}"
+    );
+    let pbc = PbcOptions {
+        kmesh: KMesh::monkhorst_pack([1, 1, 2]),
+        ..pbc
+    };
+    let zero =
+        pbc_kpoint_third_analytic_vector(&system, &params, &thermal_options(0.), &pbc, &v).unwrap();
+    let gapped =
+        pbc_kpoint_third_analytic_vector(&system, &params, &thermal_options(300.), &pbc, &v)
+            .unwrap();
+    assert!(
+        (zero - gapped).abs() < 1e-9,
+        "gapped 0-to-300 K limit differs: {zero:e}, {gapped:e}"
     );
 }

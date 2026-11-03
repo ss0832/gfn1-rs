@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Complex Hermitian linear algebra for k-point GFN1-xTB.
+//! Complex Hermitian linear algebra for k-point GFN1-xTB and physical spinors.
+//! The scalar legacy path below uses a real embedding. Native-complex standard
+//! and generalized solvers preserve the physical matrix dimension; their
+//! eigenvalue count is independent of spin/occupation conventions.
 //!
 //! The k-resolved generalized eigenproblem `H(k) C = S(k) C eps` with Hermitian
 //! `H(k)` and Hermitian positive-definite `S(k)` is solved through a real
@@ -20,7 +23,7 @@
 //! block extraction, which is invariant to how the doubly-degenerate real
 //! eigenvectors mix and therefore robust.
 
-use crate::error::Result;
+use crate::error::{Gfn1Error, Result};
 use crate::linalg::{
     column_weighted_gram, lowdin_orthogonalizer, lowdin_solve_generalized,
     lowdin_solve_with_orthogonalizer, LowdinOrthogonalizer, Matrix,
@@ -34,7 +37,170 @@ pub struct CMatrix {
     pub im: Matrix,
 }
 
+/// Numerical native-complex eigensystem, independent of any electron/spinor
+/// occupation convention. Also used by complex dynamical matrices.
+pub struct NativeComplexEigen {
+    pub values: Vec<f64>,
+    pub vectors: CMatrix,
+}
+fn validate_native_hermitian(input: &CMatrix) -> Result<()> {
+    let n = input.n;
+    crate::resources::check_dense_workspace(n, n, 16, "complex eigensolver")?;
+    if input.re.rows() != n
+        || input.re.cols() != n
+        || input.im.rows() != n
+        || input.im.cols() != n
+        || input
+            .re
+            .as_slice()
+            .iter()
+            .chain(input.im.as_slice())
+            .any(|x| !x.is_finite())
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "invalid native-complex Hermitian matrix".into(),
+        ));
+    }
+    for i in 0..n {
+        for j in 0..n {
+            if (input.re[(i, j)] - input.re[(j, i)]).abs() > 1e-10
+                || (input.im[(i, j)] + input.im[(j, i)]).abs() > 1e-10
+            {
+                return Err(Gfn1Error::InvalidInput(
+                    "native-complex matrix is not Hermitian".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+pub fn native_hermitian_eigen(input: &CMatrix) -> Result<NativeComplexEigen> {
+    validate_native_hermitian(input)?;
+    crate::linalg::ensure_parallelism();
+    let n = input.n;
+    if n == 0 {
+        return Ok(NativeComplexEigen {
+            values: vec![],
+            vectors: CMatrix::zeros(0),
+        });
+    }
+    let matrix = faer::Mat::from_fn(n, n, |i, j| {
+        faer::c64::new(input.re[(i, j)], input.im[(i, j)])
+    });
+    let par = crate::resources::faer_parallelism();
+    let mut eigenvalues = faer::diag::Diag::<faer::c64>::zeros(n);
+    let mut eigenvectors = faer::Mat::<faer::c64>::zeros(n, n);
+    let mut scratch =
+        faer::dyn_stack::MemBuffer::new(faer::linalg::evd::self_adjoint_evd_scratch::<faer::c64>(
+            n,
+            faer::linalg::evd::ComputeEigenvectors::Yes,
+            par,
+            Default::default(),
+        ));
+    faer::linalg::evd::self_adjoint_evd(
+        matrix.as_ref(),
+        eigenvalues.as_mut(),
+        Some(eigenvectors.as_mut()),
+        par,
+        faer::dyn_stack::MemStack::new(&mut scratch),
+        Default::default(),
+    )
+    .map_err(|e| Gfn1Error::InvalidInput(format!("native complex eigensolver: {e:?}")))?;
+    let values = (0..n).map(|i| eigenvalues.column_vector()[i].re).collect();
+    let mut vectors = CMatrix::zeros(n);
+    for i in 0..n {
+        for j in 0..n {
+            let x = eigenvectors[(i, j)];
+            vectors.re[(i, j)] = x.re;
+            vectors.im[(i, j)] = x.im;
+        }
+    }
+    Ok(NativeComplexEigen { values, vectors })
+}
+
+/// Cached native-complex X=S^-1/2. No real-embedding copies or artificial
+/// eigenvalue degeneracies are introduced, including for complex Bloch S(k).
+pub struct NativeComplexOrthogonalizer {
+    x: CMatrix,
+    xh: CMatrix,
+}
+impl NativeComplexOrthogonalizer {
+    pub fn build(overlap: &CMatrix, tolerance: f64) -> Result<Self> {
+        if !tolerance.is_finite() || tolerance <= 0. {
+            return Err(Gfn1Error::InvalidInput(
+                "native complex overlap tolerance must be positive".into(),
+            ));
+        }
+        let eig = native_hermitian_eigen(overlap)?;
+        let mut scaled = eig.vectors.clone();
+        for (a, &value) in eig.values.iter().enumerate() {
+            if value <= tolerance {
+                return Err(Gfn1Error::InvalidInput(format!(
+                    "complex overlap is not positive definite; eigenvalue {a}={value:e}"
+                )));
+            }
+            let factor = 1. / value.sqrt();
+            for i in 0..overlap.n {
+                scaled.re[(i, a)] *= factor;
+                scaled.im[(i, a)] *= factor;
+            }
+        }
+        let mut x = scaled.matmul(&eig.vectors.adjoint())?;
+        x.hermitianize();
+        let xh = x.adjoint();
+        Ok(Self { x, xh })
+    }
+    pub fn solve(&self, hamiltonian: &CMatrix) -> Result<NativeComplexEigen> {
+        validate_native_hermitian(hamiltonian)?;
+        let mut transformed = self.xh.matmul(&hamiltonian.matmul(&self.x)?)?;
+        // Input Hermiticity was checked before this cleanup of roundoff from
+        // the congruence transform. Invalid operators are never projected away.
+        transformed.hermitianize();
+        let eigen = native_hermitian_eigen(&transformed)?;
+        Ok(NativeComplexEigen {
+            values: eigen.values,
+            vectors: self.x.matmul(&eigen.vectors)?,
+        })
+    }
+}
+pub fn native_generalized_eigen(
+    h: &CMatrix,
+    s: &CMatrix,
+    tolerance: f64,
+) -> Result<NativeComplexEigen> {
+    NativeComplexOrthogonalizer::build(s, tolerance)?.solve(h)
+}
+
 impl CMatrix {
+    pub fn adjoint(&self) -> Self {
+        let mut out = Self::zeros(self.n);
+        for i in 0..self.n {
+            for j in 0..self.n {
+                out.re[(i, j)] = self.re[(j, i)];
+                out.im[(i, j)] = -self.im[(j, i)];
+            }
+        }
+        out
+    }
+    pub fn matmul(&self, rhs: &Self) -> Result<Self> {
+        if self.n != rhs.n {
+            return Err(Gfn1Error::InvalidInput(
+                "complex matrix dimension mismatch".into(),
+            ));
+        }
+        let rr = self.re.matmul(&rhs.re)?;
+        let ii = self.im.matmul(&rhs.im)?;
+        let ri = self.re.matmul(&rhs.im)?;
+        let ir = self.im.matmul(&rhs.re)?;
+        let mut out = Self::zeros(self.n);
+        for i in 0..self.n {
+            for j in 0..self.n {
+                out.re[(i, j)] = rr[(i, j)] - ii[(i, j)];
+                out.im[(i, j)] = ri[(i, j)] + ir[(i, j)];
+            }
+        }
+        Ok(out)
+    }
     pub fn zeros(n: usize) -> Self {
         Self {
             n,
@@ -248,8 +414,7 @@ mod tests {
 
         // Build the orthogonaliser ONCE from S, then solve with a (different) reused H.
         let orth = embedded_overlap_orthogonalizer(&s, tol).unwrap();
-        let cached =
-            hermitian_generalized_eigen_with_orthogonalizer(&h, &orth, n, tol).unwrap();
+        let cached = hermitian_generalized_eigen_with_orthogonalizer(&h, &orth, n, tol).unwrap();
 
         assert_eq!(reference.values.len(), cached.values.len());
         // Eigenvalues must be exactly equal (same code paths post-orthogonalisation).

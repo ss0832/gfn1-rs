@@ -15,6 +15,10 @@
 /// measurably breaks tblite parity (~2.0e-6 Eh on caffeine, against a 1e-6
 /// parity tolerance), so the two constants are distinct on purpose.
 pub const HARTREE_TO_EV: f64 = 27.211_386_245_988;
+/// Unified atomic mass unit in electron masses (CODATA 2018).
+pub const AMU_TO_ELECTRON_MASS: f64 = 1822.888_486_209;
+/// Hartree / (h c) in cm^-1 (CODATA 2018).
+pub const HARTREE_TO_WAVENUMBER: f64 = 219_474.631_363_20;
 /// Reciprocal of [`HARTREE_TO_EV`] (CODATA 2018). Unit reporting only — see the
 /// note there on why [`crate::basis::EV_TO_HARTREE`] stays on the legacy value.
 pub const EV_TO_HARTREE: f64 = 1.0 / HARTREE_TO_EV;

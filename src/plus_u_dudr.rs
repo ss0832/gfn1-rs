@@ -106,11 +106,23 @@ impl<'a> ChannelResponse<'a> {
         let slope: Vec<f64> = ch
             .occ
             .iter()
-            .map(|&f| if kt > 0.0 { -(f * (1.0 - f)).max(0.0) / kt } else { 0.0 })
+            .map(|&f| {
+                if kt > 0.0 {
+                    -(f * (1.0 - f)).max(0.0) / kt
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let slope_sum: f64 = slope.iter().sum();
         let cts = ch.mos.transpose().matmul(overlap).expect("C^T S");
-        Self { ch, kt, slope, slope_sum, cts }
+        Self {
+            ch,
+            kt,
+            slope,
+            slope_sum,
+            cts,
+        }
     }
 
     fn norb(&self) -> usize {
@@ -124,7 +136,9 @@ impl<'a> ChannelResponse<'a> {
         let eps = &self.ch.eps;
         let occ = &self.ch.occ;
         // ε^x_i = F^x_ii − ε_i S^x_ii.
-        let eps_x: Vec<f64> = (0..n).map(|i| f_mo[(i, i)] - eps[i] * s_mo[(i, i)]).collect();
+        let eps_x: Vec<f64> = (0..n)
+            .map(|i| f_mo[(i, i)] - eps[i] * s_mo[(i, i)])
+            .collect();
         // μ^x and f^x (fixed electron count).
         let (mu_x, f_x) = if self.kt > 0.0 && self.slope_sum.abs() > 1.0e-30 {
             let mu = self
@@ -172,9 +186,14 @@ impl<'a> ChannelResponse<'a> {
                     - 0.5 * (occ[i] + occ[j]) * s_mo[(i, j)];
             }
         }
-        Ok(DensityResponse { d, eps_x, f_x, mu_x, t })
+        Ok(DensityResponse {
+            d,
+            eps_x,
+            f_x,
+            mu_x,
+            t,
+        })
     }
-
 }
 
 struct DensityResponse {
@@ -193,7 +212,6 @@ struct DensityResponse {
 // ---------------------------------------------------------------------------------------------
 // Sec 3: SCC-CPHF ground-state geometry response (two-channel, finite-T, self-consistent).
 // ---------------------------------------------------------------------------------------------
-
 
 /// Per-shell Mulliken population `pop_ish = Σ_{a∈ish}(P S')_aa` of a density response
 /// `P = C·coeff·C^T` (given by its MO coefficient `coeff`), where `S'` is the AO overlap folded
@@ -430,7 +448,13 @@ fn frozen_sources(
     // and S^x. (`add_scalar_derivative_matrices` still folds in the `a^x` term via `shell_scalar_derivatives`.)
     let zero_v = vec![0.0_f64; nsh];
     let skel = cartesian_ao_derivative_matrices_raw(
-        system, params, &ctx.basis, &ctx.coordination_numbers, &zero_v, &a_x, Some(&cn_derivs),
+        system,
+        params,
+        &ctx.basis,
+        &ctx.coordination_numbers,
+        &zero_v,
+        &a_x,
+        Some(&cn_derivs),
     )?;
     let mut out = Vec::with_capacity(ndim);
     for c in 0..ndim {
@@ -522,14 +546,22 @@ fn bare_coeff(cr: &ChannelResponse, y: &Matrix) -> Result<(Matrix, Matrix, f64)>
     let eps = &cr.ch.eps;
     let occ = &cr.ch.occ;
     let mu = if cr.kt > 0.0 && cr.slope_sum.abs() > 1.0e-30 {
-        cr.slope.iter().zip((0..n).map(|i| l[(i, i)])).map(|(&g, lii)| g * lii).sum::<f64>()
+        cr.slope
+            .iter()
+            .zip((0..n).map(|i| l[(i, i)]))
+            .map(|(&g, lii)| g * lii)
+            .sum::<f64>()
             / cr.slope_sum
     } else {
         0.0
     };
     let mut d = Matrix::zeros(n, n);
     for i in 0..n {
-        d[(i, i)] = if cr.kt > 0.0 { cr.slope[i] * (l[(i, i)] - mu) } else { 0.0 };
+        d[(i, i)] = if cr.kt > 0.0 {
+            cr.slope[i] * (l[(i, i)] - mu)
+        } else {
+            0.0
+        };
         for j in 0..n {
             if i == j {
                 continue;
@@ -582,10 +614,14 @@ fn bare_deriv_inner(
     }
     // g^x_i = −β(1−2f_i) f^x_i  (β = 1/kt).
     let beta = if cr.kt > 0.0 { 1.0 / cr.kt } else { 0.0 };
-    let gx: Vec<f64> = (0..n).map(|i| -beta * (1.0 - 2.0 * occ[i]) * f_x[i]).collect();
+    let gx: Vec<f64> = (0..n)
+        .map(|i| -beta * (1.0 - 2.0 * occ[i]) * f_x[i])
+        .collect();
     // μ^x = (Σ(g^x_i L_ii + g_i L^x_ii) − μ Σ g^x_i)/(Σ g_i).
     let mu_x = if cr.kt > 0.0 && cr.slope_sum.abs() > 1.0e-30 {
-        let numer: f64 = (0..n).map(|i| gx[i] * base_l[(i, i)] + g[i] * lx[(i, i)]).sum();
+        let numer: f64 = (0..n)
+            .map(|i| gx[i] * base_l[(i, i)] + g[i] * lx[(i, i)])
+            .sum();
         let dn_x: f64 = gx.iter().sum();
         (numer - base_mu * dn_x) / cr.slope_sum
     } else {
@@ -689,7 +725,10 @@ fn prepare_response(
     let ncorr = subspace.len();
     let nsh = ctx.basis.shells.len();
     let s = &ctx.overlap;
-    let q_i: Vec<Matrix> = subspace.iter().map(|a| onsite_selector_dress(s, &a.aos)).collect();
+    let q_i: Vec<Matrix> = subspace
+        .iter()
+        .map(|a| onsite_selector_dress(s, &a.aos))
+        .collect();
     // MO-basis correlated projectors C^T W_I C (per channel), for the O(|corr|·N²) trace path.
     let mut wmo_a = Vec::with_capacity(ncorr);
     let mut wmo_b = Vec::with_capacity(ncorr);
@@ -720,7 +759,7 @@ fn prepare_response(
     };
     for (j, _atom_j) in subspace.iter().enumerate() {
         let q_j = &q_i[j]; // probe == projector
-        // Bare (χ0) bundles.
+                           // Bare (χ0) bundles.
         let ba = bare_bundle(block.cr_a, q_j)?;
         let bb = bare_bundle(block.cr_b, q_j)?;
         for i in 0..ncorr {
@@ -742,7 +781,12 @@ fn prepare_response(
         fb_a.push((sub(&sba.l, &ba.l), sub(&sba.d, &ba.d), sba.mu - ba.mu));
         fb_b.push((sub(&sbb.l, &bb.l), sub(&sbb.d, &bb.d), sbb.mu - bb.mu));
         // Precompute `(∂A/∂x)·dq(u_J)` for all DOFs at once (dq = u[..nsh]).
-        amat_deriv_uj.push(shell_scalar_potential_derivatives(system, &ctx.basis, params, &u[..nsh])?);
+        amat_deriv_uj.push(shell_scalar_potential_derivatives(
+            system,
+            &ctx.basis,
+            params,
+            &u[..nsh],
+        )?);
         ba_j.push(ba);
         bb_j.push(bb);
         u_j.push(u);
@@ -750,7 +794,20 @@ fn prepare_response(
         sbb_j.push(sbb);
     }
     let _ = q_i;
-    Ok(PreparedResponse { ba_j, bb_j, u_j, sba_j, sbb_j, chi0, chi, amat_deriv_uj, wmo_a, wmo_b, fb_a, fb_b })
+    Ok(PreparedResponse {
+        ba_j,
+        bb_j,
+        u_j,
+        sba_j,
+        sbb_j,
+        chi0,
+        chi,
+        amat_deriv_uj,
+        wmo_a,
+        wmo_b,
+        fb_a,
+        fb_b,
+    })
 }
 
 /// χ0^x for ONE Cartesian DOF, reusing the DOF-independent [`PreparedResponse`]. Only the
@@ -766,13 +823,32 @@ fn chi0_deriv_prepared(
 ) -> Result<Vec<Vec<f64>>> {
     let subspace = &ctx.subspace;
     let ncorr = subspace.len();
-    let qx_i: Vec<Matrix> = subspace.iter().map(|a| onsite_selector_dress(sx, &a.aos)).collect();
+    let qx_i: Vec<Matrix> = subspace
+        .iter()
+        .map(|a| onsite_selector_dress(sx, &a.aos))
+        .collect();
     let mut chi0_x = vec![vec![0.0; ncorr]; ncorr];
     for j in 0..ncorr {
         let probe_x = &qx_i[j]; // probe == projector
-        // Correlated-block traces Tr((P^Y)^x W_I) via the MO projectors — no full AO materialization.
-        let tr_a = bare_deriv_traces(cr_a, &prep.ba_j[j], probe_x, &dof.t_a, &dof.eps_x_a, &dof.f_x_a, &prep.wmo_a)?;
-        let tr_b = bare_deriv_traces(cr_b, &prep.bb_j[j], probe_x, &dof.t_b, &dof.eps_x_b, &dof.f_x_b, &prep.wmo_b)?;
+                                // Correlated-block traces Tr((P^Y)^x W_I) via the MO projectors — no full AO materialization.
+        let tr_a = bare_deriv_traces(
+            cr_a,
+            &prep.ba_j[j],
+            probe_x,
+            &dof.t_a,
+            &dof.eps_x_a,
+            &dof.f_x_a,
+            &prep.wmo_a,
+        )?;
+        let tr_b = bare_deriv_traces(
+            cr_b,
+            &prep.bb_j[j],
+            probe_x,
+            &dof.t_b,
+            &dof.eps_x_b,
+            &dof.f_x_b,
+            &prep.wmo_b,
+        )?;
         for i in 0..ncorr {
             chi0_x[i][j] = tr_a[i]
                 + tr_b[i]
@@ -797,7 +873,10 @@ fn chi0_and_deriv_dof(
     let subspace = &ctx.subspace;
     let ncorr = subspace.len();
     let s = &ctx.overlap;
-    let q_i: Vec<Matrix> = subspace.iter().map(|a| onsite_selector_dress(s, &a.aos)).collect();
+    let q_i: Vec<Matrix> = subspace
+        .iter()
+        .map(|a| onsite_selector_dress(s, &a.aos))
+        .collect();
     let mut wmo_a = Vec::with_capacity(ncorr);
     let mut wmo_b = Vec::with_capacity(ncorr);
     for qi in &q_i {
@@ -873,7 +952,9 @@ fn build_screened_operator(
 }
 
 fn matvec_vv(a: &[Vec<f64>], x: &[f64]) -> Vec<f64> {
-    a.iter().map(|row| row.iter().zip(x.iter()).map(|(m, v)| m * v).sum()).collect()
+    a.iter()
+        .map(|row| row.iter().zip(x.iter()).map(|(m, v)| m * v).sum())
+        .collect()
 }
 
 /// χ^x for ONE Cartesian DOF, reusing the DOF-independent [`PreparedResponse`] (base `u_J`,
@@ -895,7 +976,10 @@ fn chi_deriv_prepared(
     let ncorr = subspace.len();
     let nsh = ctx.basis.shells.len();
     let dim = 2 * nsh;
-    let qx_i: Vec<Matrix> = subspace.iter().map(|a| onsite_selector_dress(sx, &a.aos)).collect();
+    let qx_i: Vec<Matrix> = subspace
+        .iter()
+        .map(|a| onsite_selector_dress(sx, &a.aos))
+        .collect();
     let q0_atom_x = ctx.shell_model.atomic_charges(&ctx.basis, &dof.dq_x);
     // C_σ^T S^x, precomputed once per DOF (shared by every J's overlap-Pulay population term).
     let cts_x_a = block.cr_a.ch.mos.transpose().matmul(sx)?;
@@ -909,21 +993,35 @@ fn chi_deriv_prepared(
         // bundles `ba_j`/`bb_j` (probe == Q_J); only y^x = Q^x_J is per-DOF.
         let (ba, bb) = (&prep.ba_j[j], &prep.bb_j[j]);
         let bx_j = block.induced_deriv_from_base(
-            &ba.l, &ba.d, ba.mu, qx_j,
-            &bb.l, &bb.d, bb.mu, qx_j,
-            dof, &cts_x_a, &cts_x_b,
+            &ba.l, &ba.d, ba.mu, qx_j, &bb.l, &bb.d, bb.mu, qx_j, dof, &cts_x_a, &cts_x_b,
         )?;
         // `(∂A/∂x)·dq(u_J)` for this DOF — precomputed once per J in `prepare_response`.
         let amat_x_dq_uj = &prep.amat_deriv_uj[j][dof_index];
         // M^x u_J (hold u_J fixed: w^x = 0). Feedback base coeffs are prepared (`fb_a`/`fb_b`);
         // only y^x = feedback^x(u_J) is per-DOF.
-        let fb_pert_uj = feedback_pert(ctx, coul, u_j, &vec![0.0; dim], sx, amat_x_dq_uj, &q0_atom_x)?;
+        let fb_pert_uj = feedback_pert(
+            ctx,
+            coul,
+            u_j,
+            &vec![0.0; dim],
+            sx,
+            amat_x_dq_uj,
+            &q0_atom_x,
+        )?;
         let (fla, fda, fmua) = &prep.fb_a[j];
         let (flb, fdb, fmub) = &prep.fb_b[j];
         let mx_uj = block.induced_deriv_from_base(
-            fla, fda, *fmua, &fb_pert_uj.yx_a,
-            flb, fdb, *fmub, &fb_pert_uj.yx_b,
-            dof, &cts_x_a, &cts_x_b,
+            fla,
+            fda,
+            *fmua,
+            &fb_pert_uj.yx_a,
+            flb,
+            fdb,
+            *fmub,
+            &fb_pert_uj.yx_b,
+            dof,
+            &cts_x_a,
+            &cts_x_b,
         )?;
         // (I−M) u^x_J = b^x_J + M^x u_J.
         let mut rhs = vec![0.0; dim];
@@ -940,8 +1038,24 @@ fn chi_deriv_prepared(
             yx_b.as_mut_slice()[k] += qx_j.as_slice()[k];
         }
         // (δP^σ_J)^x correlated-block traces via MO projectors — no full AO materialization.
-        let tr_a = bare_deriv_traces(block.cr_a, &prep.sba_j[j], &yx_a, &dof.t_a, &dof.eps_x_a, &dof.f_x_a, &prep.wmo_a)?;
-        let tr_b = bare_deriv_traces(block.cr_b, &prep.sbb_j[j], &yx_b, &dof.t_b, &dof.eps_x_b, &dof.f_x_b, &prep.wmo_b)?;
+        let tr_a = bare_deriv_traces(
+            block.cr_a,
+            &prep.sba_j[j],
+            &yx_a,
+            &dof.t_a,
+            &dof.eps_x_a,
+            &dof.f_x_a,
+            &prep.wmo_a,
+        )?;
+        let tr_b = bare_deriv_traces(
+            block.cr_b,
+            &prep.sbb_j[j],
+            &yx_b,
+            &dof.t_b,
+            &dof.eps_x_b,
+            &dof.f_x_b,
+            &prep.wmo_b,
+        )?;
         for i in 0..ncorr {
             chi_x[i][j] = tr_a[i]
                 + tr_b[i]
@@ -997,12 +1111,7 @@ impl<'a> CoulKernel<'a> {
     /// `coul_kernel^x · dq` for a FIXED `dq`, DOF `c`. `amat_x_dq` = `(∂A/∂x)·dq` for this DOF
     /// (from `shell_scalar_potential_derivatives` called with `dq`), `q0_atom_x` = base atomic
     /// charge geometry response for this DOF.
-    fn apply_deriv(
-        &self,
-        dq: &[f64],
-        amat_x_dq: &[f64],
-        q0_atom_x: &[f64],
-    ) -> Vec<f64> {
+    fn apply_deriv(&self, dq: &[f64], amat_x_dq: &[f64], q0_atom_x: &[f64]) -> Vec<f64> {
         let model = &self.ctx.shell_model;
         let mut out = amat_x_dq.to_vec();
         // On-site 2Γ q0_atom term derivative: block over each atom's shells.
@@ -1070,16 +1179,40 @@ impl<'a> ScreenedBlock<'a> {
     #[allow(clippy::too_many_arguments)]
     fn induced_deriv_from_base(
         &self,
-        la: &Matrix, da: &Matrix, mua: f64, yx_a: &Matrix,
-        lb: &Matrix, db: &Matrix, mub: f64, yx_b: &Matrix,
+        la: &Matrix,
+        da: &Matrix,
+        mua: f64,
+        yx_a: &Matrix,
+        lb: &Matrix,
+        db: &Matrix,
+        mub: f64,
+        yx_b: &Matrix,
         dof: &SccCphfDof,
         cts_x_a: &Matrix,
         cts_x_b: &Matrix,
     ) -> Result<Vec<f64>> {
         let basis = &self.ctx.basis;
         let nsh = basis.shells.len();
-        let inner_a = bare_deriv_inner(self.cr_a, la, da, mua, yx_a, &dof.t_a, &dof.eps_x_a, &dof.f_x_a)?;
-        let inner_b = bare_deriv_inner(self.cr_b, lb, db, mub, yx_b, &dof.t_b, &dof.eps_x_b, &dof.f_x_b)?;
+        let inner_a = bare_deriv_inner(
+            self.cr_a,
+            la,
+            da,
+            mua,
+            yx_a,
+            &dof.t_a,
+            &dof.eps_x_a,
+            &dof.f_x_a,
+        )?;
+        let inner_b = bare_deriv_inner(
+            self.cr_b,
+            lb,
+            db,
+            mub,
+            yx_b,
+            &dof.t_b,
+            &dof.eps_x_b,
+            &dof.f_x_b,
+        )?;
         let popx_a = shell_pop_from_mo_coeff(basis, &self.cr_a.ch.mos, &inner_a, &self.cr_a.cts)?;
         let popx_b = shell_pop_from_mo_coeff(basis, &self.cr_b.ch.mos, &inner_b, &self.cr_b.cts)?;
         let pov_a = shell_pop_from_mo_coeff(basis, &self.cr_a.ch.mos, da, cts_x_a)?;
@@ -1255,7 +1388,11 @@ pub(crate) fn analytic_dudr(
     let ndim = 3 * nat;
     let cr_a = ChannelResponse::new(&ctx.ch_a, ctx.kt, &ctx.overlap);
     let cr_b = ChannelResponse::new(&ctx.ch_b, ctx.kt, &ctx.overlap);
-    let block = ScreenedBlock { ctx: &ctx, cr_a: &cr_a, cr_b: &cr_b };
+    let block = ScreenedBlock {
+        ctx: &ctx,
+        cr_a: &cr_a,
+        cr_b: &cr_b,
+    };
     let coul = CoulKernel { ctx: &ctx };
     // The screened operator `(I−M)^{-1}` is built ONCE and reused for BOTH the ground-state
     // SCC-CPHF direct solves and the screened-response solves (levers 1/3).
@@ -1304,7 +1441,8 @@ pub(crate) fn analytic_dudr(
     let mut dv = vec![vec![0.0; ref_pairs.len()]; ndim];
     for c in 0..ndim {
         let chi0_x = chi0_deriv_prepared(&ctx, &cr_a, &cr_b, &prep, &sources[c].sx, &dofs[c])?;
-        let chi_x = chi_deriv_prepared(&ctx, &block, &coul, &op, &prep, &sources[c].sx, &dofs[c], c)?;
+        let chi_x =
+            chi_deriv_prepared(&ctx, &block, &coul, &op, &prep, &sources[c].sx, &dofs[c], c)?;
         // K^x = −X0 χ0^x X0 + X χ^x X.
         let t0 = matmul_vv(&x0, &matmul_vv(&chi0_x, &x0));
         let t1 = matmul_vv(&x, &matmul_vv(&chi_x, &x));
@@ -1334,8 +1472,8 @@ pub(crate) fn analytic_dudr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Result;
     use crate::electronic::ElectronicOptions;
+    use crate::error::Result;
     use crate::params::Gfn1Parameters;
     use crate::system::PeriodicSystem;
 
@@ -1385,9 +1523,18 @@ mod tests {
                 let mut sp = system.clone();
                 let mut sm = system.clone();
                 let (dp, dm) = match axis {
-                    0 => (&mut sp.atoms[atom].position.x, &mut sm.atoms[atom].position.x),
-                    1 => (&mut sp.atoms[atom].position.y, &mut sm.atoms[atom].position.y),
-                    _ => (&mut sp.atoms[atom].position.z, &mut sm.atoms[atom].position.z),
+                    0 => (
+                        &mut sp.atoms[atom].position.x,
+                        &mut sm.atoms[atom].position.x,
+                    ),
+                    1 => (
+                        &mut sp.atoms[atom].position.y,
+                        &mut sm.atoms[atom].position.y,
+                    ),
+                    _ => (
+                        &mut sp.atoms[atom].position.z,
+                        &mut sm.atoms[atom].position.z,
+                    ),
                 };
                 *dp += step;
                 *dm -= step;
@@ -1429,10 +1576,7 @@ mod tests {
         let (du, _dv) = fd_dudr_oracle(&system, &params, &opt, 1.0e-3).unwrap();
         assert!(!du.is_empty(), "no DOFs");
         assert!(!du[0].is_empty(), "empty correlated subspace on ScH");
-        let maxabs = du
-            .iter()
-            .flatten()
-            .fold(0.0_f64, |m, &x| m.max(x.abs()));
+        let maxabs = du.iter().flatten().fold(0.0_f64, |m, &x| m.max(x.abs()));
         assert!(
             maxabs.is_finite() && maxabs > 1.0e-4,
             "FD dU/dR is trivial/non-finite on ScH: max|dU/dR| = {maxabs:.3e}"
@@ -1459,7 +1603,8 @@ mod tests {
 
     #[allow(non_snake_case)]
     fn scH_system() -> PeriodicSystem {
-        PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false).unwrap()
+        PeriodicSystem::from_xyz_str("2\nScH\nSc 0.0 0.0 0.0\nH 0.0 0.0 1.80\n", 0.0, false)
+            .unwrap()
     }
 
     /// Build the DOF-independent screened operator `(I−M)^{-1}` for a context (test helper for
@@ -1467,7 +1612,11 @@ mod tests {
     fn op_of(ctx: &LinearResponseGeomContext) -> ScreenedOperator {
         let cr_a = ChannelResponse::new(&ctx.ch_a, ctx.kt, &ctx.overlap);
         let cr_b = ChannelResponse::new(&ctx.ch_b, ctx.kt, &ctx.overlap);
-        let block = ScreenedBlock { ctx, cr_a: &cr_a, cr_b: &cr_b };
+        let block = ScreenedBlock {
+            ctx,
+            cr_a: &cr_a,
+            cr_b: &cr_b,
+        };
         let coul = CoulKernel { ctx };
         build_screened_operator(ctx, &block, &coul).unwrap()
     }
@@ -1574,7 +1723,9 @@ mod tests {
 
         // FD my χ0 over geometry, per DOF, vs analytic χ0^x.
         let chi0_of = |sys: &PeriodicSystem| -> Vec<Vec<f64>> {
-            let c = crate::spin::linear_response_geom_context(sys, &params, &opt).unwrap().unwrap();
+            let c = crate::spin::linear_response_geom_context(sys, &params, &opt)
+                .unwrap()
+                .unwrap();
             let ca = ChannelResponse::new(&c.ch_a, c.kt, &c.overlap);
             let cb = ChannelResponse::new(&c.ch_b, c.kt, &c.overlap);
             let o = op_of(&c);
@@ -1600,7 +1751,10 @@ mod tests {
                 worst = worst.max(max_vv_diff(&c0x, &fd));
             }
         }
-        assert!(worst < 1.0e-4, "analytic χ0^x vs FD (ScH 300 K): max|Δ| = {worst:.3e}");
+        assert!(
+            worst < 1.0e-4,
+            "analytic χ0^x vs FD (ScH 300 K): max|Δ| = {worst:.3e}"
+        );
     }
 
     /// Compute χ (screened) for a system via the Sec-5 building blocks (value only), for the FD
@@ -1610,16 +1764,32 @@ mod tests {
         params: &Gfn1Parameters,
         opt: &ElectronicOptions,
     ) -> Vec<Vec<f64>> {
-        let ctx = crate::spin::linear_response_geom_context(system, params, opt).unwrap().unwrap();
+        let ctx = crate::spin::linear_response_geom_context(system, params, opt)
+            .unwrap()
+            .unwrap();
         let cr_a = ChannelResponse::new(&ctx.ch_a, ctx.kt, &ctx.overlap);
         let cr_b = ChannelResponse::new(&ctx.ch_b, ctx.kt, &ctx.overlap);
-        let block = ScreenedBlock { ctx: &ctx, cr_a: &cr_a, cr_b: &cr_b };
+        let block = ScreenedBlock {
+            ctx: &ctx,
+            cr_a: &cr_a,
+            cr_b: &cr_b,
+        };
         let coul = CoulKernel { ctx: &ctx };
         let op = build_screened_operator(&ctx, &block, &coul).unwrap();
         let (dofs, sources) = analytic_scc_cphf(&ctx, &op, system, params).unwrap();
-        chi_and_deriv_dof(&ctx, &block, &coul, &op, &sources[0].sx, &dofs[0], system, params, 0)
-            .unwrap()
-            .0
+        chi_and_deriv_dof(
+            &ctx,
+            &block,
+            &coul,
+            &op,
+            &sources[0].sx,
+            &dofs[0],
+            system,
+            params,
+            0,
+        )
+        .unwrap()
+        .0
     }
 
     /// STAGE 3 GATE (Sec 5): my χ must match production `analytic_chi`, and χ^x must match a
@@ -1631,18 +1801,33 @@ mod tests {
         };
         let system = scH_system();
         let opt = scH_options();
-        let ctx = crate::spin::linear_response_geom_context(&system, &params, &opt).unwrap().unwrap();
+        let ctx = crate::spin::linear_response_geom_context(&system, &params, &opt)
+            .unwrap()
+            .unwrap();
         let cr_a = ChannelResponse::new(&ctx.ch_a, ctx.kt, &ctx.overlap);
         let cr_b = ChannelResponse::new(&ctx.ch_b, ctx.kt, &ctx.overlap);
-        let block = ScreenedBlock { ctx: &ctx, cr_a: &cr_a, cr_b: &cr_b };
+        let block = ScreenedBlock {
+            ctx: &ctx,
+            cr_a: &cr_a,
+            cr_b: &cr_b,
+        };
         let coul = CoulKernel { ctx: &ctx };
         let op = build_screened_operator(&ctx, &block, &coul).unwrap();
         let (dofs, sources) = analytic_scc_cphf(&ctx, &op, &system, &params).unwrap();
 
         // Consistency: my χ == production χ.
-        let (chi_mine, _cx) =
-            chi_and_deriv_dof(&ctx, &block, &coul, &op, &sources[0].sx, &dofs[0], &system, &params, 0)
-                .unwrap();
+        let (chi_mine, _cx) = chi_and_deriv_dof(
+            &ctx,
+            &block,
+            &coul,
+            &op,
+            &sources[0].sx,
+            &dofs[0],
+            &system,
+            &params,
+            0,
+        )
+        .unwrap();
         let (_chi0_prod, chi_prod) = ctx.analytic_chi0_chi().unwrap();
         let cons = max_vv_diff(&chi_mine, &chi_prod);
         assert!(cons < 1.0e-6, "my χ vs production χ: max|Δ| = {cons:.3e}");
@@ -1663,13 +1848,24 @@ mod tests {
                 }
                 let dof = 3 * atom + axis;
                 let (_c, cx) = chi_and_deriv_dof(
-                    &ctx, &block, &coul, &op, &sources[dof].sx, &dofs[dof], &system, &params, dof,
+                    &ctx,
+                    &block,
+                    &coul,
+                    &op,
+                    &sources[dof].sx,
+                    &dofs[dof],
+                    &system,
+                    &params,
+                    dof,
                 )
                 .unwrap();
                 worst = worst.max(max_vv_diff(&cx, &fd));
             }
         }
-        assert!(worst < 1.0e-4, "analytic χ^x vs FD (ScH 300 K): max|Δ| = {worst:.3e}");
+        assert!(
+            worst < 1.0e-4,
+            "analytic χ^x vs FD (ScH 300 K): max|Δ| = {worst:.3e}"
+        );
     }
 
     /// STAGE 4 GATE (Sec 6): the assembled analytic `dU/dR` must match the FD oracle
@@ -1737,7 +1933,11 @@ mod tests {
             .expect("non-empty Ni +U context");
         let cr_a = ChannelResponse::new(&ctx.ch_a, ctx.kt, &ctx.overlap);
         let cr_b = ChannelResponse::new(&ctx.ch_b, ctx.kt, &ctx.overlap);
-        let block = ScreenedBlock { ctx: &ctx, cr_a: &cr_a, cr_b: &cr_b };
+        let block = ScreenedBlock {
+            ctx: &ctx,
+            cr_a: &cr_a,
+            cr_b: &cr_b,
+        };
         let coul = CoulKernel { ctx: &ctx };
         let op = build_screened_operator(&ctx, &block, &coul).unwrap();
         let prep = prepare_response(&ctx, &block, &coul, &op, &system, &params).unwrap();
@@ -1772,12 +1972,16 @@ mod tests {
         // Central FD of the Ni-atom (atom 0) linear-response U, at two steps to confirm the FD
         // itself is converged (the divergent-iteration bug made this FD unstable across steps).
         let u_at = |sys: &PeriodicSystem| -> f64 {
-            crate::spin::linear_response_uv_for_system(sys, &params, &opt).unwrap().0[0].u
+            crate::spin::linear_response_uv_for_system(sys, &params, &opt)
+                .unwrap()
+                .0[0]
+                .u
         };
         for &h in &[1.0e-3_f64, 2.0e-3] {
             let mut worst = 0.0_f64;
             for axis in 0..3 {
-                let fd = (u_at(&displaced(&system, 0, axis, h)) - u_at(&displaced(&system, 0, axis, -h)))
+                let fd = (u_at(&displaced(&system, 0, axis, h))
+                    - u_at(&displaced(&system, 0, axis, -h)))
                     / (2.0 * h);
                 worst = worst.max((du_an[axis][0] - fd).abs());
             }
@@ -1799,16 +2003,21 @@ mod tests {
             return;
         };
         let bench = |label: &str, system: &PeriodicSystem, opt: &ElectronicOptions, reps: usize| {
-            let Ok(Some((ref_sub, ref_pairs))) = crate::spin::linear_response_uv_for_system(system, &params, opt)
-                .map(Some)
-                .or_else(|_| Ok::<_, ()>(None))
+            let Ok(Some((ref_sub, ref_pairs))) =
+                crate::spin::linear_response_uv_for_system(system, &params, opt)
+                    .map(Some)
+                    .or_else(|_| Ok::<_, ()>(None))
             else {
                 eprintln!("BENCH {label}: base linear-response failed");
                 return;
             };
             let _ = (&ref_sub, &ref_pairs);
             // Warm up + confirm it produces a result.
-            if analytic_dudr(system, &params, opt, &ref_sub, &ref_pairs).ok().flatten().is_none() {
+            if analytic_dudr(system, &params, opt, &ref_sub, &ref_pairs)
+                .ok()
+                .flatten()
+                .is_none()
+            {
                 eprintln!("BENCH {label}: analytic_dudr empty");
                 return;
             }
@@ -1820,7 +2029,10 @@ mod tests {
             let per = t0.elapsed().as_secs_f64() / reps as f64;
             eprintln!(
                 "BENCH {label}: {:.2} ms/call, {:.3} ms/DOF (N_atoms={}, {} DOFs)",
-                per * 1e3, per * 1e3 / ndof as f64, system.atoms.len(), ndof
+                per * 1e3,
+                per * 1e3 / ndof as f64,
+                system.atoms.len(),
+                ndof
             );
         };
         bench("ScH", &scH_system(), &scH_options(), 30);

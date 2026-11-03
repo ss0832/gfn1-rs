@@ -16,41 +16,13 @@
 //! `0.90542` at the library defaults and `0.90562` at the leanest cutoffs tried,
 //! a 0.02% spread.
 //!
-//! # Why the k-point gates use a *distorted* cell
+//! # Exactly degenerate diamond frontiers
 //!
-//! The k-point gates ([`kpoint_third_derivative_gamma_mesh_matches_gamma_path`]
-//! onwards) run on the same cell with **one carbon nudged 0.03 A along x**. That
-//! is not cosmetic and not a tolerance dodge: `pbc_kpoint_hessian` is **wrong on
-//! the undistorted cell**, by an amount comparable to the Hessian itself.
-//!
-//! Perfect diamond has a triply degenerate `t2` HOMO *and* LUMO at Gamma. Inside
-//! an exactly degenerate block the complex generalized eigensolver returns an
-//! arbitrary unitary basis, and the k-point CPXTB is not invariant under that
-//! choice — so the analytic k-point Hessian picks up an error that depends
-//! chaotically on rounding. Measured on the undistorted cell at a Gamma-only mesh
-//! (so the correct answer is exactly `pbc_gamma_hessian`, itself verified against
-//! the analytic-gradient finite difference to `2.3e-9`):
-//!
-//! ```text
-//!  a (A)     ao_cutoff (Bohr)   10        12        14        16        20
-//!  3.567                      2e-15   1.90e0    3.71e-1   5e-15     7.91e-1
-//!  3.500                      4.15e-1 7.58e-1   1.26e0    3e-15     8e-15
-//!  3.400                      2.07e-1 3e-15     3e-15     5e-15     1e-15
-//!  3.567004                   7.88e-1 1e-15     5.79e-1   1.50e-1   2e-15
-//! ```
-//!
-//! (`max |H_gamma - H_kpoint|` on a scale of `1.2 - 1.5` Hartree/Bohr^2 — i.e. up
-//! to a 100% error, appearing and vanishing with a `4e-6 A` change in the lattice
-//! constant.) With the 0.03 A distortion the degeneracy is lifted and **all
-//! twenty** of those configurations collapse to `4e-16 .. 3e-14`.
-//!
-//! This is a pre-existing bug in `src/pbc/hessian.rs`, not in anything gated
-//! here; it is recorded in `docs/pbc.md`. The FC3 entry points are only exposed
-//! to it through *evaluations at the reference geometry*, which a central
-//! difference over atomic displacements never makes — but the strain derivative
-//! and the Grueneisen path evaluate isotropically scaled cells, which preserve
-//! the point group exactly, so those would hit it head-on. Hence one fixture,
-//! distorted, for every k-point gate.
+//! Earlier k-point gates used a 0.03 A distortion to avoid a defect in the
+//! real-embedding response. Closed-shell Hessians now use the native complex
+//! spectral response. The regression below checks perfect and distorted cells
+//! at three AO cutoffs and independently differentiates forces on perfect
+//! diamond at Gamma and on a genuine k mesh.
 
 use gfn1_rs::pbc::gruneisen::{pbc_gruneisen, GruneisenOptions, SecondOrderStencil};
 use gfn1_rs::pbc::hessian::pbc_gamma_hessian;
@@ -224,8 +196,8 @@ fn seminumerical_third_derivative_acoustic_sum_rule_and_vector_contraction() {
     v[1] = 0.7;
     v[4] = -1.3;
     let t = Instant::now();
-    let k = pbc_third_derivative_seminumerical_vector(&system, &params, &el, &pbc, step, &v)
-        .unwrap();
+    let k =
+        pbc_third_derivative_seminumerical_vector(&system, &params, &el, &pbc, step, &v).unwrap();
     let vector_secs = t.elapsed().as_secs_f64();
     let mut err = 0.0_f64;
     let mut kscale = 0.0_f64;
@@ -277,8 +249,8 @@ fn kpoint_third_derivative_gamma_mesh_matches_gamma_path() {
     let gamma_secs = t.elapsed().as_secs_f64();
 
     let t = Instant::now();
-    let slabs =
-        pbc_kpoint_third_derivative_seminumerical_dense(&system, &params, &el, &kpbc, step).unwrap();
+    let slabs = pbc_kpoint_third_derivative_seminumerical_dense(&system, &params, &el, &kpbc, step)
+        .unwrap();
     let kpoint_secs = t.elapsed().as_secs_f64();
     assert_eq!(slabs.len(), NDOF);
 
@@ -533,25 +505,11 @@ fn kpoint_strain_hessian_derivative_gamma_collapse_and_mesh_shift() {
     );
 }
 
-/// **The pre-existing degenerate-frontier-orbital bug in `pbc_kpoint_hessian`**,
-/// pinned as a **negative** gate: it must stay confined to exactly degenerate
-/// cells, and it must not reappear on the distorted fixture every k-point gate in
-/// this file relies on.
-///
-/// At a Gamma-only mesh `pbc_kpoint_hessian` must equal `pbc_gamma_hessian`
-/// exactly (`kpoint_hessian_reduces_to_gamma_at_gamma_only` asserts as much on a
-/// water cell). On **perfect** diamond it does not: the `t2` HOMO/LUMO triplets
-/// are exactly degenerate, the complex eigensolver picks an arbitrary basis
-/// inside them, and the k-point CPXTB is not invariant under that choice. The
-/// error is up to 100% of the Hessian and moves chaotically with the cutoff (see
-/// the module docs for the full scan).
-///
-/// This test therefore asserts the *distorted* cell is clean at three cutoffs —
-/// which is what licenses every other k-point gate here — and separately records
-/// that the undistorted cell is not, so that the day the bug is fixed this test
-/// fails loudly and can be turned into a real gate.
+/// Degenerate frontier blocks must be independent of arbitrary eigenvector
+/// choices. Gamma/k-point equality is supplemented with force finite differences
+/// because those Hessian entry points now share a response backend.
 #[test]
-fn kpoint_hessian_degenerate_frontier_orbital_bug_is_confined() {
+fn kpoint_hessian_is_consistent_at_degenerate_diamond_frontiers() {
     use gfn1_rs::pbc::hessian::pbc_kpoint_hessian;
     let params = params();
     let el = electronic_t0();
@@ -586,11 +544,107 @@ fn kpoint_hessian_degenerate_frontier_orbital_bug_is_confined() {
          gate in this file rests on it"
     );
     assert!(
-        worst_perfect > 1.0e-3,
-        "pbc_kpoint_hessian now agrees with pbc_gamma_hessian on exactly degenerate diamond \
-         (rel {worst_perfect:.3e}). If the degenerate-block bug is fixed, delete this negative \
-         pin and move the k-point gates back onto the undistorted cell."
+        worst_perfect < 1.0e-12,
+        "Gamma/k-point Hessians differ at degenerate diamond frontiers (rel {worst_perfect:.3e})"
     );
+
+    // Both Hessian routes share the new spectral response, so their equality
+    // alone cannot establish correctness. Check the undistorted reference
+    // against force differences as well, at Gamma and on a genuine k mesh.
+    let system = diamond();
+    let direction: Vec<f64> = (0..NDOF).map(|i| 0.13 - 0.07 * (i % 4) as f64).collect();
+    for mesh in [[1, 1, 1], [2, 2, 2]] {
+        let pbc = kpbc_options(mesh, 12.0, 18.0, 8.0);
+        let hessian = pbc_kpoint_hessian(&system, &params, &el, &pbc).unwrap();
+        for step in [2e-4, 1e-4] {
+            let gradient = |sign: f64| {
+                let mut displaced = system.clone();
+                for (atom, v) in displaced.atoms.iter_mut().zip(direction.chunks_exact(3)) {
+                    atom.position += gfn1_rs::math::Vec3::new(v[0], v[1], v[2]) * (sign * step);
+                }
+                gfn1_rs::pbc_analytic_gradient(&displaced, &params, &el, &pbc)
+                    .unwrap()
+                    .gradient
+                    .into_iter()
+                    .flat_map(|g| g.to_array())
+                    .collect::<Vec<_>>()
+            };
+            let (plus, minus) = (gradient(1.0), gradient(-1.0));
+            let mut error = 0.0_f64;
+            for row in 0..NDOF {
+                let analytic: f64 = (0..NDOF)
+                    .map(|col| hessian.hessian[(row, col)] * direction[col])
+                    .sum();
+                error = error.max((analytic - (plus[row] - minus[row]) / (2.0 * step)).abs());
+            }
+            println!(
+                "perfect diamond mesh={mesh:?} step={step:e} Hessian/force-FD error={error:e}"
+            );
+            assert!(
+                error < 2e-6,
+                "degenerate diamond Hessian/force-FD error {error:e}, mesh={mesh:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn degenerate_periodic_cubic_matches_hessian_differences() {
+    let parameters = params();
+    let system = diamond();
+    let electronic = electronic_t0();
+    for mesh in [[1, 1, 1], [2, 1, 1]] {
+        let pbc = kpbc_options(mesh, 12.37, 18.29, 8.17);
+        for direction in [
+            vec![1., 0., 0., 0., 0., 0.],
+            vec![0.31, -0.23, 0.17, -0.11, 0.19, -0.29],
+        ] {
+            let analytic = if pbc.kmesh.is_gamma_only() {
+                gfn1_rs::pbc_gamma_third_analytic_vector(
+                    &system,
+                    &parameters,
+                    &electronic,
+                    &pbc,
+                    &direction,
+                )
+                .unwrap()
+            } else {
+                gfn1_rs::pbc_kpoint_third_analytic_vector(
+                    &system,
+                    &parameters,
+                    &electronic,
+                    &pbc,
+                    &direction,
+                )
+                .unwrap()
+            };
+            for step in [1e-3, 5e-4] {
+                let evaluate = |sign: f64| {
+                    let mut displaced = system.clone();
+                    for (atom, v) in displaced.atoms.iter_mut().zip(direction.chunks_exact(3)) {
+                        atom.position += gfn1_rs::math::Vec3::new(v[0], v[1], v[2]) * (sign * step);
+                    }
+                    let hessian = if pbc.kmesh.is_gamma_only() {
+                        pbc_gamma_hessian(&displaced, &parameters, &electronic, &pbc)
+                    } else {
+                        gfn1_rs::pbc_kpoint_hessian(&displaced, &parameters, &electronic, &pbc)
+                    }
+                    .unwrap();
+                    let mut value = 0.;
+                    for i in 0..NDOF {
+                        for j in 0..NDOF {
+                            value += direction[i] * hessian.hessian[(i, j)] * direction[j];
+                        }
+                    }
+                    value
+                };
+                let numerical = (evaluate(1.) - evaluate(-1.)) / (2. * step);
+                let error = (analytic - numerical).abs();
+                println!("degenerate cubic mesh={mesh:?} h={step:e} analytic={analytic:e} FD={numerical:e} error={error:e}");
+                assert!(error < 2e-6, "degenerate periodic cubic mismatch {error:e}");
+            }
+        }
+    }
 }
 
 /// **Grueneisen through the k-point Hessian** (`GruneisenOptions::kpoint`).
@@ -1109,7 +1163,9 @@ fn strain_hessian_derivative_richardson_and_mode_gamma() {
 
     // Cross-module: first-order perturbation theory on the reference modes.
     let t = Instant::now();
-    let h0 = pbc_gamma_hessian(&system, &params, &el, &pbc).unwrap().hessian;
+    let h0 = pbc_gamma_hessian(&system, &params, &el, &pbc)
+        .unwrap()
+        .hessian;
     let vib = vibrational_analysis(&h0, &[6, 6]).unwrap();
     let mass = gfn1_rs::data_tables::relative_atomic_mass(6); // all atoms are carbon
     let mut hf_gamma = [0.0; NDOF];

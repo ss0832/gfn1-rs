@@ -45,8 +45,8 @@ Baked in [`camm_preset`](../src/electronic.rs) (`electronic::camm_preset("sigma-
 **CLI** — single point / gradient / optimization:
 
 ```bash
-gfn1_rs_cli --param param_gfn1-xtb.txt --camm-preset sigma-hole mol.xyz
-gfn1_rs_cli --param param_gfn1-xtb.txt --camm-preset sigma-hole --optimize --opt-output mol_opt.xyz mol.xyz
+gfn1-rs --param param_gfn1-xtb.txt --camm-preset sigma-hole mol.xyz
+gfn1-rs --param param_gfn1-xtb.txt --camm-preset sigma-hole --optimize --opt-output mol_opt.xyz mol.xyz
 ```
 
 Explicit `--camm-damp* / --camm-aes-scale / --camm-onsite-scale*` still override the preset (the

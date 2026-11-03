@@ -121,6 +121,47 @@ fn directional_fourth_rejects_unsupported_terms() {
     );
 }
 
+#[test]
+fn cn_disabled_quartics_are_rejected_by_strict_and_finite_temperature_drivers() {
+    use gfn1_rs::third_derivative::finite_t::{
+        directional_fourth_finite_t, fourth_derivative_finite_t_block,
+        fourth_derivative_finite_t_dense,
+    };
+    let params = Gfn1Parameters::resolve(None).unwrap();
+    let system =
+        PeriodicSystem::from_xyz_str("3\nwater\nO 0 0 0\nH .95 0 0\nH -.24 .92 0\n", 0.0, false)
+            .unwrap();
+    let mut options = tight_options();
+    options.electronic_options.hamiltonian.enable_cn_hamiltonian = false;
+    // An invalid SCF setting verifies that the capability check runs first.
+    options.electronic_options.max_scc = 0;
+    let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
+    let v = vec![0.1; 9];
+    let errors = [
+        directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap_err(),
+        fourth_derivative_analytic_dense(&system, &params, &options, cutoff).unwrap_err(),
+        fourth_derivative_analytic_block(&system, &params, &options, cutoff, &[0, 1]).unwrap_err(),
+        directional_fourth_finite_t(&system, &params, &options, cutoff, &v).unwrap_err(),
+        fourth_derivative_finite_t_dense(&system, &params, &options, cutoff).unwrap_err(),
+        fourth_derivative_finite_t_block(&system, &params, &options, cutoff, &[0, 1]).unwrap_err(),
+    ];
+    for error in errors {
+        assert!(
+            error.to_string().contains("enable_cn_hamiltonian=false"),
+            "{error}"
+        );
+    }
+    for order in [1, 2, 3] {
+        gfn1_rs::terms::require_order(
+            &options.electronic_options,
+            &params,
+            order,
+            "CN-off lower derivative",
+        )
+        .unwrap();
+    }
+}
+
 /// The SAME registry guard on the mixed-index driver — it must not be possible
 /// to sidestep the order-4 check by asking for the dense tensor. (Cheap: the
 /// guard fires before the SCF.)
@@ -276,7 +317,10 @@ fn assert_h2_ladder(label: &str, delta1: f64, delta2: f64, tol: f64, floor: f64)
         "{label}: delta(h) {delta1:.3e} delta(h/2) {delta2:.3e} ratio {:.2}",
         delta1 / delta2.max(1.0e-300)
     );
-    assert!(delta1 < tol, "{label}: delta(h) {delta1:.3e} exceeds {tol:.3e}");
+    assert!(
+        delta1 < tol,
+        "{label}: delta(h) {delta1:.3e} exceeds {tol:.3e}"
+    );
     assert!(
         delta2 < 0.4 * delta1 || delta2 < floor,
         "{label}: residual neither scales as h² nor sits on the noise floor \
@@ -305,7 +349,10 @@ fn dense_fourth_matches_seminumerical_skew_hf() {
 
     let started = std::time::Instant::now();
     let dense = fourth_derivative_analytic_dense(&system, &params, &options, cutoff).unwrap();
-    eprintln!("hf dense quartic ({ndof} dof) built in {:?}", started.elapsed());
+    eprintln!(
+        "hf dense quartic ({ndof} dof) built in {:?}",
+        started.elapsed()
+    );
 
     // Gate 1 — self-consistency: the polarization reconstruction contracted
     // `vvvv` must reproduce the directional quartic for the same `v`. The
@@ -313,7 +360,8 @@ fn dense_fourth_matches_seminumerical_skew_hf() {
     // relative-1e-8 check, not machine precision.
     let v = skew_direction(ndof);
     let contracted = dense.contract_vvvv(&v).unwrap();
-    let directional = directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap();
+    let directional =
+        directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap();
     let rel = (contracted - directional).abs() / (1.0 + directional.abs());
     eprintln!(
         "hf polarization consistency: Q·vvvv {contracted:.12e} directional {directional:.12e} \
@@ -363,7 +411,10 @@ fn block_fourth_matches_seminumerical_noneq_water() {
     let started = std::time::Instant::now();
     let block =
         fourth_derivative_analytic_block(&system, &params, &options, cutoff, &dofs).unwrap();
-    eprintln!("water quartic block {dofs:?} built in {:?}", started.elapsed());
+    eprintln!(
+        "water quartic block {dofs:?} built in {:?}",
+        started.elapsed()
+    );
 
     // Gate 1 — self-consistency on a direction supported inside the block:
     // `Σ_{abcd ∈ block} Q_abcd v_a v_b v_c v_d` is then the FULL `Q·vvvv`.

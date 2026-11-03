@@ -7,7 +7,7 @@ Provenance / licence
 ---------------------
 The numerical exponents and contraction coefficients are the Dunning cc-pVnZ sets as
 redistributed by the **Basis Set Exchange** (https://www.basissetexchange.org), which
-publishes them under **CC-BY-4.0** with attribution to the original work (T. H. Dunning Jr.
+distributes them in its **BSD-3-Clause** package with attribution to the original work (T. H. Dunning Jr.
 and co-workers; Grant Hill for the cc-repo data). They are NOT copied from any paper's SI:
 this script regenerates a licence-clean copy directly from BSE. Heavy elements use the
 pseudopotential (`-PP`) / Douglas-Kroll relativistic (`-DK`) variants, as in Cheng &
@@ -28,8 +28,15 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bse_cache")
 
 
 def load(name):
-    with open(os.path.join(CACHE, name + ".json")) as f:
-        return json.load(f)
+    path = os.path.join(CACHE, name + ".json")
+    if os.path.isfile(path):
+        with open(path) as f:
+            return json.load(f)
+    try:
+        import basis_set_exchange
+    except ImportError as error:
+        raise RuntimeError("Install basis_set_exchange==0.12 or provide the recorded BSE JSON cache") from error
+    return basis_set_exchange.get_basis(name)
 
 
 def element_shells(basis, z):
@@ -135,12 +142,12 @@ def inspect():
 
 
 L_TAG = {0: "S", 1: "P", 2: "D", 3: "F", 4: "G"}
-# The reference GFN1-xTB-cc-pVDZ file (paper SI) — used ONLY for the per-element GFN1
-# shell structure (#contractions per angular momentum) and the H special case, NOT for
-# the numbers (those come from BSE). Structure is not copyrightable.
+# The supplied cc-pVDZ reference determines the inherited shell selection.
+# Its complete numerical provenance was independently checked against BSE 0.12
+# and reconstructed GFN1 hydrogen STO functions; no paper SI file is required.
 REF_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "ct3c00671_si_002.txt",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "src", "secondary_bases", "gfn1-xtb-cc-pvdz.txt",
 )
 
 
@@ -155,7 +162,9 @@ def parse_param_shells(path=None):
     import re
 
     if path is None:
-        path = os.environ.get("GFN1_XTB_PARAM")
+        path = os.environ.get("GFN1_XTB_PARAM") or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "third_party", "xtb", "param_gfn1-xtb.txt")
     out, z = {}, None
     with open(path) as fh:
         for line in fh:
@@ -251,6 +260,23 @@ def bse_shells_by_l(bse, z):
     return by_l
 
 
+def hydrogen_primary():
+    """Reconstruct both primary H contractions without a publisher SI table."""
+    import re
+    import math
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "third_party/xtb/param_gfn1-xtb.txt").read_text()
+    block = re.search(r"(?ms)^\$Z=\s*1\b.*?^\$end", text).group()
+    z1, z2 = map(float, re.search(r"(?m)^\s*exp=([^\n]+)", block).group(1).split())
+    sto = json.loads((root / "third_party/stda_xtb/tables.json").read_text())["sto"]
+    valence = [(a*z1*z1, c) for a,c in sto["4:1:0"]]
+    diffuse = [(a*z2*z2, c) for a,c in sto["3:2:0"]]
+    overlap = sum(c*d*(2*math.sqrt(a*b)/(a+b))**1.5
+                  for a,c in valence for b,d in diffuse)
+    return [valence, diffuse + [(a, -overlap*c) for a,c in valence]]
+
+
 def emit_element(z, struct_z, bse):
     """GFN1-format block for element z, matching the GFN1 shell structure (the number of
     contractions per l from `struct_z`) by valence-selecting from BSE. H (and any element
@@ -259,8 +285,10 @@ def emit_element(z, struct_z, bse):
     by_l = bse_shells_by_l(bse, z)
     for (l, existing) in struct_z:
         ncontr = len(existing)
-        if z == 1 or l not in by_l:
-            chosen = existing  # GFN1 H AO / fallback
+        if z == 1:
+            chosen = hydrogen_primary()
+        elif l not in by_l:
+            chosen = existing  # Explicit inherited cc-pVDZ polarization fallback.
         else:
             exps, cols = by_l[l]
             picked = pick_valence(exps, cols, node_targets(existing))
@@ -340,15 +368,18 @@ def provenance(label):
         "$ ----------------------------------------------------------------------------",
         f"$ GFN1-xTB-M secondary (dual) basis derived from the Dunning {label} set.",
         "$ Numerical exponents/coefficients are from the Basis Set Exchange",
-        "$ (https://www.basissetexchange.org), redistributed under CC-BY-4.0 with",
+        "$ (https://www.basissetexchange.org), verified against its BSD-3-Clause",
+        "$ distribution v0.12; GFN1 H STO data are LGPL-3.0-or-later, with",
         "$ attribution to T. H. Dunning Jr. et al. (cc-pVnZ) and ccRepo/Grant Hill.",
         "$ Per (element, angular momentum) the GFN1-valence contraction is selected by",
         "$ radial-node matching to the GFN1 primary shell, then sign-matched to the GFN1",
         "$ phase (the overall sign is physically irrelevant for the quadratic M1 kinetic-",
         "$ energy correction and multipole moments). Regenerated by",
         "$ scripts/gen_secondary_basis.py validate-full -> generate; NOT copied from any SI.",
-        "$ Z=1..36 use the all-electron set and reproduce the published GFN1-xTB-cc-pVDZ",
-        "$ secondary basis exactly. Z>=37 use the pseudopotential (-PP) basis with the GFN1",
+        "$ Z=1..36 use node-selected all-electron contractions. The TZ/QZ/5Z files",
+        "$ retain cc-pVDZ d polarization for Ne and Al-Ar; these are mixed subsets.",
+        "$ Hydrogen is reconstructed from GFN1 STO-4G/3G and its analytic projection.",
+        "$ Z>=37 use the pseudopotential (-PP) basis with the GFN1",
         "$ shell structure from param_gfn1-xtb.txt (ao= line); these heavy-element bases are",
         "$ best-effort (correct #shells per l, lowest-node PP valence) and structure-",
         "$ validated only (no published reference exists for Z>=37).",

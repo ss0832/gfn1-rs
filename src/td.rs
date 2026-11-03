@@ -30,18 +30,72 @@ use crate::cphf::{
 use crate::electronic::{ElectronicOptions, ElectronicResult};
 use crate::error::{Gfn1Error, Result};
 use crate::gradient::{analytic_gradient, AnalyticGradientOptions};
-use crate::linalg::{
-    lowdin_solve_generalized, matrix_vector_product, symmetric_eigen, Matrix,
-};
+use crate::linalg::{lowdin_solve_generalized, matrix_vector_product, symmetric_eigen, Matrix};
 use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
 use crate::system::PeriodicSystem;
+pub(crate) mod hessian;
+mod periodic;
+pub use hessian::{
+    solve_rpa_gradient_analytic, solve_rpa_hessian_analytic, solve_rpa_manifold_gradient_analytic,
+    solve_rpa_manifold_hessian_analytic, solve_tda_hessian_analytic,
+    solve_tda_hessian_analytic_with_budget, solve_tda_manifold_hessian_analytic,
+    solve_tda_manifold_hessian_analytic_with_budget, TdaHessianResult, TdaManifoldHessianResult,
+};
+pub use periodic::{solve_optical_td_dfpt, OpticalTdDfptResult};
 
 /// Spin channel of a closed-shell TDA excitation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TdaSpin {
     Singlet,
     Triplet,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResponseMethod {
+    Tda,
+    Rpa,
+}
+
+fn has_fractional_occupations(occupations: &[f64]) -> bool {
+    occupations.iter().any(|&f| f > 1e-10 && f < 2.0 - 1e-10)
+}
+
+fn validate_tda_occupations(occupations: &[f64]) -> Result<()> {
+    if occupations.iter().any(|f| !(0.0..=2.0 + 1e-12).contains(f)) {
+        return Err(Gfn1Error::InvalidInput(
+            "TD-GFN1 occupation is invalid".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn thermal_band_occupations(energies: &[f64], fermi: f64, temperature: f64) -> Vec<f64> {
+    let kt = crate::constants::KB_HARTREE_PER_K * temperature;
+    energies
+        .iter()
+        .map(|energy| {
+            let x = (energy - fermi) / kt;
+            if x > 40.0 {
+                0.0
+            } else if x < -40.0 {
+                2.0
+            } else {
+                2.0 / (1.0 + x.exp())
+            }
+        })
+        .collect()
+}
+
+fn validate_tda_thermal_bands(energies: &[f64], fermi: f64, temperature: f64) -> Result<()> {
+    if temperature > 0.0
+        && has_fractional_occupations(&thermal_band_occupations(energies, fermi, temperature))
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "this periodic TDA path requires integer occupations; use optical TD-DFPT for a thermal spectrum".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl TdaSpin {
@@ -65,6 +119,105 @@ pub struct TdaOptions {
     /// Number of lowest excited states to report.
     pub n_states: usize,
     pub spin: TdaSpin,
+}
+
+/// The observable's transition operator; it does not alter the TD-GFN1 kernel.
+/// The existing `solve_tda` API retains Mulliken strengths for compatibility.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TdaTransitionDipole {
+    #[default]
+    Mulliken,
+    AoLength,
+}
+
+#[cfg(test)]
+mod dipole_operator_tests {
+    use super::*;
+    #[test]
+    fn tda_ao_length_preserves_legacy_and_restores_onsite_transitions() {
+        let params = Gfn1Parameters::builtin().unwrap();
+        let system = PeriodicSystem::from_xyz_str(
+            "3\nwater\nO 0 0 0\nH .757 .586 0\nH -.757 .586 0\n",
+            0.,
+            false,
+        )
+        .unwrap();
+        let electronic = ElectronicOptions {
+            electronic_temperature: 0.,
+            energy_tolerance: 1e-13,
+            charge_tolerance: 1e-11,
+            ..Default::default()
+        };
+        let scf = crate::run_electronic(&system, &params, electronic.clone()).unwrap();
+        let options = TdaOptions {
+            n_states: 10,
+            ..Default::default()
+        };
+        let old = solve_tda(&system, &params, &scf, options).unwrap();
+        let legacy = solve_tda_with_dipole(
+            &system,
+            &params,
+            &scf,
+            options,
+            TdaTransitionDipole::Mulliken,
+        )
+        .unwrap();
+        let ao = solve_tda_with_dipole(
+            &system,
+            &params,
+            &scf,
+            options,
+            TdaTransitionDipole::AoLength,
+        )
+        .unwrap();
+        let mut restored = false;
+        for ((old, legacy), ao) in old.states.iter().zip(&legacy.states).zip(&ao.states) {
+            assert_eq!(old.excitation_energy, legacy.excitation_energy);
+            assert_eq!(old.oscillator_strength, legacy.oscillator_strength);
+            assert_eq!(old.amplitudes, legacy.amplitudes);
+            assert_eq!(old.excitation_energy, ao.excitation_energy);
+            assert_eq!(old.amplitudes, ao.amplitudes);
+            if old.oscillator_strength < 1e-12 && ao.oscillator_strength > 1e-5 {
+                restored = true;
+            }
+            eprintln!(
+                "TDA water energy={} legacy f={} AO f={}",
+                old.excitation_energy, old.oscillator_strength, ao.oscillator_strength
+            );
+        }
+        assert!(
+            restored,
+            "AO dipoles must recover intra-atomic transitions absent in monopoles"
+        );
+        let mut translated = system.clone();
+        for atom in &mut translated.atoms {
+            atom.position += Vec3::new(0.71, -0.33, 0.29);
+        }
+        let scf = crate::run_electronic(&translated, &params, electronic).unwrap();
+        let shifted = solve_tda_with_dipole(
+            &translated,
+            &params,
+            &scf,
+            options,
+            TdaTransitionDipole::AoLength,
+        )
+        .unwrap();
+        for (a, b) in ao.states.iter().zip(&shifted.states) {
+            assert!((a.oscillator_strength - b.oscillator_strength).abs() < 1e-9);
+        }
+        let triplet = solve_tda_with_dipole(
+            &translated,
+            &params,
+            &scf,
+            TdaOptions {
+                spin: TdaSpin::Triplet,
+                ..options
+            },
+            TdaTransitionDipole::AoLength,
+        )
+        .unwrap();
+        assert!(triplet.states.iter().all(|s| s.oscillator_strength == 0.));
+    }
 }
 
 impl Default for TdaOptions {
@@ -95,6 +248,60 @@ pub struct TdaResult {
     pub pairs: Vec<(usize, usize)>,
 }
 
+impl TdaResult {
+    pub(crate) fn root_manifold(&self, state: usize) -> Result<std::ops::Range<usize>> {
+        let root = self.states.get(state).ok_or_else(|| {
+            Gfn1Error::InvalidInput(format!(
+                "requested state {state} but only {} are available",
+                self.states.len()
+            ))
+        })?;
+        let degenerate =
+            |other: &TdaState| (other.excitation_energy - root.excitation_energy).abs() < 1e-8;
+        let start = self.states[..state]
+            .iter()
+            .rposition(|s| !degenerate(s))
+            .map_or(0, |i| i + 1);
+        let end = state
+            + self.states[state..]
+                .iter()
+                .take_while(|s| degenerate(s))
+                .count();
+
+        Ok(start..end)
+    }
+
+    fn require_isolated_root(&self, state: usize) -> Result<()> {
+        let roots = self.root_manifold(state)?;
+        if roots.len() > 1 {
+            return Err(Gfn1Error::InvalidInput(format!(
+                "TDA state {state} belongs to a {}-fold degenerate manifold (0-based roots {} through {}); an individual adiabatic gradient is undefined",
+                roots.len(), roots.start, roots.end - 1
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn root_separation(&self, state: usize, roots: &std::ops::Range<usize>) -> f64 {
+        let omega = self.states[state].excitation_energy;
+        self.states[..roots.start]
+            .last()
+            .into_iter()
+            .chain(self.states.get(roots.end))
+            .map(|other| (other.excitation_energy - omega).abs())
+            .fold(f64::INFINITY, f64::min)
+    }
+}
+
+impl TdaOptions {
+    fn full_spectrum(self) -> Self {
+        Self {
+            n_states: usize::MAX,
+            ..self
+        }
+    }
+}
+
 /// Solve the closed-shell TD-GFN1 TDA problem for a (non-periodic) converged SCC.
 ///
 /// The excitation energies and oscillator strengths are independent of the
@@ -111,6 +318,85 @@ pub fn solve_tda(
     solve_tda_with_reference_mos(system, params, electronic, options, None)
 }
 
+/// Molecular full TD-GFN1 in the random phase approximation (RPA).
+/// The returned amplitudes are normalized Casida eigenvectors.
+pub fn solve_rpa(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &ElectronicResult,
+    options: TdaOptions,
+) -> Result<TdaResult> {
+    solve_molecular_response(
+        system,
+        params,
+        electronic,
+        options,
+        None,
+        ResponseMethod::Rpa,
+    )
+}
+
+/// Molecular TDA with an explicit choice of transition operator. AO length
+/// dipoles retain intra-atomic s-p/d contributions lost by monopole charges.
+/// Excitation energies and CI amplitudes are identical to `solve_tda`.
+pub fn solve_tda_with_dipole(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &ElectronicResult,
+    options: TdaOptions,
+    operator: TdaTransitionDipole,
+) -> Result<TdaResult> {
+    let mut result = solve_tda(system, params, electronic, options)?;
+    if operator == TdaTransitionDipole::Mulliken {
+        return Ok(result);
+    }
+    let c =
+        lowdin_solve_generalized(&electronic.fock, &electronic.integrals.overlap, 1e-12)?.vectors;
+    let n = electronic.basis.len();
+    let mut dipole = [
+        Matrix::zeros(n, n),
+        Matrix::zeros(n, n),
+        Matrix::zeros(n, n),
+    ];
+    for i in 0..n {
+        for j in 0..=i {
+            let a = &electronic.basis.aos[i];
+            let b = &electronic.basis.aos[j];
+            let rb = system.atoms[b.atom_index].position;
+            let integral =
+                crate::integrals::contracted_pair(a, b, system.atoms[a.atom_index].position, rb);
+            for (axis, value) in [integral.1, integral.2, integral.3].into_iter().enumerate() {
+                // Shared multipoles are ket-centred; convert to lab-origin r.
+                let electronic_dipole = -(value + rb.to_array()[axis] * integral.0);
+                dipole[axis][(i, j)] = electronic_dipole;
+                dipole[axis][(j, i)] = electronic_dipole;
+            }
+        }
+    }
+    let dipole = dipole
+        .iter()
+        .map(|d| c.transpose().matmul(d)?.matmul(&c))
+        .collect::<Result<Vec<_>>>()?;
+    for state in &mut result.states {
+        let mut mu = [0.; 3];
+        if options.spin == TdaSpin::Singlet {
+            for (&(i, a), &x) in result.pairs.iter().zip(&state.amplitudes) {
+                let weight = (electronic.occupations[i] - electronic.occupations[a]).sqrt();
+                for axis in 0..3 {
+                    mu[axis] += weight * x * dipole[axis][(i, a)];
+                }
+            }
+        }
+        state.transition_dipole = Vec3::new(mu[0], mu[1], mu[2]);
+        state.oscillator_strength = if state.excitation_energy > 0. {
+            (2. / 3.) * state.excitation_energy * state.transition_dipole.norm2()
+        } else {
+            0.
+        };
+    }
+    Ok(result)
+}
+
 /// [`solve_tda`] with the MO phase gauge pinned to a reference MO coefficient
 /// matrix, so the returned amplitudes are directly comparable (by overlap, sign
 /// included) to amplitudes obtained at the reference geometry.
@@ -121,7 +407,35 @@ fn solve_tda_with_reference_mos(
     options: TdaOptions,
     reference_mos: Option<&Matrix>,
 ) -> Result<TdaResult> {
-    let _profile = crate::profile::scope("td.tda.total");
+    solve_molecular_response(
+        system,
+        params,
+        electronic,
+        options,
+        reference_mos,
+        ResponseMethod::Tda,
+    )
+}
+
+fn solve_molecular_response(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &ElectronicResult,
+    options: TdaOptions,
+    reference_mos: Option<&Matrix>,
+    method: ResponseMethod,
+) -> Result<TdaResult> {
+    let _profile = crate::profile::scope("td.molecular.total");
+    if !electronic.converged {
+        return Err(Gfn1Error::InvalidInput(
+            "TD-GFN1 requires converged SCC".into(),
+        ));
+    }
+    if electronic.spin.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "molecular TD-GFN1 requires a spin-restricted reference".into(),
+        ));
+    }
     if system.lattice.is_some() {
         return Err(Gfn1Error::InvalidInput(
             "solve_tda is non-periodic; use solve_tda_pbc_gamma for periodic systems".to_string(),
@@ -144,6 +458,7 @@ fn solve_tda_with_reference_mos(
         &electronic.occupations,
         overlap,
         options,
+        method,
     )
 }
 
@@ -211,7 +526,9 @@ pub fn tda_rotatory_strengths(
     for state in &tda.states {
         let mut h = Vec3::zero();
         for (k, contrib) in pair_l.iter().enumerate() {
-            let x = state.amplitudes[k];
+            let (i, a) = tda.pairs[k];
+            let weight = (0.5 * (electronic.occupations[i] - electronic.occupations[a])).sqrt();
+            let x = state.amplitudes[k] * weight;
             h.x += 0.5 * x * contrib[0];
             h.y += 0.5 * x * contrib[1];
             h.z += 0.5 * x * contrib[2];
@@ -266,7 +583,7 @@ pub fn tda_optical_rotation(
 /// Closed-shell dense TDA from MOs / energies / occupations, a shell SCC response
 /// kernel, and the overlap. Shared by the molecular and Gamma-point periodic paths.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn dense_tda_core(
+fn dense_tda_core(
     system: &PeriodicSystem,
     basis: &crate::basis::BasisSet,
     kernel: &Matrix,
@@ -275,11 +592,12 @@ pub(crate) fn dense_tda_core(
     occupations: &[f64],
     overlap: &Matrix,
     options: TdaOptions,
+    method: ResponseMethod,
 ) -> Result<TdaResult> {
-    let space = CpxtbSpace::from_occupations(occupations)?;
-    let n = space.len();
-    let gaps = space
-        .pairs
+    validate_tda_occupations(occupations)?;
+    let pairs = response_pairs(energies, occupations)?;
+    let n = pairs.len();
+    let gaps = pairs
         .iter()
         .map(|&(i, a)| {
             let g = energies[a] - energies[i];
@@ -293,27 +611,21 @@ pub(crate) fn dense_tda_core(
             }
         })
         .collect::<Result<Vec<_>>>()?;
+
     let coupling = options.spin.coupling_scale();
-    let transition = transition_shell_charges(basis, mos, occupations, overlap)?;
-
-    let mut a = Matrix::zeros(n, n);
-    for col in 0..n {
-        let mut unit = vec![0.0_f64; n];
-        unit[col] = 1.0;
-        let sigma = tda_sigma(&gaps, kernel, &transition, coupling, &unit)?;
-        for (row, value) in sigma.into_iter().enumerate() {
-            a[(row, col)] = value;
+    let transition = weighted_transition_charges(basis, mos, occupations, overlap, &pairs)?;
+    let (minimum_gap, maximum_gap) = gaps.iter().fold((f64::INFINITY, 0_f64),
+        |(low, high), &gap| (low.min(gap), high.max(gap)));
+    let solved = if method == ResponseMethod::Rpa && coupling != 0. && minimum_gap < 1e-3 * maximum_gap {
+        let scales: Vec<_> = gaps.iter().map(|gap| 1. / gap.sqrt()).collect();
+        let mut scaled = transition_interaction(kernel, &transition, &scales, 2. * coupling)?;
+        for i in 0..n {
+            scaled[(i,i)] += 1.;
         }
-    }
-    for i in 0..n {
-        for j in 0..i {
-            let avg = 0.5 * (a[(i, j)] + a[(j, i)]);
-            a[(i, j)] = avg;
-            a[(j, i)] = avg;
-        }
-    }
-
-    let solved = symmetric_eigen(&a)?;
+        crate::linalg::scaled_positive_eigen(scaled, &gaps)?
+    } else {
+        symmetric_eigen(&response_matrix(&gaps, kernel, &transition, coupling, method)?)?
+    };
     let n_states = options.n_states.min(n);
 
     let atom_positions: Vec<[f64; 3]> = system
@@ -334,11 +646,15 @@ pub(crate) fn dense_tda_core(
     let mut states = Vec::with_capacity(n_states);
     for s in 0..n_states {
         let amplitudes = solved.vectors.column(s);
-        let omega = solved.values[s];
+        let omega = excitation_energy(solved.values[s], method)?;
         let mut mu = Vec3::zero();
         if options.spin == TdaSpin::Singlet {
             for (row, &x) in amplitudes.iter().enumerate() {
-                mu += pair_dipole[row] * x;
+                mu += pair_dipole[row]
+                    * (x * match method {
+                        ResponseMethod::Tda => 1.0,
+                        ResponseMethod::Rpa => (gaps[row] / omega).sqrt(),
+                    });
             }
         }
         let mu = mu * std::f64::consts::SQRT_2;
@@ -356,7 +672,7 @@ pub(crate) fn dense_tda_core(
     }
     Ok(TdaResult {
         states,
-        pairs: space.pairs.clone(),
+        pairs,
     })
 }
 
@@ -378,33 +694,35 @@ pub fn solve_tda_pbc_gamma(
     }
     let pbc = crate::pbc::PbcOptions {
         kmesh: crate::pbc::KMesh::gamma(),
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
-    let (h0, overlap) = scf.bloch.h_s_gamma_real();
-    let fock = crate::electronic::fock_from_shell_potential(
-        &scf.basis,
-        &overlap,
-        &h0,
-        &scf.shell_scc_potential,
-    );
-    let eig = lowdin_solve_generalized(&fock, &overlap, 1.0e-12)?;
-    let occupations = aufbau_closed_shell(&eig.values, scf.nelec);
-    let kernel = crate::electronic::scc_response_kernel(
-        &scf.gamma,
-        &scf.shell_model,
-        &scf.basis,
-        &scf.shell_charges,
-    );
+
+    let mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
+    gamma_response(system, &scf, &mos, options)
+}
+
+fn gamma_response(
+    system: &PeriodicSystem,
+    scf: &crate::pbc::PbcSccResult,
+    mos: &crate::pbc::hessian::GammaMos,
+    options: TdaOptions,
+) -> Result<TdaResult> {
+    if !scf.converged {
+        return Err(Gfn1Error::InvalidInput(
+            "periodic TD-GFN1 requires converged SCC".into(),
+        ));
+    }
     dense_tda_core(
         system,
         &scf.basis,
-        &kernel,
-        &eig.vectors,
-        &eig.values,
-        &occupations,
-        &overlap,
+        &crate::pbc::hessian::periodic_response_kernel(scf),
+        &mos.coeff,
+        &mos.energies,
+        &mos.occupations,
+        &mos.overlap,
         options,
+        ResponseMethod::Tda,
     )
 }
 
@@ -516,13 +834,22 @@ pub fn solve_tda_kpoint(
     }
     let pbc = crate::pbc::PbcOptions {
         kmesh,
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
     if !scf.converged {
         return Err(Gfn1Error::InvalidInput(
             "k-point TD-GFN1 requires a converged periodic SCC".to_string(),
         ));
+    }
+
+    if kmesh.is_gamma_only() {
+        let mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
+        let mut result = gamma_response(system, &scf, &mos, options)?;
+        for pair in &mut result.pairs {
+            *pair = (0, pair.0 * mos.energies.len() + pair.1);
+        }
+        return Ok(result);
     }
     let basis = &scf.basis;
     let n = basis.len();
@@ -574,6 +901,7 @@ pub fn solve_tda_kpoint(
         let sw = weight.sqrt();
         let fock = crate::pbc::scf::fock_at_k(h0k, sk, &vao);
         let eig = crate::pbc::complex::hermitian_generalized_eigen(&fock, sk, eigen_tol)?;
+        validate_tda_thermal_bands(&eig.values, scf.fermi_level, scf.electronic_temperature)?;
         // Physical band b has energy eig.values[2b] (ascending in b). The lowest
         // `nocc` bands are occupied, the rest virtual.
         let occ_bands: Vec<usize> = (0..nocc).collect();
@@ -666,22 +994,6 @@ pub fn solve_tda_kpoint(
     })
 }
 
-/// Closed-shell aufbau occupations (2.0 per spatial orbital) for `nelec` electrons.
-fn aufbau_closed_shell(energies: &[f64], nelec: f64) -> Vec<f64> {
-    let mut occ = vec![0.0_f64; energies.len()];
-    let mut remaining = nelec.max(0.0);
-    for o in &mut occ {
-        let fill = remaining.min(2.0);
-        *o = fill;
-        remaining -= fill;
-        if remaining <= 1.0e-12 {
-            break;
-        }
-    }
-    occ
-}
-
-/// Excited-state gradient of a TD-GFN1 (TDA) state.
 #[derive(Clone, Debug)]
 pub struct TdaGradientResult {
     pub state_index: usize,
@@ -703,14 +1015,23 @@ fn td_for_system(
     electronic_options: &crate::electronic::ElectronicOptions,
     options: TdaOptions,
     reference_mos: Option<&Matrix>,
-) -> Result<(f64, TdaResult)> {
+) -> Result<(f64, TdaResult, Matrix)> {
+    if system.lattice.is_some() {
+        let pbc = crate::pbc::PbcOptions {
+            kmesh: crate::pbc::KMesh::gamma(),
+            ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
+        };
+        let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
+        let mut mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
+        if let Some(reference) = reference_mos {
+            phase_align_mos_to_reference(&mut mos.coeff, reference, &mos.overlap)?;
+        }
+        let td = gamma_response(system, &scf, &mos, options)?;
+        return Ok((scf.total_free, td, mos.coeff));
+    }
     let ground = crate::run_electronic(system, params, electronic_options.clone())?;
-    let td = if system.lattice.is_some() {
-        solve_tda_pbc_gamma(system, params, electronic_options, options)?
-    } else {
-        solve_tda_with_reference_mos(system, params, &ground, options, reference_mos)?
-    };
-    Ok((ground.total_free, td))
+    let td = solve_tda_with_reference_mos(system, params, &ground, options, reference_mos)?;
+    Ok((ground.total_free, td, reference_mo_coefficients(&ground)?))
 }
 
 fn matched_excited_energy(
@@ -718,27 +1039,36 @@ fn matched_excited_energy(
     params: &Gfn1Parameters,
     electronic_options: &crate::electronic::ElectronicOptions,
     options: TdaOptions,
-    reference_amplitudes: &[f64],
-    reference_mos: Option<&Matrix>,
-) -> Result<f64> {
-    let (ground_energy, td) =
-        td_for_system(system, params, electronic_options, options, reference_mos)?;
-    let mut best = 0usize;
-    let mut best_overlap = -1.0_f64;
-    for (idx, state) in td.states.iter().enumerate() {
-        let overlap: f64 = state
-            .amplitudes
-            .iter()
-            .zip(reference_amplitudes.iter())
-            .map(|(a, b)| a * b)
-            .sum::<f64>()
-            .abs();
-        if overlap > best_overlap {
-            best_overlap = overlap;
-            best = idx;
-        }
+    reference: &TdaResult,
+    state_index: usize,
+    reference_mos: &Matrix,
+) -> Result<(f64, f64)> {
+    let (ground_energy, td, _) = td_for_system(
+        system,
+        params,
+        electronic_options,
+        TdaOptions {
+            n_states: usize::MAX,
+            ..options
+        },
+        Some(reference_mos),
+    )?;
+    if td.pairs != reference.pairs {
+        return Err(Gfn1Error::InvalidInput(
+            "TDA transition space changed under displacement; reduce --tda-step".into(),
+        ));
     }
-    Ok(ground_energy + td.states[best].excitation_energy)
+    let amplitudes = &reference.states[state_index].amplitudes;
+    let best = td
+        .states
+        .iter()
+        .max_by(|a, b| {
+            dot(&a.amplitudes, amplitudes)
+                .abs()
+                .total_cmp(&dot(&b.amplitudes, amplitudes).abs())
+        })
+        .ok_or_else(|| Gfn1Error::InvalidInput("TDA found no displaced states".into()))?;
+    Ok((ground_energy, best.excitation_energy))
 }
 
 /// TD-GFN1 excited-state **gradient** by central finite difference of the
@@ -752,9 +1082,7 @@ fn matched_excited_energy(
 /// the root is followed by amplitude overlap it degrades near a genuine state
 /// crossing: within a near-degenerate pair the two roots' amplitudes are an
 /// arbitrary mixture of the same subspace and the tracking is ill-posed. For the
-/// non-periodic path the displaced MOs are phase-aligned to the reference gauge
-/// so the overlap is meaningful; the periodic path re-diagonalises without that
-/// alignment (see `docs/td.md`).
+/// both paths, the displaced MOs are phase-aligned to the reference gauge.
 pub fn solve_tda_gradient(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -770,27 +1098,16 @@ pub fn solve_tda_gradient(
         ));
     }
     // Reference TDA at the input geometry (non-PBC or Gamma-point periodic).
-    let (ground_energy, td) = td_for_system(system, params, electronic_options, options, None)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
-            "requested TD-GFN1 state {state_index} but only {} are available",
-            td.states.len()
-        )));
-    }
+    let (ground_energy, td, reference_mos) = td_for_system(
+        system,
+        params,
+        electronic_options,
+        options.full_spectrum(),
+        None,
+    )?;
+    td.require_isolated_root(state_index)?;
     let omega = td.states[state_index].excitation_energy;
-    let reference = td.states[state_index].amplitudes.clone();
     let total_energy = ground_energy + omega;
-    // Pin the MO gauge of every displaced solve to the reference geometry, so the
-    // amplitude-overlap root tracking compares like with like.
-    let reference_mos = if system.lattice.is_some() {
-        None
-    } else {
-        Some(reference_mo_coefficients(&crate::run_electronic(
-            system,
-            params,
-            electronic_options.clone(),
-        )?)?)
-    };
 
     let nat = system.atoms.len();
     let inv = 1.0 / (2.0 * step);
@@ -806,18 +1123,20 @@ pub fn solve_tda_gradient(
                 params,
                 electronic_options,
                 options,
-                &reference,
-                reference_mos.as_ref(),
+                &td,
+                state_index,
+                &reference_mos,
             )?;
             let em = matched_excited_energy(
                 &minus,
                 params,
                 electronic_options,
                 options,
-                &reference,
-                reference_mos.as_ref(),
+                &td,
+                state_index,
+                &reference_mos,
             )?;
-            let d = (ep - em) * inv;
+            let d = ((ep.0 - em.0) + (ep.1 - em.1)) * inv;
             match axis {
                 0 => gradient[atom].x = d,
                 1 => gradient[atom].y = d,
@@ -847,14 +1166,23 @@ fn matched_kpoint_excited_energy(
     kmesh: crate::pbc::KMesh,
     options: TdaOptions,
     reference_amplitudes: &[f64],
-) -> Result<f64> {
+) -> Result<(f64, f64)> {
     let pbc = crate::pbc::PbcOptions {
         kmesh,
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
     let ground_energy = scf.total_free;
-    let td = solve_tda_kpoint(system, params, electronic_options, kmesh, options)?;
+    let td = solve_tda_kpoint(
+        system,
+        params,
+        electronic_options,
+        kmesh,
+        TdaOptions {
+            n_states: usize::MAX,
+            ..options
+        },
+    )?;
     let mut best = 0usize;
     let mut best_overlap = -1.0_f64;
     for (idx, state) in td.states.iter().enumerate() {
@@ -870,7 +1198,7 @@ fn matched_kpoint_excited_energy(
             best = idx;
         }
     }
-    Ok(ground_energy + td.states[best].excitation_energy)
+    Ok((ground_energy, td.states[best].excitation_energy))
 }
 
 /// k-mesh periodic TD-GFN1 (TDA) excited-state **gradient** by central finite
@@ -888,11 +1216,56 @@ pub fn solve_tda_kpoint_gradient(
     options: TdaOptions,
     step: f64,
 ) -> Result<TdaGradientResult> {
+    solve_tda_kpoint_gradient_fd(
+        system,
+        params,
+        electronic_options,
+        kmesh,
+        state_index,
+        options,
+        step,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_tda_kpoint_gradient_fd(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic_options: &ElectronicOptions,
+    kmesh: crate::pbc::KMesh,
+    state_index: usize,
+    options: TdaOptions,
+    step: f64,
+    include_ground_fd: bool,
+) -> Result<TdaGradientResult> {
     let _profile = crate::profile::scope("td.tda.kpoint_gradient");
     if system.lattice.is_none() {
         return Err(Gfn1Error::InvalidInput(
             "solve_tda_kpoint_gradient requires a periodic system".to_string(),
         ));
+    }
+
+    if kmesh.is_gamma_only() {
+        return if include_ground_fd {
+            solve_tda_gradient(
+                system,
+                params,
+                electronic_options,
+                state_index,
+                options,
+                step,
+            )
+        } else {
+            solve_tda_gradient_seminumerical(
+                system,
+                params,
+                electronic_options,
+                state_index,
+                options,
+                step,
+            )
+        };
     }
     if !(step.is_finite() && step > 0.0) {
         return Err(Gfn1Error::InvalidInput(
@@ -901,24 +1274,30 @@ pub fn solve_tda_kpoint_gradient(
     }
     let pbc = crate::pbc::PbcOptions {
         kmesh,
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
+
     let ground_energy = scf.total_free;
-    let td = solve_tda_kpoint(system, params, electronic_options, kmesh, options)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
-            "requested TD-GFN1 state {state_index} but only {} are available",
-            td.states.len()
-        )));
-    }
+    let mut gradient = if include_ground_fd {
+        vec![Vec3::zero(); system.atoms.len()]
+    } else {
+        crate::pbc::pbc_gradient_from_scc(system, params, scf, electronic_options, &pbc)?.gradient
+    };
+    let td = solve_tda_kpoint(
+        system,
+        params,
+        electronic_options,
+        kmesh,
+        options.full_spectrum(),
+    )?;
+    td.require_isolated_root(state_index)?;
     let omega = td.states[state_index].excitation_energy;
     let reference = td.states[state_index].amplitudes.clone();
     let total_energy = ground_energy + omega;
 
     let nat = system.atoms.len();
     let inv = 1.0 / (2.0 * step);
-    let mut gradient = vec![Vec3::zero(); nat];
     for atom in 0..nat {
         for axis in 0..3 {
             let mut plus = system.clone();
@@ -926,16 +1305,27 @@ pub fn solve_tda_kpoint_gradient(
             shift_atom(&mut plus, atom, axis, step);
             shift_atom(&mut minus, atom, axis, -step);
             let ep = matched_kpoint_excited_energy(
-                &plus, params, electronic_options, kmesh, options, &reference,
+                &plus,
+                params,
+                electronic_options,
+                kmesh,
+                options,
+                &reference,
             )?;
             let em = matched_kpoint_excited_energy(
-                &minus, params, electronic_options, kmesh, options, &reference,
+                &minus,
+                params,
+                electronic_options,
+                kmesh,
+                options,
+                &reference,
             )?;
-            let d = (ep - em) * inv;
+            let ground_difference = if include_ground_fd { ep.0 - em.0 } else { 0. };
+            let d = (ground_difference + ep.1 - em.1) * inv;
             match axis {
-                0 => gradient[atom].x = d,
-                1 => gradient[atom].y = d,
-                _ => gradient[atom].z = d,
+                0 => gradient[atom].x += d,
+                1 => gradient[atom].y += d,
+                _ => gradient[atom].z += d,
             }
         }
     }
@@ -952,33 +1342,17 @@ pub fn solve_tda_kpoint_gradient(
 /// Selects how [`solve_tda_gradient_method`] computes the excited-state gradient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TdaGradientMethod {
-    /// **Default.** Semi-numerical hybrid: the ground-state gradient is analytic
-    /// (exact) and the excitation-energy gradient `domega/dR` is a central finite
-    /// difference of the *frozen-amplitude* excitation energy
-    /// ([`tda_frozen_excitation_energy`]). Because the excitation energy is
-    /// stationary with respect to the amplitudes at the eigenstate, the frozen
-    /// finite difference equals the true gradient to finite-difference precision
-    /// (not an approximation) for a tracked adiabatic state, while skipping the
-    /// per-displacement TDA re-diagonalisation. Non-periodic.
+    /// Analytic ground gradient plus a numerical excitation-energy derivative.
     SemiNumerical,
-    /// Full central finite difference of the re-diagonalised excitation energy with
-    /// amplitude-overlap root tracking ([`solve_tda_gradient`]). The most robust
-    /// option across state crossings, and the only one that supports periodic
-    /// (Gamma-point) systems.
+    /// Numerical derivative of the total energy with root tracking.
     FiniteDifference,
-    /// Fully analytic gradient ([`solve_tda_gradient_analytic`]): the exact analytic
-    /// derivative of the frozen-amplitude TDA excitation energy, obtained by direct
-    /// differentiation through the ground-state coupled-perturbed (CPHF) orbital
-    /// response. Agrees with the finite-difference reference to FD precision
-    /// (`< 1e-5` Hartree/bohr; ~`1e-9` on the test molecules and ~`2e-7` at the
-    /// periodic Gamma point). Solves one ground-state CPHF over the `3N` Cartesian
-    /// perturbations. Non-periodic **and periodic Gamma-point**.
+    /// Default. Analytic orbital, SCC and occupation response.
     Analytic,
 }
 
 impl Default for TdaGradientMethod {
     fn default() -> Self {
-        TdaGradientMethod::SemiNumerical
+        TdaGradientMethod::Analytic
     }
 }
 
@@ -1032,16 +1406,9 @@ pub fn solve_tda_gradient_method(
     }
 }
 
-/// TD-GFN1 excited-state gradient by the **semi-numerical** hybrid: an analytic,
-/// exact ground-state gradient plus a central finite difference of the
-/// frozen-amplitude excitation energy ([`tda_frozen_excitation_energy`]).
-///
-/// This is the recommended production method. It is exact (to finite-difference
-/// precision) for a tracked adiabatic state by the amplitude-stationarity (`2n+1`)
-/// argument, and it avoids re-diagonalising the TDA problem at every displaced
-/// geometry — so it is cheaper than [`solve_tda_gradient`] while sidestepping the
-/// experimental Lagrangian relaxed-density convention. Non-periodic; for periodic
-/// (Gamma-point) systems use [`solve_tda_gradient`] (finite difference).
+/// Analytic ground gradient plus a central difference of the excitation energy.
+/// Molecular displacements use a frozen-amplitude Rayleigh quotient. At Gamma
+/// the displaced response is diagonalized and the root is matched by overlap.
 pub fn solve_tda_gradient_seminumerical(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -1051,13 +1418,6 @@ pub fn solve_tda_gradient_seminumerical(
     step: f64,
 ) -> Result<TdaGradientResult> {
     let _profile = crate::profile::scope("td.tda.gradient_seminumerical");
-    if system.lattice.is_some() {
-        return Err(Gfn1Error::InvalidInput(
-            "solve_tda_gradient_seminumerical is non-periodic; use solve_tda_gradient \
-             (finite difference) for periodic (Gamma-point) systems"
-                .to_string(),
-        ));
-    }
     if !(step.is_finite() && step > 0.0) {
         return Err(Gfn1Error::InvalidInput(
             "TD-GFN1 gradient step must be positive".to_string(),
@@ -1070,21 +1430,35 @@ pub fn solve_tda_gradient_seminumerical(
     };
     let ground = analytic_gradient(system, params, grad_options)?;
     // Reference TDA solve once at the input geometry to fix the target amplitudes.
-    let td = solve_tda(system, params, &ground.electronic_result, options)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
-            "requested TD-GFN1 state {state_index} but only {} are available",
-            td.states.len()
-        )));
-    }
+
+    let periodic = system.lattice.is_some();
+    let (td, reference_mos) = if periodic {
+        let (_, td, mos) = td_for_system(
+            system,
+            params,
+            electronic_options,
+            options.full_spectrum(),
+            None,
+        )?;
+        (td, mos)
+    } else {
+        (
+            solve_tda(
+                system,
+                params,
+                &ground.electronic_result,
+                options.full_spectrum(),
+            )?,
+            reference_mo_coefficients(&ground.electronic_result)?,
+        )
+    };
+    td.require_isolated_root(state_index)?;
     let omega = td.states[state_index].excitation_energy;
     let amplitudes = td.states[state_index].amplitudes.clone();
     // MO gauge the amplitudes are expressed in. Every displaced geometry is
     // phase-aligned to it, otherwise the eigensolver's arbitrary per-orbital
     // sign makes the frozen Rayleigh quotient discontinuous and the finite
     // difference diverges as 1/h for any state with transition charge.
-    let reference_mos = reference_mo_coefficients(&ground.electronic_result)?;
-
     // Central finite difference of the frozen-amplitude excitation energy gives
     // domega/dR exactly (amplitude stationarity); add it to the analytic ground gradient.
     let nat = system.atoms.len();
@@ -1096,22 +1470,32 @@ pub fn solve_tda_gradient_seminumerical(
             let mut minus = system.clone();
             shift_atom(&mut plus, atom, axis, step);
             shift_atom(&mut minus, atom, axis, -step);
-            let wp = tda_frozen_excitation_energy_with_mos(
-                &plus,
-                params,
-                electronic_options,
-                &amplitudes,
-                options.spin,
-                Some(&reference_mos),
-            )?;
-            let wm = tda_frozen_excitation_energy_with_mos(
-                &minus,
-                params,
-                electronic_options,
-                &amplitudes,
-                options.spin,
-                Some(&reference_mos),
-            )?;
+
+            let excitation = |displaced: &PeriodicSystem| -> Result<f64> {
+                if periodic {
+                    Ok(matched_excited_energy(
+                        displaced,
+                        params,
+                        electronic_options,
+                        options,
+                        &td,
+                        state_index,
+                        &reference_mos,
+                    )?
+                    .1)
+                } else {
+                    tda_frozen_excitation_energy_with_mos(
+                        displaced,
+                        params,
+                        electronic_options,
+                        &amplitudes,
+                        options.spin,
+                        Some(&reference_mos),
+                    )
+                }
+            };
+            let wp = excitation(&plus)?;
+            let wm = excitation(&minus)?;
             let d = (wp - wm) * inv;
             match axis {
                 0 => gradient[atom].x += d,
@@ -1127,6 +1511,179 @@ pub fn solve_tda_gradient_seminumerical(
         total_energy: ground.total_energy + omega,
         gradient,
         forces,
+    })
+}
+
+/// Result for the mean energy surface of a spectrally isolated TDA manifold.
+#[derive(Clone, Debug)]
+pub struct TdaManifoldGradientResult {
+    /// Contiguous zero-based roots at the reference geometry.
+    pub roots: std::ops::Range<usize>,
+    /// Actual displacement in bohr for a numerical method.
+    pub effective_step_bohr: Option<f64>,
+    /// Gradient of the ground free energy plus the mean excitation energy.
+    pub mean: TdaGradientResult,
+}
+
+pub(crate) fn limited_tda_step(step: f64, separation: f64, size: usize) -> f64 {
+    step.min(if size > 1 {
+        separation
+    } else {
+        0.025 * separation
+    })
+}
+
+/// Mean gradient of the TDA manifold containing the selected root.
+/// The trace over a degenerate subspace defines the mean energy derivative.
+/// Molecular and Gamma-point periodic systems are supported.
+pub fn solve_tda_manifold_gradient(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic_options: &ElectronicOptions,
+    state: usize,
+    options: TdaOptions,
+    step: f64,
+    method: TdaGradientMethod,
+) -> Result<TdaManifoldGradientResult> {
+    if method != TdaGradientMethod::Analytic && !(step.is_finite() && step > 0.) {
+        return Err(Gfn1Error::InvalidInput(
+            "TDA manifold displacement must be positive and finite".into(),
+        ));
+    }
+    let mut electronic_options = electronic_options.clone();
+    electronic_options.energy_tolerance = electronic_options.energy_tolerance.min(1e-12);
+    electronic_options.charge_tolerance = electronic_options.charge_tolerance.min(1e-11);
+    let (_, td, _) = td_for_system(
+        system,
+        params,
+        &electronic_options,
+        options.full_spectrum(),
+        None,
+    )?;
+    let roots = td.root_manifold(state)?;
+    let step = limited_tda_step(step, td.root_separation(state, &roots), roots.len());
+    let mean = if roots.len() == 1 {
+        solve_tda_gradient_method(
+            system,
+            params,
+            &electronic_options,
+            state,
+            options,
+            step,
+            method,
+        )?
+    } else {
+        solve_tda_manifold_gradient_in_range(
+            system,
+            params,
+            &electronic_options,
+            state,
+            roots.clone(),
+            options,
+            step,
+            method,
+        )?
+    };
+    Ok(TdaManifoldGradientResult {
+        roots,
+        effective_step_bohr: (method != TdaGradientMethod::Analytic).then_some(step),
+        mean,
+    })
+}
+
+/// Mean gradient of a spectrally isolated group of TDA roots. Individual
+/// eigenvectors can rotate freely inside a degenerate manifold, whereas the
+/// sum of its eigenvalues and the trace of its derivative are invariant.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_tda_manifold_gradient_in_range(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic_options: &ElectronicOptions,
+    state_index: usize,
+    roots: std::ops::Range<usize>,
+    options: TdaOptions,
+    step: f64,
+    method: TdaGradientMethod,
+) -> Result<TdaGradientResult> {
+    let count = roots.len() as f64;
+    let options = TdaOptions {
+        n_states: options.n_states.max(roots.end),
+        ..options
+    };
+    if method == TdaGradientMethod::Analytic && system.lattice.is_none() {
+        return hessian::solve_molecular_manifold_gradient(
+            system, params, electronic_options, state_index, options, ResponseMethod::Tda,
+            true, Some(roots),
+        ).map(|result| result.mean);
+    }
+    let mut gradient = vec![Vec3::zero(); system.atoms.len()];
+    let (ground_energy, omega) = if method == TdaGradientMethod::Analytic {
+        let mut energy = 0.0;
+        let mut omega = 0.0;
+        for index in roots {
+            let root = solve_tda_gradient_analytic_impl(
+                system,
+                params,
+                electronic_options,
+                index,
+                options,
+                false,
+            )?;
+            energy += (root.total_energy - root.excitation_energy) / count;
+            omega += root.excitation_energy / count;
+            for (out, value) in gradient.iter_mut().zip(root.gradient) {
+                *out += value * (1.0 / count);
+            }
+        }
+        (energy, omega)
+    } else {
+        if !(step.is_finite() && step > 0.0) {
+            return Err(Gfn1Error::InvalidInput(
+                "TDA manifold displacement must be positive".into(),
+            ));
+        }
+        let evaluate = |system: &PeriodicSystem| -> Result<(f64, f64)> {
+            let (energy, td, _) = td_for_system(system, params, electronic_options, options, None)?;
+            let states = td.states.get(roots.clone()).ok_or_else(|| {
+                Gfn1Error::InvalidInput("TDA manifold is missing at the displaced geometry".into())
+            })?;
+            let excitation = states.iter().map(|s| s.excitation_energy).sum::<f64>() / count;
+            Ok((energy, excitation))
+        };
+        let include_ground_fd = method == TdaGradientMethod::FiniteDifference;
+        if !include_ground_fd {
+            gradient = analytic_gradient(
+                system,
+                params,
+                AnalyticGradientOptions {
+                    electronic: electronic_options.clone(),
+                    ..Default::default()
+                },
+            )?
+            .gradient;
+        }
+        for (atom, out) in gradient.iter_mut().enumerate() {
+            let mut response = [0.; 3];
+            for (axis, value) in response.iter_mut().enumerate() {
+                let mut plus = system.clone();
+                let mut minus = system.clone();
+                shift_atom(&mut plus, atom, axis, step);
+                shift_atom(&mut minus, atom, axis, -step);
+                let (ep, wp) = evaluate(&plus)?;
+                let (em, wm) = evaluate(&minus)?;
+                let ground_difference = if include_ground_fd { ep - em } else { 0. };
+                *value = (wp - wm + ground_difference) / (2. * step);
+            }
+            *out += Vec3::new(response[0], response[1], response[2]);
+        }
+        evaluate(system)?
+    };
+    Ok(TdaGradientResult {
+        state_index,
+        excitation_energy: omega,
+        total_energy: ground_energy + omega,
+        forces: gradient.iter().map(|g| -*g).collect(),
+        gradient,
     })
 }
 
@@ -1729,6 +2286,7 @@ fn tda_direct_excitation_gradient(
     }
     let mos = &cphf.mos;
     let orbital_energies = &cphf.orbital_energies;
+    validate_tda_occupations(&electronic.occupations)?;
     let space = CpxtbSpace::from_occupations(&electronic.occupations)?;
     if amplitudes.len() != space.len() {
         return Err(Gfn1Error::InvalidInput(
@@ -1899,7 +2457,11 @@ fn tda_direct_excitation_gradient(
             let c_deriv = mos.matmul(&u_mo)?;
             let mut dsc = overlap_deriv.matmul(mos)?;
             let s_cderiv = overlap.matmul(&c_deriv)?;
-            for (dst, &v) in dsc.as_mut_slice().iter_mut().zip(s_cderiv.as_slice().iter()) {
+            for (dst, &v) in dsc
+                .as_mut_slice()
+                .iter_mut()
+                .zip(s_cderiv.as_slice().iter())
+            {
                 *dst += v;
             }
             let mut dp_shell = vec![0.0_f64; nshell];
@@ -1964,7 +2526,30 @@ pub fn solve_tda_gradient_analytic(
     state_index: usize,
     options: TdaOptions,
 ) -> Result<TdaGradientResult> {
+    solve_tda_gradient_analytic_impl(
+        system,
+        params,
+        electronic_options,
+        state_index,
+        options,
+        true,
+    )
+}
+
+fn solve_tda_gradient_analytic_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic_options: &ElectronicOptions,
+    state_index: usize,
+    options: TdaOptions,
+    isolate: bool,
+) -> Result<TdaGradientResult> {
     let _profile = crate::profile::scope("td.tda.gradient_analytic");
+    let options = if isolate {
+        options.full_spectrum()
+    } else {
+        options
+    };
     if system.lattice.is_some() {
         return solve_tda_gradient_analytic_pbc_gamma(
             system,
@@ -1972,6 +2557,7 @@ pub fn solve_tda_gradient_analytic(
             electronic_options,
             state_index,
             options,
+            isolate,
         );
     }
     // Ground state: SCC + analytic nuclear gradient.
@@ -1982,13 +2568,28 @@ pub fn solve_tda_gradient_analytic(
     let ground = analytic_gradient(system, params, grad_options)?;
     let electronic = &ground.electronic_result;
 
-    // TDA excited state.
+    if electronic.solvation.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "analytic TDA excited-state gradients require a gas-phase reference".into(),
+        ));
+    }
     let td = solve_tda(system, params, electronic, options)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
-            "requested TD-GFN1 state {state_index} but only {} are available",
-            td.states.len()
-        )));
+    if isolate {
+        td.require_isolated_root(state_index)?;
+    }
+
+    if !isolate || has_fractional_occupations(&electronic.occupations) {
+        return hessian::molecular_response_gradient(
+            system,
+            params,
+            electronic_options,
+            ground,
+            &td,
+            state_index,
+            state_index..state_index + 1,
+            options.spin,
+            ResponseMethod::Tda,
+        );
     }
     let omega = td.states[state_index].excitation_energy;
     let amplitudes = td.states[state_index].amplitudes.clone();
@@ -2031,35 +2632,54 @@ fn solve_tda_gradient_analytic_pbc_gamma(
     electronic_options: &ElectronicOptions,
     state_index: usize,
     options: TdaOptions,
+    isolate: bool,
 ) -> Result<TdaGradientResult> {
     let pbc = crate::pbc::PbcOptions {
         kmesh: crate::pbc::KMesh::gamma(),
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
     // Ground-state PBC SCC + analytic nuclear gradient.
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
-    let ground = crate::pbc::pbc_gradient_from_scc(
-        system,
-        params,
-        scf.clone(),
-        electronic_options,
-        &pbc,
-    )?;
+    let ground =
+        crate::pbc::pbc_gradient_from_scc(system, params, scf.clone(), electronic_options, &pbc)?;
 
-    // TDA excited state at Gamma (same MOs/occupation/amplitude ordering as the
-    // CPHF occ-virt space below).
-    let td = solve_tda_pbc_gamma(system, params, electronic_options, options)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
+    if scf.ml_parameters.is_some()
+        || electronic_options.external_field.electric_field.is_some()
+        || electronic_options.multipole
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "analytic Gamma TDA gradient requires the scalar periodic SCC model without structural ML or an applied field".into(),
+        ));
+    }
+    let mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
+    let td = gamma_response(system, &scf, &mos, options)?;
+    if isolate {
+        td.require_isolated_root(state_index)?;
+    }
+    let state = td.states.get(state_index).ok_or_else(|| {
+        Gfn1Error::InvalidInput(format!(
             "requested TD-GFN1 state {state_index} but only {} are available",
             td.states.len()
-        )));
-    }
-    let omega = td.states[state_index].excitation_energy;
-    let amplitudes = td.states[state_index].amplitudes.clone();
+        ))
+    })?;
+    let omega = state.excitation_energy;
     let coupling = options.spin.coupling_scale();
-
-    // Skeleton derivatives and Gamma MOs (reuse the converged SCC).
+    let basis = &scf.basis;
+    let kernel = crate::pbc::hessian::periodic_response_kernel(&scf);
+    let ctx = crate::response::charge_space::ChargeSpaceContext::from_raw_parts(
+        system,
+        params,
+        basis.clone(),
+        mos.overlap.clone(),
+        scf.density_k[0].re.clone(),
+        mos.coeff.clone(),
+        mos.energies.clone(),
+        mos.occupations.clone(),
+        scf.electronic_temperature,
+        &scf.atomic_charges,
+        scf.shell_model.charge_order,
+        kernel.clone(),
+    )?;
     let skeleton = crate::pbc::hessian::gamma_skeleton_derivatives(
         system,
         params,
@@ -2067,84 +2687,94 @@ fn solve_tda_gradient_analytic_pbc_gamma(
         electronic_options,
         &pbc,
     )?;
-    let mos = crate::pbc::hessian::gamma_mos(&scf, scf.nelec)?;
-
-    let mut excitation_grad = crate::pbc::hessian::pbc_gamma_tda_excitation_gradient(
-        system,
-        params,
-        &scf,
-        &skeleton,
-        &mos,
-        electronic_options,
-        &pbc,
-        &amplitudes,
-        coupling,
-    )?;
-
-    let nat = system.atoms.len();
-    // The periodic kernel-derivative helper differentiates the Ewald `gamma` only.
-    // Add the on-site third-order (ground-charge chain) part of the same kernel
-    // derivative — see `onsite_third_order_coupling_weights`.
-    let transition = transition_shell_charges(
-        &scf.basis,
-        &mos.coeff,
-        &mos.occupations,
-        &mos.overlap,
-    )?;
-    let mut p_shell = vec![0.0_f64; scf.basis.shells.len()];
-    for (qia, &amp) in transition.iter().zip(amplitudes.iter()) {
-        for (s, &q) in qia.iter().enumerate() {
-            p_shell[s] += amp * q;
+    let sc = mos.overlap.matmul(&mos.coeff)?;
+    let transition = td.pairs.iter().map(|&(i, a)| {
+        crate::response::cpxtb::mo_pair_transition_shell_charge(basis, &mos.coeff, &sc, i, a)
+    }).collect::<Result<Vec<_>>>()?;
+    let weights: Vec<_> = td
+        .pairs
+        .iter()
+        .map(|&(i, a)| (0.5 * (mos.occupations[i] - mos.occupations[a])).sqrt())
+        .collect();
+    let mut p_shell = vec![0.0; basis.shells.len()];
+    for ((charge, &weight), &amp) in transition.iter().zip(&weights).zip(&state.amplitudes) {
+        for (p, &q) in p_shell.iter_mut().zip(charge) {
+            *p += amp * weight * q;
         }
     }
-    // The periodic response kernel carries the DFTB3 `2 Gamma q` on-site block only
-    // (charge_order 3), so match it here.
-    let onsite_weights = onsite_third_order_coupling_weights(
+    let p_potential = matrix_vector_product(&kernel, &p_shell)?;
+    let onsite = onsite_third_order_coupling_weights(
         system,
         params,
-        &scf.basis,
+        basis,
         &scf.shell_charges,
-        3,
+        scf.shell_model.charge_order,
         &p_shell,
         coupling,
     )?;
-    if onsite_weights.iter().any(|&w| w != 0.0) {
-        let (density_responses, _) =
-            crate::pbc::hessian::gamma_cpxtb_density_responses(&scf, &skeleton, &mos)?;
-        let n = scf.basis.len();
-        let mut ground_density = Matrix::zeros(n, n);
-        for p in 0..mos.occupations.len() {
-            let occ = mos.occupations[p];
-            if occ <= 1.0e-14 {
-                continue;
-            }
-            for mu in 0..n {
-                for nu in 0..n {
-                    ground_density[(mu, nu)] += occ * mos.coeff[(mu, p)] * mos.coeff[(nu, p)];
+    let lattice = system
+        .lattice
+        .as_ref()
+        .expect("Gamma TDA requires a lattice");
+    let geometric = crate::pbc::gradient::transition_kernel_gamma_gradient(
+        system, &scf, &pbc, lattice, &p_shell,
+    );
+    let mut gradient = ground.gradient;
+    for coord in 0..skeleton.overlap.len() {
+        let s1 = &skeleton.overlap[coord];
+        let field = ctx.first_order_field(skeleton.fock[coord].clone(), s1.clone())?;
+        let c1 = mos.coeff.matmul(&field.u_rotation)?;
+        let mut sc1 = s1.matmul(&mos.coeff)?;
+        for (v, &add) in sc1
+            .as_mut_slice()
+            .iter_mut()
+            .zip(mos.overlap.matmul(&c1)?.as_slice())
+        {
+            *v += add;
+        }
+        let mut excitation = 2.0 * coupling * geometric[coord / 3].to_array()[coord % 3]
+            + dot(&onsite, &field.bundle.shell_charges);
+
+        let fock_frame = |p: usize, q: usize| {
+            field.h_tilde[(p, q)]
+                + mos.energies[p] * field.u_rotation[(p, q)]
+                + mos.energies[q] * field.u_rotation[(q, p)]
+        };
+        let integer_manifold = !isolate && !has_fractional_occupations(&mos.occupations);
+        for (index, &(i, a)) in td.pairs.iter().enumerate() {
+            let amp = state.amplitudes[index];
+            excitation += amp * amp * (field.eps_response[a] - field.eps_response[i]);
+            if integer_manifold {
+                for (&(j, b), &other) in td.pairs[..index].iter().zip(&state.amplitudes) {
+                    if i == j {
+                        excitation += 2. * amp * other * fock_frame(a, b);
+                    }
+                    if a == b {
+                        excitation -= 2. * amp * other * fock_frame(j, i);
+                    }
                 }
             }
-        }
-        for coord in 0..3 * nat {
-            let shell_response = response_shell_charges_from_density(
-                &scf.basis,
-                &mos.overlap,
-                &ground_density,
-                &density_responses[coord],
-                &skeleton.overlap[coord],
-            )?;
-            let value = dot(&onsite_weights, &shell_response);
-            match coord % 3 {
-                0 => excitation_grad[coord / 3].x += value,
-                1 => excitation_grad[coord / 3].y += value,
-                _ => excitation_grad[coord / 3].z += value,
+            if coupling != 0.0 {
+                let dq = transition_shell_charge_derivative_for_mo_pair(
+                    basis, &mos.coeff, &sc, &c1, &sc1, i, a,
+                );
+                let df = &field.bundle.occupation_response;
+                let weight = weights[index];
+                let dw = (df[i] - df[a]) / (4.0 * weight);
+                excitation += 2.0
+                    * coupling
+                    * amp
+                    * (weight * dot(&dq, &p_potential)
+                        + dw * dot(&transition[index], &p_potential));
             }
+        }
+        match coord % 3 {
+            0 => gradient[coord / 3].x += excitation,
+            1 => gradient[coord / 3].y += excitation,
+            _ => gradient[coord / 3].z += excitation,
         }
     }
 
-    let mut gradient = ground.gradient.clone();
-    for atom in 0..nat {
-        gradient[atom] += excitation_grad[atom];
-    }
     let forces = gradient.iter().map(|g| -*g).collect::<Vec<_>>();
     Ok(TdaGradientResult {
         state_index,
@@ -2178,8 +2808,18 @@ pub fn solve_tda_kpoint_gradient_analytic(
     }
     let pbc = crate::pbc::PbcOptions {
         kmesh,
-        ..crate::pbc::PbcOptions::default()
+        ..crate::pbc::PbcOptions::for_electronic(electronic_options)?
     };
+
+    if kmesh.is_gamma_only() {
+        return solve_tda_gradient_analytic(
+            system,
+            params,
+            electronic_options,
+            state_index,
+            options,
+        );
+    }
     // Ground-state PBC SCC (shared) + analytic nuclear gradient on the same mesh.
     let scf = crate::pbc::run_pbc_scc(system, params, electronic_options, &pbc)?;
     if !scf.converged {
@@ -2187,22 +2827,18 @@ pub fn solve_tda_kpoint_gradient_analytic(
             "k-point TD-GFN1 gradient requires a converged periodic SCC".to_string(),
         ));
     }
-    let ground = crate::pbc::pbc_gradient_from_scc(
-        system,
-        params,
-        scf.clone(),
-        electronic_options,
-        &pbc,
-    )?;
+    let ground =
+        crate::pbc::pbc_gradient_from_scc(system, params, scf.clone(), electronic_options, &pbc)?;
 
     // TDA excited state on the mesh; freeze the requested root's amplitudes.
-    let td = solve_tda_kpoint(system, params, electronic_options, kmesh, options)?;
-    if state_index >= td.states.len() {
-        return Err(Gfn1Error::InvalidInput(format!(
-            "requested TD-GFN1 state {state_index} but only {} are available",
-            td.states.len()
-        )));
-    }
+    let td = solve_tda_kpoint(
+        system,
+        params,
+        electronic_options,
+        kmesh,
+        options.full_spectrum(),
+    )?;
+    td.require_isolated_root(state_index)?;
     let omega = td.states[state_index].excitation_energy;
     let amplitudes = td.states[state_index].amplitudes.clone();
     let labels = td.pairs.clone();
@@ -2438,10 +3074,11 @@ fn tda_frozen_excitation_energy_with_mos(
         ));
     }
     let electronic = crate::run_electronic(system, params, electronic_options.clone())?;
+    validate_tda_occupations(&electronic.occupations)?;
     let overlap = &electronic.integrals.overlap;
     let eig = lowdin_solve_generalized(&electronic.fock, overlap, 1.0e-12)?;
-    let space = CpxtbSpace::from_occupations(&electronic.occupations)?;
-    if amplitudes.len() != space.len() {
+    let pairs = response_pairs(&eig.values, &electronic.occupations)?;
+    if amplitudes.len() != pairs.len() {
         return Err(Gfn1Error::InvalidInput(
             "tda_frozen_excitation_energy amplitude length mismatch".to_string(),
         ));
@@ -2450,14 +3087,13 @@ fn tda_frozen_excitation_energy_with_mos(
     if let Some(reference) = reference_mos {
         phase_align_mos_to_reference(&mut mos, reference, overlap)?;
     }
-    let gaps = space
-        .pairs
+    let gaps = pairs
         .iter()
         .map(|&(i, a)| eig.values[a] - eig.values[i])
         .collect::<Vec<_>>();
     let kernel = response_shell_scc_kernel(system, params, &electronic)?;
     let transition =
-        transition_shell_charges(&electronic.basis, &mos, &electronic.occupations, overlap)?;
+        weighted_transition_charges(&electronic.basis, &mos, &electronic.occupations, overlap, &pairs)?;
     let sigma = tda_sigma(
         &gaps,
         &kernel,
@@ -2467,6 +3103,98 @@ fn tda_frozen_excitation_energy_with_mos(
     )?;
     let norm2 = dot(amplitudes, amplitudes);
     Ok(dot(amplitudes, &sigma) / norm2)
+}
+
+// A positive-frequency interband response excludes splittings inside
+// thermal orbital blocks. Keeping complete blocks makes the local surface
+// independent of rotations in a degenerate, partially occupied eigenspace.
+const THERMAL_INTERBAND_BLOCK_HARTREE: f64 = 1e-6;
+
+fn response_pairs(energies: &[f64], occupations: &[f64]) -> Result<Vec<(usize, usize)>> {
+    let mut pairs = CpxtbSpace::from_occupations(occupations)?.pairs;
+    if has_fractional_occupations(occupations) {
+        let blocks = hessian::orbital_blocks(energies, THERMAL_INTERBAND_BLOCK_HARTREE);
+        let mut mean = vec![(0., 0.); energies.len()];
+        for (i, &b) in blocks.iter().enumerate() {
+            mean[b].0 += occupations[i];
+            mean[b].1 += 1.;
+        }
+        pairs.retain(|&(i,a)| {
+            let (i, a) = (blocks[i], blocks[a]);
+            i != a && mean[i].0 / mean[i].1 - mean[a].0 / mean[a].1 > 1e-10
+        });
+    }
+    if pairs.is_empty() {
+        return Err(Gfn1Error::InvalidInput("TD-GFN1 found no interband transitions".into()));
+    }
+    Ok(pairs)
+}
+
+fn weighted_transition_charges(
+    basis: &crate::basis::BasisSet,
+    mos: &Matrix,
+    occupations: &[f64],
+    overlap: &Matrix,
+    pairs: &[(usize, usize)],
+) -> Result<Vec<Vec<f64>>> {
+    let sc = overlap.matmul(mos)?;
+    pairs.iter().map(|&(i, a)| {
+        let mut charge = crate::response::cpxtb::mo_pair_transition_shell_charge(basis, mos, &sc, i, a)?;
+        let weight = (0.5 * (occupations[i] - occupations[a])).sqrt();
+        for q in &mut charge {
+            *q *= weight;
+        }
+        Ok(charge)
+    }).collect()
+}
+
+/// TDA uses D + C. RPA uses the symmetric squared-frequency form
+/// D^(1/2) (D + 2 C) D^(1/2), since the local SCC kernel gives A-B = D.
+fn response_matrix(
+    gaps: &[f64],
+    kernel: &Matrix,
+    transition: &[Vec<f64>],
+    coupling: f64,
+    method: ResponseMethod,
+) -> Result<Matrix> {
+    let scales: Vec<_> = gaps.iter().map(|&gap| if method == ResponseMethod::Rpa { gap.sqrt() } else { 1. }).collect();
+    let scale = if method == ResponseMethod::Rpa { 2. * coupling } else { coupling };
+    let mut matrix = transition_interaction(kernel, transition, &scales, scale)?;
+    for (i, &gap) in gaps.iter().enumerate() {
+        matrix[(i,i)] += if method == ResponseMethod::Rpa { gap * gap } else { gap };
+    }
+    Ok(matrix)
+}
+
+fn transition_interaction(
+    kernel: &Matrix, transition: &[Vec<f64>], scales: &[f64], coupling: f64,
+) -> Result<Matrix> {
+    let n = transition.len();
+    crate::resources::check_dense_workspace(n, n, 8, "TD-GFN1 response")?;
+    if coupling == 0. {
+        return Ok(Matrix::zeros(n,n));
+    }
+    let mut charges = Matrix::zeros(kernel.rows(), n);
+    for (j, (charge, &scale)) in transition.iter().zip(scales).enumerate() {
+        for (i, &q) in charge.iter().enumerate() {
+            charges[(i,j)] = q * scale;
+        }
+    }
+    let mut matrix = crate::linalg::matmul_transpose_a(&charges, &kernel.matmul(&charges)?)?;
+    for value in matrix.as_mut_slice() {
+        *value *= coupling;
+    }
+    Ok(matrix)
+}
+
+fn excitation_energy(eigenvalue: f64, method: ResponseMethod) -> Result<f64> {
+    match method {
+        ResponseMethod::Tda => Ok(eigenvalue),
+        ResponseMethod::Rpa if eigenvalue > 0.0 => Ok(eigenvalue.sqrt()),
+        ResponseMethod::Rpa => Err(Gfn1Error::InvalidInput(format!(
+            "unstable RPA reference: squared excitation frequency {eigenvalue:.6e} is nonpositive"
+        ))),
+    }
 }
 
 /// TDA sigma vector `A X = gap*X + c * q (K (q^T X))`.
@@ -2880,10 +3608,7 @@ mod tests {
             Some(TdaGradientMethod::Analytic)
         );
         assert_eq!(TdaGradientMethod::parse("bogus"), None);
-        assert_eq!(
-            TdaGradientMethod::default(),
-            TdaGradientMethod::SemiNumerical
-        );
+        assert_eq!(TdaGradientMethod::default(), TdaGradientMethod::Analytic);
     }
 
     /// TEST 1 (third-order isolation): the analytic gradient drops the on-site

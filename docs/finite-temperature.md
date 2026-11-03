@@ -5,9 +5,16 @@ the SCC solve the **Mermin free energy** `E − T·S_elec`, and every derivative
 must carry the occupation response. This page describes the v0.5.0 response
 machinery that makes that work, and which derivative orders it currently reaches.
 
-The reported `total_free` is the Mermin free energy; `total_internal` is the plain
-internal energy; `electronic_entropy` is the `−T·S` piece. `EnergyTerms::named_values()`
-returns **15** terms (see [rust-api.md](rust-api.md#single-point)).
+The CLI reports `total_free = total_internal - T_elec*S_elec` in Hartree.
+`total_internal` is the GFN1 energy functional evaluated at the same converged
+finite-temperature density. The `electronic` line is its one-electron
+component `Tr(P H0)`. The total also includes SCC, repulsion, dispersion,
+halogen bonding and any active model terms, including the effective solvent
+energy when ALPB or GBSA is selected. The CLI `entropy` line and API
+`electronic_entropy` field report the signed energy contribution
+`-T_elec*S_elec` in Hartree. These quantities use electronic Fermi occupations.
+Nuclear vibrational, rotational and translational thermal contributions
+belong to separate thermochemistry calculations.
 
 `constants::KB_HARTREE_PER_K` is the one Boltzmann constant used by every
 finite-temperature path — see [parameters.md](parameters.md#unit-constants-reporting-vs-model).
@@ -326,10 +333,22 @@ block or directional modes. Gates: `T = 0` element-wise equality against
 dense reference with the `h²` ladder (`ratio 4.00`); block-vs-dense
 consistency.
 
-**Not covered:** exactly degenerate *and* fractionally occupied blocks, which the
-second-order solver rejects explicitly (see below). The strict closed-form
-dense/vector/block FC3 (`third_derivative_analytic_*`) still rejects fractional
-occupations outright — use the `finite_t` drivers above for smeared systems.
+Exactly degenerate, fractionally occupied blocks use the frame-free spectral
+second-order response and are supported for FC3. Standard dense/vector/block
+FC3 names (`third_derivative_analytic_*`) now select this canonical analytic
+backend whenever the requested electronic temperature is positive. The T=0
+closed-form backend is retained. Neither route substitutes a finite difference.
+
+For direct contractions, `third_derivative::CubicReference` also supports
+positive temperature without Cartesian FC3 slabs. Its variational trial uses
+all metric-orthonormalized MOs and the complete first occupation-matrix
+response. The analytic entropy trace includes off-diagonal responses inside
+fractionally occupied degenerate blocks. Electron number is fixed; no frozen
+occupation or fixed-chemical-potential approximation is made. This path also
+includes structural ML level/correction jets and retains quadratic matrix
+storage. The default scalar/packed spectral reference retains cubic frozen
+slabs; its workspace estimate and the dense polarization plan are preflighted
+against their memory budget.
 
 ---
 
@@ -377,25 +396,51 @@ Gates:
   (`7.5e-14`) and a smeared 4-dof block contraction vs the directional value
   (`9.8e-13`).
 
-Like the FC3 stack, every ingredient is occupation-agnostic; the same
-exact-degeneracy exclusion applies.
+The third-order electronic response needed by FC4 now also uses the spectral
+resolvent, including confluent limits and the third chemical-potential response.
+Exact fractional degeneracy is supported; see the Ni(CO)4 and all-component HF
+checks in [limitations.md](limitations.md).
+
+The standard molecular API dispatch is independently checked in
+`tests/third_derivative_contracted.rs`. For skew HF at 30000 K, comparing every
+ordered Cartesian component with two-step, reconverged finite differences gives:
+
+| Quantity | Components | Maximum absolute difference |
+| --- | --- | --- |
+| Analytic FC3 vs FD of the analytic Hessian | 216 | `2.78e-12` Hartree/bohr³ |
+| Analytic FC4 vs FD of analytic FC3 | 1296 | `1.26e-11` Hartree/bohr⁴ |
+| Variational mixed FC3 vs spectral tensor | 216 | `1.33e-12` Hartree/bohr³ |
+
+The same suite checks dense/vector/atom-block/slab equivalence, reused quartic
+references, semidiagonal contractions, exactly degenerate H3/B2 occupations,
+the H3 thermal quartic, and structural ML thermal FC3 through both standard
+and explicit `finite_t` APIs. High temperatures here deliberately populate
+fractional occupation channels; the public default remains 300 K.
 
 ---
 
-## 4. What finite temperature does *not* reach yet
+## 4. Finite-temperature coverage
 
 | Path | Smearing |
 | --- | --- |
 | SCC energy, gradient / forces (molecular and periodic) | ✅ |
 | Analytic Hessian (molecular) | ✅ |
 | Seminumerical FC3 (`third_derivative_seminumerical_*`) | ✅ (free-energy cubic constants) |
-| Analytic directional FC3 (`directional_third_finite_t`) | ✅ (except exact degeneracy) |
-| Analytic dense/block FC3 (`third_derivative_finite_t_dense` / `_block`) | ✅ (except exact degeneracy) |
-| Analytic FC3 dense/vector/block, `T = 0` closed form (`third_derivative_analytic_*`) | ❌ explicit error — use the `finite_t` drivers |
-| Analytic directional/dense/block FC4 (`directional_fourth_finite_t`, `fourth_derivative_finite_t_dense` / `_block`) | ✅ (except exact degeneracy) |
-| Analytic FC4, `T = 0` closed form (`directional_fourth_derivative`, `fourth_derivative_analytic_*`) | ❌ explicit error — use the `finite_t` drivers |
+| Analytic directional FC3 (`directional_third_finite_t`) | ✅ (including exact fractional degeneracy) |
+| Analytic dense/block FC3 (`third_derivative_finite_t_dense` / `_block`) | ✅ (including exact fractional degeneracy) |
+| Standard analytic FC3 dense/vector/block (`third_derivative_analytic_*`) | ✅ automatic canonical thermal backend at positive T |
+| Direct variational FC3 (`CubicReference`) | ✅ canonical occupation-matrix entropy, including exact fractional degeneracy |
+| Analytic directional/dense/block FC4 (`directional_fourth_finite_t`, `fourth_derivative_finite_t_dense` / `_block`) | ✅ (including exact fractional degeneracy) |
+| Standard analytic FC4 (`directional_fourth_derivative`, `fourth_derivative_analytic_*`, `QuarticReference`) | ✅ automatic canonical spectral thermal backend at positive T |
 | Analytic polarizability (`static_polarizability`) | ❌ — use `static_polarizability_finite_field` |
 | Periodic Hessian at `T > 0` (Γ and k-point) | ✅ direct charge-space dielectric solve — see [pbc.md §5](pbc.md#5-periodic-finite-temperature-fermi-smearing) |
+| Analytic periodic FC3, directional/dense/block (Γ and k-point) | ✅ canonical spectral response, including exact fractional degeneracy and a global k-mesh chemical potential |
 | Periodic FD stack at `T > 0` (`pbc_third_derivative_seminumerical_*`, `pbc_strain_hessian_derivative`, `pbc_gruneisen`) | ✅ — tighten `charge_tolerance` first, see [pbc.md §5](pbc.md#5-periodic-finite-temperature-fermi-smearing) |
 
 The exact error strings are quoted in [limitations.md](limitations.md).
+
+The temperature-limit regression explicitly sets its reference to 0 K. For the
+near-Td methane fixture, cancellation of orbital-frame terms in the quartic
+can leave cross-platform roundoff of a few 1e-9 after thermal corrections have
+vanished. The monotonicity check uses the same 1e-8 absolute floor as its
+unchanged final FC4 accuracy bound; errors below that floor need not shrink.

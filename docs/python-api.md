@@ -1,11 +1,62 @@
 # Python / ASE API
 
+Start with the [public API overview](api-overview.md) for the canonical
+native/ASE/CLI entry map, compatible keyword spellings and units. Detailed
+method recipes remain on this page and its linked subsystem guides.
+
+CPU worker and workspace controls are shared by native Python and ASE;
+see [resources.md](resources.md) for `threads`, `memory_mb` and their scope.
+
+## v0.7.0 additions
+
+Pip installs `gfn1-rs` and `gfn1-rs-train`, sharing the Rust drivers. Subsystem
+guides give complete native and ASE recipes: [sTDA-xTB](stda-xtb.md),
+[FMO/DC](fragments.md), [SOC/DFPT](soc-dfpt.md), and [ML training/custom
+weights/logging](ml-training.md). The native `stda_xtb` runs entirely in Rust,
+without an official-executable driver or executable-path arguments.
+TDA accepts `transition_dipole="ao_length"` while preserving the default.
+Periodic Hessians accept the compatible optional `gamma_centered=True`;
+see [the actual crystal results](crystal-dfpt-results.md) for sampling details.
+
+## v0.6.0 additions
+
+```python
+import gfn1_rs
+
+calc = gfn1_rs.Gfn1NativeCalculator(
+    ml_model_path="builtin:water-clusters",
+    log_file="calculation.jsonl", log_level="info",
+)
+result = calc.calculate([8, 1, 1], [[0., 0., 0.], [.958, 0., 0.], [-.25, .925, .03]],
+                        compute_gradient=True)
+print(gfn1_rs.__version__, result.energy_hartree, result.ml_model_sha256)
+```
+
+`third_derivative_contractions` evaluates molecular directional cubics without
+expanding the Cartesian FC3. `calculate_periodic` and `hessian_periodic` include
+the periodic ML heads. `soc_calculate_periodic` takes explicit `zeta_hartree`
+and `parameter_provenance` and can return physical-spinor forces, stress and a
+Hessian. `phonons_commensurate` accepts `repetitions` and `qpoints`, with optional
+explicit SOC parameters; q must be commensurate with the chosen supercell.
+
+ASE provides `GFN1RSCalculator.get_soc` and `get_phonons_commensurate`; its
+energy/force/stress/Hessian units are eV, eV/angstrom, eV/angstrom^3 and
+eV/angstrom^2. The native SOC dictionaries retain atomic units. See
+[scope.md](scope.md) for capability boundaries. Training is performed by the
+separate `gfn1-rs-train` executable.
+
 Build the extension (Python 3.9–3.14):
 
 ```bash
-python -m pip install maturin "ase>=3.22" "numpy>=1.22"
+python -m pip install maturin "ase>=3.22" "numpy>=1.22,<2.5"
 maturin develop --release --features python
 ```
+
+The `ase` and `test` extras require NumPy below 2.5 because ASE currently
+assigns `ndarray.shape` when copying empty atom arrays, an operation deprecated
+by NumPy 2.5. The compatible validation environment uses NumPy 2.4.6, ASE
+3.29.0 and pytest 9.2.0. Tests treat every warning as an error; class-scoped
+fixtures use class methods so they also satisfy pytest's fixture contract.
 
 For a Python newer than PyO3's support window, set
 `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` before `cargo`/`maturin`.
@@ -20,6 +71,53 @@ reports which parametrization is live, e.g.
 `"GFN1-xTB (builtin, grimme-lab/xtb@2b5cd48, LGPL-3.0-or-later)"`; the ASE wrapper
 logs the same string through the `gfn1_rs` logger. See
 [parameters.md](parameters.md).
+
+### Structural models and JSONL logging
+
+`ml_model_path` accepts a model file, `builtin:h2-demo`, `builtin:h2-fci`, or
+the **2,869-byte** `builtin:water-clusters` PBE0/def2-SVP demonstration model.
+Both native and ASE constructors also accept `log_file`,
+`log_level="error|info|debug|trace"` and `log_console=False`:
+
+```python
+from gfn1_rs import Gfn1NativeCalculator
+
+calc = Gfn1NativeCalculator(
+    ml_model_path="builtin:water-clusters", electronic_temperature=0.0,
+    log_file="water.jsonl", log_level="info",
+)
+```
+
+Results include `ml_model_sha256`, `method_citations`, and `calculation_id`.
+`pbc_ao_cutoff` controls AO image sums in bohr for periodic calculation,
+forces, stress, Hessian and commensurate phonon calls; the default is 30.
+Per-call cutoff arguments on older advanced derivative methods remain explicit
+overrides. Diffuse-element cutoff convergence is illustrated in
+[pbc.md](pbc.md#ao-image-sums-and-validation-domains).
+Molecular ML supports analytic forces, the full Hessian, and canonical FC3,
+including fractional thermal occupations, structural heads and correction-energy derivatives.
+Periodic `hessian_periodic` includes the first/second structural chains in
+Gamma/k-point CP-SCC. `phonons_commensurate` accepts ML and returns the raw
+supercell Hessian asymmetry (`raw_hessian_asymmetry_hartree_per_bohr2`) alongside
+the projected dynamical Hermiticity; q must fit the requested supercell.
+
+Periodic SOC uses `soc_calculate_periodic(numbers, positions, cell,
+zeta_hartree, parameter_provenance, ..., kgrid=None, compute_forces=False,
+compute_stress=False, compute_hessian=False)`. It returns physically counted
+max-one spinor bands/occupations per k, energy, charges and requested derivatives
+in named atomic units, plus raw Hessian asymmetry and CP-SCC residuals.
+ASE `get_soc` automatically dispatches periodic Atoms and converts unsuffixed
+energy, forces, 3x3 stress and Hessian to ASE units. `phonons_commensurate` /
+ASE `get_phonons_commensurate` also accept `zeta_hartree` and
+`parameter_provenance`; `max_spinor_response_residual` reports the analytic
+supercell response quality. Explicit p/d couplings are required and the tested
+independent coupling convention does not certify the original paper's table.
+`third_derivative_contractions(numbers, positions, directions, unit="angstrom",
+memory_budget_bytes=536870912)` evaluates several E'''[v,v,v] values from one
+SCF/response reference; directions are flat 3N dimensionless vectors and the
+result is in Eh/bohr^3. The model data, training CLI, loss normalization,
+held-out measurements and extrapolation limits are described in
+[parameters.md](parameters.md#independent-structural-ml-models).
 
 > **Periodic systems are supported through Python.** The native calculator's
 > `calculate_periodic(numbers, positions, cell, pbc, kgrid, ...)` runs the Gamma/k-point PBC path
@@ -255,10 +353,10 @@ k = calc.third_derivative_along(nums, pos, v.tolist())     # 3N x 3N matrix (= s
 # v0.5.0 additionally fixed two silent errors in it: the missing dK/dq on-site kernel-chain term
 # and the degenerate-orbital gauge (symmetric molecules were ~2e-2 relative off).
 #
-# NOTE: the closed-form modes (a)/(b)/(c) require INTEGER occupations. With Fermi smearing
-# (electronic_temperature > 0 on a small-gap/metallic system) they raise -- use the v0.5.0
-# finite-temperature route or `third_derivative_along`. See "Anharmonic derivatives" below for
-# the full v0.5.0 ladder (semi-numerical Dense/Block FC3, finite-temperature FC3, FC4, the
+# Modes (a)/(b)/(c) also support Fermi smearing: positive temperature selects the
+# analytic canonical free-energy response without finite differences. See
+# "Anharmonic derivatives" below for the full ladder (semi-numerical Dense/Block FC3,
+# finite-temperature FC3, FC4, the
 # analytic periodic Gamma / k-point FC3, and the strain-Hessian / Grueneisen stack).
 
 # --- excited states (TD-GFN1 / TDA) ---
@@ -277,7 +375,7 @@ xi    = calc.magnetizability(nums, pos)             # analytic=True default; 1e-
 xit   = calc.magnetizability_tensor(nums, pos)      # also magnetizability_diagonal(...)
 aB    = calc.magnetic_polarizability(nums, pos)     # alpha_ij(B)
 cm    = calc.cotton_mouton(nums, pos)               # d^2 alpha / dB^2  [k][i][j]
-mcd   = calc.mcd(nums, pos)                         # d alpha / dB (Faraday) [k][i][j]
+mcd   = calc.mcd(nums, pos)                         # static d alpha / dB [k][i][j]; zero at B=0
 sig   = calc.nmr_shielding(nums, pos, nucleus=0)    # NMR shielding sigma_ab, 3x3, ppm
 L     = calc.angular_momentum(nums, pos)            # raw <mu|L_a|nu> = -i*L[a]
 ldip  = calc.lao_dipole(nums, pos, b_field=(0,0,0)) # dict {"re","im"} of LAO dipole integrals
@@ -314,6 +412,14 @@ calc = gfn1_rs.Gfn1NativeCalculator(param_path=..., spin_polarization=True,
 
 Forces (and geometry optimization) are analytic in every mode, including the geometry response
 `dU/dR` of the self-consistently-determined `U` in the non-empirical path (FD-verified).
+
+The base dipole/quadrupole CAMM model can also be combined with open-shell spin
+and +U. The SCC mixes complete alpha/beta density matrices as well as shell
+charge/magnetization, so CAMM moment and +U occupation feedback converge at the
+requested temperature. In linear-response mode both `U` and `dU/dR` use the
+same plain-spGFN1 reference; CAMM is added to the final variational energy and
+Fock. The combined ScH gradient is tested at a fixed 300 K with all Cartesian
+components and two finite-difference steps.
 
 Beyond the preset, the CAMM scaling knobs are individually settable on both calculators:
 `multipole_model=` (the named multipole model), `camm_damp=` (default `1.0`),
@@ -429,9 +535,11 @@ from ase.optimize import LBFGS
 LBFGS(ExpCellFilter(atoms)).run(fmax=0.05)
 ```
 
-The native `optimize_native` is fixed-cell; for variable-cell relaxation use ASE's
-`ExpCellFilter`/`UnitCellFilter` (above), which drive the lattice from the stress
-this calculator provides.
+The older `optimize_native` remains fixed-cell. Native `relax_periodic` and
+ASE `get_relax_periodic(..., relax_cell=True)` now provide joint cell/ionic
+relaxation with accepted-state SCC continuation. See
+[mechanical-properties.md](mechanical-properties.md). The external ASE cell
+filters above remain available.
 
 `GFN1RSCalculator` accepts the full default-parameter set (`param_path`,
 `charge`, `multiplicity`, `max_scc`, `energy_tolerance`, `charge_tolerance`,
@@ -441,7 +549,7 @@ this calculator provides.
 `enable_cn_hamiltonian`, plus the experimental multipole/exchange knobs above);
 unset values fall back to the native defaults.
 
-See [`scripts/compare_optimizations.py`](../scripts/compare_optimizations.py) for a
+See [`tests/validation/compare_optimizations.py`](../tests/validation/compare_optimizations.py) for a
 worked ASE example that cross-checks the native optimizer against the `tblite` CLI.
 
 ## Anharmonic derivatives: FC3, FC4 and phonon anharmonicity (v0.5.0)
@@ -461,15 +569,15 @@ layers.
 | --- | --- | --- | --- |
 | FC3 along one direction, cheapest | `third_derivative_along` | 2 analytic Hessians | yes |
 | FC3 along one direction, no FD | `third_derivative_finite_t_directional` | 1 SCF + response solves | yes |
-| FC3 closed form, full tensor | `third_derivative` | 1 assembly, `3N³` output | no (integer occupations) |
+| FC3 analytic, full tensor | `third_derivative` | T=0 closed-form assembly; T>0 shared-reference analytic polarization; `(3N)^3` output | yes |
 | FC3 semi-numerical, full tensor | `third_derivative_seminumerical` | `2·3N` analytic Hessians | yes |
 | FC3 finite-T, full tensor | `third_derivative_finite_t` | `~C(3N+2,3)` directions | yes |
-| FC4 along one direction | `fourth_derivative_directional` | 1 SCF + CPXTB + 2 charge-space solves | no |
-| FC4 along one direction, smeared | `fourth_derivative_directional_seminumerical` | 2 finite-T FC3 evaluations | yes |
-| FC4 full / sub-block tensor | `fourth_derivative`, `fourth_derivative_block` | `~n⁴/24` directions | no |
+| FC4 along one direction, no FD | `fourth_derivative_directional` | 1 SCF + analytic response (through third order at T>0) | yes |
+| FC4 along one direction, FD reference | `fourth_derivative_directional_seminumerical` | 2 finite-T FC3 evaluations | yes |
+| FC4 analytic full / sub-block tensor | `fourth_derivative`, `fourth_derivative_block` | `~n⁴/24` directions, bounded batches | yes |
 | Periodic FC3, semi-numerical (Γ) | `third_derivative_periodic[_vector]` | `2·3N` / `2·nnz(v)` periodic Hessians | yes (tighten the SCC) |
-| Periodic FC3, analytic (Γ) | `third_derivative_periodic_analytic[_vector]` | `~C(3N+2,3)` / 1 directional assembly | no (integer occupations) |
-| Periodic FC3, analytic (k-mesh) | `third_derivative_periodic_kpoint_analytic[_vector]` | the above × `n_k` | no (integer occupations) |
+| Periodic FC3, analytic (Γ) | `third_derivative_periodic_analytic[_vector]` | `~C(3N+2,3)` / 1 directional assembly | yes |
+| Periodic FC3, analytic (k-mesh) | `third_derivative_periodic_kpoint_analytic[_vector]` | the above × `n_k` | yes |
 | `∂(Hessian)/∂(ln V)` | `strain_hessian_derivative` | 2 periodic Hessians | yes (tighten the SCC) |
 | Mode Grüneisen parameters | `gruneisen` | 3 periodic Hessians (+2 or +4 with `second_order`) | yes (tighten the SCC) |
 
@@ -519,13 +627,10 @@ Two occupation guards apply to this family, and they are different things:
   `< 1e-6` Ha) raise `ValueError` — *"charge-space response is singular …
   enable Fermi smearing"*. The response operator really is singular there; turn
   smearing on (`electronic_temperature > 0`) and the same call works.
-- **Exactly degenerate *fractionally occupied* references are not covered at
-  third order.** The second-order channel was closed in v0.5.0 by the frame-free
-  Daleckii–Krein resolvent form, but the third-order chain still runs in the
-  frame algebra, so this case is a **silent** accuracy failure rather than a
-  rejection — see [limitations.md](limitations.md). Break the degeneracy (a
-  near-degenerate reference, gap `≥ 1e-10`, is fully supported) or use
-  `third_derivative_along` / `third_derivative_seminumerical*` there.
+- **Exactly degenerate fractional occupations** are supported by the frame-free
+  spectral response through third electronic order. The standard molecular
+  `third_derivative*` and `fourth_derivative*` bindings select analytic free-energy
+  derivatives at positive temperature, including FC3 vector and FC4 block modes.
 
 ### Quartic force constants (FC4)
 
@@ -549,19 +654,16 @@ a small block of a large molecule is legal.
 their geometric fourth derivative through 1-D jets along the requested direction,
 so the directional route scales with the atom count rather than with `ndof⁵`.
 
-The analytic quartic has two hard guards, both raised as `ValueError`: every
+The analytic quartic requires that every
 active term must support analytic order 4 (`multipole`, `lr_exchange`, `plus_u`,
 `spin_polarization`, `electric_field` and `experimental_d4` all cap the ladder at
-the gradient and block it), and the converged occupations must be **integers**.
-For a Fermi-smeared system use `fourth_derivative_directional_seminumerical`,
-which finite-differences the occupation-agnostic finite-temperature FC3 and
-therefore runs there.
+the gradient and block it). Positive temperature selects analytic canonical
+free-energy response, including exactly degenerate fractional occupations.
+`fourth_derivative_directional_seminumerical` remains an independent
+finite-difference reference.
 
-One un-guarded configuration remains: **`enable_cn_hamiltonian=false` is not a
-supported FC4 setting.** Both quartic paths keep the coordination-number blocks
-regardless of the flag, so turning it off silently returns the quartic of a
-different energy expression (the T = 0 equality against the semi-numerical
-reference widens from `~3e-15` to `~2e-5`). Leave it at the default `True` for
+**`enable_cn_hamiltonian=false` is rejected by analytic FC4.** Its
+coordination-number blocks require this option. Leave it at the default `True` for
 any fourth-derivative work.
 
 ### Periodic third derivative, strain Hessian and Grüneisen parameters
@@ -583,8 +685,8 @@ finite-difference a *reconverged* quantity, so
 tighten `charge_tolerance` / `energy_tolerance` before reading a smeared result
 (on a Ni₂ fixture the FD gate moves from `1e-6` at `charge_tolerance=1e-9` to
 `3.1e-10` at `1e-12`), and a metal whose bands reorder across the `±h` stencil
-makes the differenced quantity non-smooth. The **analytic** entry points below
-are the exception — they reject fractional occupations outright.
+makes the differenced quantity non-smooth. The analytic Γ entry points below
+also support canonical fractional occupations and exact degeneracy.
 
 ```python
 cell = [[0.0, 1.7835, 1.7835], [1.7835, 0.0, 1.7835], [1.7835, 1.7835, 0.0]]  # diamond, prim.
@@ -657,10 +759,8 @@ different quantity:
 - the **Γ-named** entry points reject a Monkhorst–Pack mesh (they are the cheaper
   specialisation); pass the mesh to the `_kpoint_` pair instead, which has no
   Γ-only restriction — that is the point of it;
-- **fractional (Fermi-smeared) occupations are rejected** at every k-point. The
-  molecular FC3 has a native finite-temperature path
-  (`third_derivative_finite_t*`); the periodic one does not — use
-  `third_derivative_periodic[_vector]` for a smeared cell;
+- canonical fractional occupations and exact fractional degeneracy are supported
+  at Γ and on a k-mesh, with one global chemical potential across the mesh;
 - any model option the term registry caps below analytic order 3 (`multipole`,
   `lr_exchange`, `plus_u`, `spin_polarization`, `electric_field`,
   `experimental_d4`) is rejected.
@@ -687,7 +787,7 @@ atoms = Atoms("OH2", positions=pos); atoms.calc = GFN1RSCalculator(electronic_te
 e3 = atoms.calc.get_third_derivative_finite_t(v)
 dofs, blk = atoms.calc.get_third_derivative_finite_t(dofs=[0, 1, 4])
 
-# eV/Angstrom^4. method="analytic" (default) or "seminumerical" (runs on smeared systems).
+# eV/Angstrom^4. Both method="analytic" (default) and "seminumerical" support smearing.
 q4 = atoms.calc.get_fourth_derivative_directional(v)
 q4_fd = atoms.calc.get_fourth_derivative_directional(v, method="seminumerical", step=1.0e-3)
 
@@ -880,7 +980,7 @@ e   = calc.get_magnetic_energy(b, atoms=mol)             # eV (native: Hartree)
 xi  = calc.get_magnetizability(atoms=mol)                # 1e-30 J/T^2 (analytic CP-SCC by default)
 xid = calc.get_magnetizability_diagonal(atoms=mol)       # [xi_xx, xi_yy, xi_zz]
 xit = calc.get_magnetizability_tensor(atoms=mol)         # full symmetric 3x3
-f   = calc.get_magnetic_forces(b, atoms=mol)             # analytic (Hellmann-Feynman) by default
+f   = calc.get_magnetic_forces(b, atoms=mol)             # stationary-density contraction by default
 print(f["energy"], f["forces"])                          # eV, eV/Angstrom
 print(f["energy_hartree"], f["forces_hartree_per_bohr"]) # a.u.
 ```
@@ -892,8 +992,9 @@ magnetic_forces(...)` take the same arguments (`m1_basis_path=None` -> M0).
 
 ### Magneto-optical raw tensors
 
-The differential tensors behind circular dichroism, optical rotation, the
-Cotton-Mouton effect and the Faraday/MCD effect are all exposed (non-periodic).
+The molecular APIs expose TDA ECD/optical rotation, static magnetic-field
+polarizability derivatives and raw orbital integrals. The legacy `mcd` name
+denotes a static derivative, not a frequency-dependent optical MCD spectrum.
 These are raw magnetic-response quantities with no ASE convention, so they stay in
 **atomic units** on the ASE layer too — the exception is
 `get_magnetic_polarizability`, which is a plain electric polarizability and
@@ -905,15 +1006,15 @@ cd  = calc.get_rotatory_strengths(atoms=mol, n_states=6)  # R_n (a.u.) + raw mag
 b0  = calc.get_optical_rotation(atoms=mol, frequencies_ev=[0.0, 2.1])  # Rosenfeld beta(omega), a.u.
 a   = calc.get_magnetic_polarizability(atoms=mol, b_field=(0,0,0))     # alpha_ij(B), 3x3, e^2 A^2/eV
 cm  = calc.get_cotton_mouton(atoms=mol)                   # d^2 alpha / dB^2, [k,i,j]
-mcd = calc.get_mcd(atoms=mol)                             # d alpha / dB (Faraday), [k,i,j]
+mcd = calc.get_mcd(atoms=mol)                             # static d alpha / dB; zero at B=0
 L   = calc.get_angular_momentum(atoms=mol)               # raw <mu|L_a|nu> = -i*L[a], (3,n,n)
 re, im = calc.get_lao_dipole(atoms=mol, b_field=(0,0,0.06))  # raw LAO dipole integrals
 ```
 
-In the GFN1 point-charge electric model the static optical-rotation `G`-tensor and
-the MCD `d alpha/d B` (`get_mcd`) are identically zero by time reversal; the
-length-gauge `get_lao_dipole` integrals are the route to their orbital-current
-versions. The Cotton-Mouton `d^2 alpha/d B^2` is a nonzero observable.
+The static first derivative `d alpha/d B` (`get_mcd`) vanishes at zero field
+for a time-reversal-symmetric closed shell, including a length-gauge dipole
+model. Raw LAO dipole integrals alone do not implement optical MCD/Faraday
+response. The static Cotton-Mouton `d^2 alpha/d B^2` is nonzero.
 
 ### NMR nuclear magnetic shielding
 

@@ -33,6 +33,9 @@ const ELECTRON_COUNT_TOLERANCE: f64 = 1.0e-8;
 /// SCC charge-convergence accelerator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SccAccelerator {
+    /// Periodic: Broyden with a globalized analytic charge-Newton fallback.
+    /// Molecular: preserve the Broyden driver and its existing safeguards.
+    Auto,
     /// Damped linear (fixed-point) mixing.
     Linear,
     /// Broyden quasi-Newton charge mixing (the historical default).
@@ -45,7 +48,7 @@ pub enum SccAccelerator {
 
 impl Default for SccAccelerator {
     fn default() -> Self {
-        Self::Broyden
+        Self::Auto
     }
 }
 
@@ -99,7 +102,14 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
         // GFN1 on molecular geometry (tmQM50 RMSD-to-g-xTB 0.127 vs GFN1 0.073 Å).
         "polar" => Some((
             1.0,
-            vec![(1, 2.625), (5, 0.175), (6, 2.425), (7, 7.375), (8, 7.375), (9, 7.375)],
+            vec![
+                (1, 2.625),
+                (5, 0.175),
+                (6, 2.425),
+                (7, 7.375),
+                (8, 7.375),
+                (9, 7.375),
+            ],
             1.0,
             0.85,
             vec![],
@@ -108,8 +118,19 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
         // over-penalty that κ cannot fix. NOTE: specialized for halogen bonds — NOT for TM geometry.
         "halogen" => Some((
             1.0,
-            vec![(1, 1.675), (5, 0.125), (6, 2.425), (7, 1.65), (8, 2.425), (9, 3.4), (15, 7.75),
-                 (16, 7.375), (17, 0.225), (35, 1.225), (53, 7.75)],
+            vec![
+                (1, 1.675),
+                (5, 0.125),
+                (6, 2.425),
+                (7, 1.65),
+                (8, 2.425),
+                (9, 3.4),
+                (15, 7.75),
+                (16, 7.375),
+                (17, 0.225),
+                (35, 1.225),
+                (53, 7.75),
+            ],
             1.0,
             0.02,
             vec![],
@@ -119,8 +140,17 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
         // HAL59 over GFN1; a milder s_onsite than the rigorous "halogen".
         "halogen-v1" => Some((
             1.0,
-            vec![(1, 1.75), (5, 0.1), (7, 3.25), (8, 3.0), (9, 6.0), (15, 0.1), (17, 0.5),
-                 (35, 2.25), (53, 4.75)],
+            vec![
+                (1, 1.75),
+                (5, 0.1),
+                (7, 3.25),
+                (8, 3.0),
+                (9, 6.0),
+                (15, 0.1),
+                (17, 0.5),
+                (35, 2.25),
+                (53, 4.75),
+            ],
             1.0,
             0.05,
             vec![],
@@ -130,8 +160,19 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
         // (tmQM50 0.085 vs GFN1 0.073 Å). Same s_onsite≈0 σ-hole tempering.
         "halogen-allgrad" => Some((
             1.0,
-            vec![(1, 1.675), (5, 0.125), (6, 2.625), (7, 2.45), (8, 2.65), (9, 3.4), (15, 7.75),
-                 (16, 7.375), (17, 0.2), (35, 1.2), (53, 7.75)],
+            vec![
+                (1, 1.675),
+                (5, 0.125),
+                (6, 2.625),
+                (7, 2.45),
+                (8, 2.65),
+                (9, 3.4),
+                (15, 7.75),
+                (16, 7.375),
+                (17, 0.2),
+                (35, 1.2),
+                (53, 7.75),
+            ],
             1.0,
             0.02,
             vec![],
@@ -142,12 +183,36 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
         // TM); global κ=1.0. σ-hole/halogen + tetrel oriented; geometry-neutral on TM frameworks.
         "sigma-hole" => Some((
             1.0,
-            vec![(1, 1.9), (5, 4.9), (6, 1.2), (7, 2.1), (8, 2.575), (9, 7.375), (14, 1.775),
-                 (15, 0.225), (16, 7.75), (17, 2.475), (35, 5.625), (53, 4.25)],
+            vec![
+                (1, 1.9),
+                (5, 4.9),
+                (6, 1.2),
+                (7, 2.1),
+                (8, 2.575),
+                (9, 7.375),
+                (14, 1.775),
+                (15, 0.225),
+                (16, 7.75),
+                (17, 2.475),
+                (35, 5.625),
+                (53, 4.25),
+            ],
             1.0,
             0.05,
-            vec![(1, 0.0), (5, 0.0), (6, 0.2), (7, 0.15), (8, 1.22), (9, 0.02), (14, 1.23),
-                 (15, 0.24), (16, 0.52), (17, 0.11), (35, 0.02), (53, 0.0)],
+            vec![
+                (1, 0.0),
+                (5, 0.0),
+                (6, 0.2),
+                (7, 0.15),
+                (8, 1.22),
+                (9, 0.02),
+                (14, 1.23),
+                (15, 0.24),
+                (16, 0.52),
+                (17, 0.11),
+                (35, 0.02),
+                (53, 0.0),
+            ],
         )),
         _ => None,
     }
@@ -155,6 +220,12 @@ pub fn camm_preset(name: &str) -> Option<(f64, Vec<(u8, f64)>, f64, f64, Vec<(u8
 
 #[derive(Clone, Debug)]
 pub struct ElectronicOptions {
+    pub logger: Option<crate::CalculationLogger>,
+    pub ml_model: Option<std::sync::Arc<crate::ml::MlHamiltonian>>,
+    pub solvation: Option<crate::solvation::SolvationOptions>,
+    /// AO image-sum cutoff for front ends that construct their own PBC options.
+    /// Explicit low-level PbcOptions remain authoritative when supplied.
+    pub pbc_ao_cutoff: Option<f64>,
     pub charge: Option<f64>,
     pub spin_multiplicity: Option<usize>,
     pub max_scc: usize,
@@ -163,7 +234,9 @@ pub struct ElectronicOptions {
     pub mixing: f64,
     pub scc_broyden: bool,
     pub scc_broyden_size: usize,
-    /// SCC convergence accelerator. When left at [`SccAccelerator::Broyden`] the
+    /// SCC convergence accelerator. [`SccAccelerator::Auto`] preserves molecular
+    /// Broyden behavior and enables an analytic Newton fallback for scalar PBC.
+    /// When left at Auto or [`SccAccelerator::Broyden`] the
     /// legacy `scc_broyden` flag still selects Broyden vs. linear mixing, so the
     /// default behavior is unchanged; setting `Cdiis`/`Newton` overrides it.
     pub scc_accelerator: SccAccelerator,
@@ -395,6 +468,10 @@ pub struct ElectronicOptions {
 impl Default for ElectronicOptions {
     fn default() -> Self {
         Self {
+            logger: None,
+            ml_model: None,
+            pbc_ao_cutoff: None,
+            solvation: None,
             charge: None,
             spin_multiplicity: None,
             max_scc: 250,
@@ -598,6 +675,13 @@ pub(crate) fn resolve_spin_channels(
 
 #[derive(Clone, Debug)]
 pub struct ElectronicResult {
+    pub calculation_id: Option<String>,
+    pub ml_parameters: Option<crate::ml::AtomicParameterView>,
+    pub ml_correction_energy: f64,
+    pub solvation: Option<crate::solvation::SolvationCache>,
+    pub solvation_energy: crate::solvation::SolvationEnergy,
+    /// Method bibliography keys for this calculation; see `citations::bibliography`.
+    pub method_citations: Vec<&'static str>,
     pub basis: BasisSet,
     pub integrals: IntegralMatrices,
     pub h0: Matrix,
@@ -655,6 +739,11 @@ pub struct ElectronicResult {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EnergyTerms {
+    pub ml_correction: f64,
+    pub solvation_electrostatic: f64,
+    pub solvation_hydrogen_bond: f64,
+    pub solvation_sasa: f64,
+    pub solvation_shift: f64,
     pub total_free: f64,
     pub total_internal: f64,
     pub repulsion: f64,
@@ -673,8 +762,13 @@ pub struct EnergyTerms {
 }
 
 impl EnergyTerms {
-    pub fn named_values(&self) -> [(&'static str, f64); 15] {
+    pub fn named_values(&self) -> [(&'static str, f64); 20] {
         [
+            ("ml_correction", self.ml_correction),
+            ("solvation_electrostatic", self.solvation_electrostatic),
+            ("solvation_hydrogen_bond", self.solvation_hydrogen_bond),
+            ("solvation_sasa", self.solvation_sasa),
+            ("solvation_shift", self.solvation_shift),
             ("total_free", self.total_free),
             ("total_internal", self.total_internal),
             ("repulsion", self.repulsion),
@@ -696,7 +790,12 @@ impl EnergyTerms {
     /// The component terms whose sum is `total_internal` (everything except the
     /// two totals and the entropy term, which belongs to `total_free`).
     pub fn component_sum(&self) -> f64 {
-        self.repulsion
+        self.ml_correction
+            + self.solvation_electrostatic
+            + self.solvation_hydrogen_bond
+            + self.solvation_sasa
+            + self.solvation_shift
+            + self.repulsion
             + self.electronic
             + self.isotropic_scc
             + self.third_order
@@ -714,6 +813,11 @@ impl EnergyTerms {
 impl ElectronicResult {
     pub fn energy_terms(&self) -> EnergyTerms {
         EnergyTerms {
+            ml_correction: self.ml_correction_energy,
+            solvation_electrostatic: self.solvation_energy.electrostatic,
+            solvation_hydrogen_bond: self.solvation_energy.hydrogen_bond,
+            solvation_sasa: self.solvation_energy.sasa,
+            solvation_shift: self.solvation_energy.shift,
             total_free: self.total_free,
             total_internal: self.total_internal,
             repulsion: self.repulsion_energy,
@@ -802,6 +906,52 @@ pub fn run_electronic(
     params: &Gfn1Parameters,
     options: ElectronicOptions,
 ) -> Result<ElectronicResult> {
+    crate::resources::preflight_scf(system, params, &options, 1)?;
+    let span=options.logger.as_ref().map(|logger|logger.begin("electronic_calculation",serde_json::json!({
+        "atoms":system.atoms.len(),"periodic":system.lattice.is_some(),"charge":options.charge.unwrap_or(system.charge),
+        "electronic_temperature_K":options.electronic_temperature,"spin_polarization":options.spin_polarization,
+        "solvation":options.solvation.as_ref().map(|s|format!("{:?}",s.model)),"ml":options.ml_model.is_some(),
+        "energy_definition":"Mermin electronic free energy",
+        "resources":{"threads":crate::resources::effective_threads(),"workspace_budget_bytes":crate::resources::current().memory_budget_bytes},
+        "cp_settings":crate::resources::current_cp().as_json()}))).transpose()?;
+    match run_electronic_impl(system, params, options) {
+        Ok(mut result) => {
+            if let Some(span) = span {
+                result.calculation_id = Some(span.id().to_string());
+                span.success(serde_json::json!({"converged":result.converged,"iterations":result.iterations,
+                "total_free_hartree":result.total_free,"total_internal_hartree":result.total_internal,
+                "actual_electronic_temperature_K":result.electronic_temperature,"electrons":result.nelec,"citations":result.method_citations}))?;
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            if let Some(span) = span {
+                span.failure(&error)?;
+            }
+            Err(error)
+        }
+    }
+}
+
+fn run_electronic_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: ElectronicOptions,
+) -> Result<ElectronicResult> {
+    crate::ml::validate_scalar_options(&options)?;
+    if options.solvation.is_some()
+        && (system.lattice.is_some()
+            || options.boundary != BoundaryCondition::NonPeriodic
+            || options.spin_polarization
+            || options.plus_u
+            || options.multipole
+            || options.lr_exchange
+            || options.experimental_d4
+            || options.scf_trah
+            || options.external_field.magnetic_field.is_some())
+    {
+        return Err(Gfn1Error::InvalidInput("ALPB/GBSA currently supports molecular scalar GFN1 and electric fields; the requested combined model is not implemented".into()));
+    }
     if options.plus_u
         && (system.lattice.is_some() || options.boundary != BoundaryCondition::NonPeriodic)
     {
@@ -829,7 +979,7 @@ pub fn run_electronic(
         return crate::spin::run_spin_polarized(system, params, options);
     }
     let _profile = crate::profile::scope("electronic.nonpbc.total");
-    let basis = {
+    let mut basis = {
         let _profile = crate::profile::scope("electronic.basis");
         BasisSet::build(
             system,
@@ -839,11 +989,26 @@ pub fn run_electronic(
             },
         )?
     };
+    let parameter_view = options
+        .ml_model
+        .as_ref()
+        .map(|m| m.evaluate(system))
+        .transpose()?;
+    if let Some(view) = &parameter_view {
+        crate::ml::apply_parameter_view(&mut basis, view);
+    }
     let core = {
         let _profile = crate::profile::scope("electronic.h0_integrals");
         build_h0(system, &basis, params, &options.hamiltonian)?
     };
-    run_scc_with_core(system, params, basis, core, options)
+    let mut result = run_scc_with_core(system, params, basis, core, options)?;
+    if let Some(view) = parameter_view {
+        result.ml_correction_energy = view.correction_energy_hartree;
+        result.total_internal += view.correction_energy_hartree;
+        result.total_free += view.correction_energy_hartree;
+        result.ml_parameters = Some(view);
+    }
+    Ok(result)
 }
 
 fn run_scc_with_core(
@@ -876,10 +1041,21 @@ fn run_scc_with_core(
         m.charge_order = options.charge_order.max(3);
         m
     };
-    let amat = {
+    let mut amat = {
         let _profile = crate::profile::scope("electronic.coulomb_matrix");
         effective_coulomb_matrix(system, &basis, &shell_model)
     };
+    let solvation = options
+        .solvation
+        .as_ref()
+        .map(|s| crate::solvation::SolvationCache::build(system, s))
+        .transpose()?;
+    if let Some(solvent) = &solvation {
+        let kernel = solvent.shell_kernel(&basis);
+        for (a, b) in amat.as_mut_slice().iter_mut().zip(kernel.as_slice()) {
+            *a += b;
+        }
+    }
     let orth = {
         let _profile = crate::profile::scope("electronic.lowdin_orthogonalizer");
         lowdin_orthogonalizer(&core.integrals.overlap, options.eigen_tolerance)?
@@ -934,8 +1110,18 @@ fn run_scc_with_core(
         ));
     }
     // Geometry-fixed external electric-field site potential v_ext_i = -E·R_i.
-    let external_shell_potential =
+    let external_electric_shell_potential =
         electric_shell_potential(&options.external_field, system, &basis);
+    let mut external_shell_potential = external_electric_shell_potential.clone();
+    if let Some(solvent) = &solvation {
+        // The GFN1 solvent uses q_CM5=q_Mulliken+c(R). The constant part of
+        // B(q+c) is a linear charge potential, not part of the SCC kernel B.
+        let linear = solvent.potential(&vec![0.0; system.atoms.len()])?;
+        let shell = external_shell_potential.get_or_insert_with(|| vec![0.0; basis.shells.len()]);
+        for (s, x) in shell.iter_mut().enumerate() {
+            *x += linear[basis.shells[s].atom_index];
+        }
+    }
 
     // mDFTB2 multipole context (geometry-only): the atomic Klopman-Ohno hardness (the
     // s-shell hardness of each atom) and the atomic positions. The multipole field is
@@ -1260,7 +1446,10 @@ fn run_scc_with_core(
         SccAccelerator::Linear
     } else {
         match options.scc_accelerator {
-            SccAccelerator::Broyden if !options.scc_broyden => SccAccelerator::Linear,
+            SccAccelerator::Auto | SccAccelerator::Broyden if !options.scc_broyden => {
+                SccAccelerator::Linear
+            }
+            SccAccelerator::Auto => SccAccelerator::Broyden,
             other => other,
         }
     };
@@ -1285,7 +1474,23 @@ fn run_scc_with_core(
     // exchange Fock destabilises the projected charge mixer, so this supersedes it (charges, exchange
     // **and** the multipole moments are all rebuilt from one P each iteration). The exchange-off path
     // (plain GFN1 / multipole-only) still uses the charge-vector loop below.
-    if let Some((gamma, p0, onsite_cache)) = &exchange_ctx {
+    // High-rank moments make the charge/moment fixed-point map stiff even in
+    // gapped molecules. Minimize the same energy over the density at 0 K;
+    // the zero exchange kernel keeps the multipole-only functional unchanged.
+    let high_rank_minimization = generic_rank.is_some_and(|rank| rank >= 4)
+        && options.electronic_temperature == 0.0
+        && !d4_active
+        && solvation.is_none();
+    let density_only_ctx = if high_rank_minimization && exchange_ctx.is_none() {
+        Some((
+            Matrix::zeros(basis.len(), basis.len()),
+            Matrix::zeros(basis.len(), basis.len()),
+            None,
+        ))
+    } else {
+        None
+    };
+    if let Some((gamma, p0, onsite_cache)) = exchange_ctx.as_ref().or(density_only_ctx.as_ref()) {
         // The multipole correction (when on) rides into the robust driver via this context: its Fock
         // is rebuilt from the trial density each iteration, so the density-derived atomic moments
         // relax with the density (no separate moment mixing). `None` ⇒ pure exchange SCC (unchanged).
@@ -1337,7 +1542,7 @@ fn run_scc_with_core(
                 initial_mo,
             )
         };
-        let (step, ex_e, iters, conv, exch_rms) = if options.scf_trah {
+        let (step, ex_e, iters, conv, exch_rms) = if options.scf_trah || high_rank_minimization {
             run_trah(None)? // explicit request: second-order Newton from the core-H guess
         } else {
             // First-order ADIIS→C-DIIS→ADIIS-fallback driver — robust and cheap for the bulk of the
@@ -1412,12 +1617,38 @@ fn run_scc_with_core(
         // user's exact settings; the literals on its row are placeholders.
         let robust_budget = options.max_scc.max(800);
         let ladder: [(SccAccelerator, f64, f64, f64, usize); 4] = [
-            (base_accelerator, base_mixing, options.level_shift, options.electronic_temperature, options.max_scc),
-            (SccAccelerator::Linear, 0.20, options.level_shift.max(0.20), options.electronic_temperature, robust_budget),
-            (SccAccelerator::Linear, 0.10, options.level_shift.max(0.10), options.electronic_temperature, robust_budget),
-            (SccAccelerator::Broyden, base_mixing, 0.0, options.electronic_temperature.max(3000.0), options.max_scc.max(250)),
+            (
+                base_accelerator,
+                base_mixing,
+                options.level_shift,
+                options.electronic_temperature,
+                options.max_scc,
+            ),
+            (
+                SccAccelerator::Linear,
+                0.20,
+                options.level_shift.max(0.20),
+                options.electronic_temperature,
+                robust_budget,
+            ),
+            (
+                SccAccelerator::Linear,
+                0.10,
+                options.level_shift.max(0.10),
+                options.electronic_temperature,
+                robust_budget,
+            ),
+            (
+                SccAccelerator::Broyden,
+                base_mixing,
+                0.0,
+                options.electronic_temperature.max(3000.0),
+                options.max_scc.max(250),
+            ),
         ];
-        'attempts: for (attempt, &(acc, mix, lshift, etemp, rung_max_scc)) in ladder.iter().enumerate() {
+        'attempts: for (attempt, &(acc, mix, lshift, etemp, rung_max_scc)) in
+            ladder.iter().enumerate()
+        {
             // Configure this attempt. Rung 0 == the user's exact scheme (byte-identical default path).
             accelerator = acc;
             mixing = mix;
@@ -1437,6 +1668,9 @@ fn run_scc_with_core(
                 last_scc_energy = None;
                 last_result = None;
                 final_rms = f64::INFINITY;
+                if let Some(logger) = &options.logger {
+                    logger.event(crate::LogLevel::Info,"scf_fallback",serde_json::json!({"attempt":attempt,"mixing":mix,"level_shift_hartree":lshift,"electronic_temperature_K":etemp,"iteration_limit":rung_max_scc}))?;
+                }
                 if std::env::var("GFN1_SCC_DEBUG").is_ok() {
                     eprintln!(
                         "[SCC] --- fallback rung {attempt}: accel={acc:?} mixing={mix} \
@@ -1444,163 +1678,400 @@ fn run_scc_with_core(
                     );
                 }
             }
-        for iter in 1..=rung_max_scc {
-            let _profile = crate::profile::scope("electronic.scf.iteration");
-            iterations = iter;
-            let q_shell = &v_mixed[0..nsh];
-            let d4_shell_potential = if d4_active {
-                let _profile = crate::profile::scope("electronic.scf.d4_energy_potential");
-                let q_atom = shell_model.atomic_charges(&basis, q_shell);
-                let d4 = d4_dispersion_energy_potential_with_cn_pairs_and_atm(
-                    system,
-                    params,
-                    &q_atom,
-                    &d4_coordination,
-                    &d4_pairs,
-                    &d4_atm,
-                    d4_options,
-                )?;
-                Some(atomic_potential_to_shell_potential(
-                    &shell_model,
-                    &d4.atomic_potential,
-                ))
-            } else {
-                None
-            };
-            // Build the mDFTB2 multipole Fock from the *mixed* moments (tblite-style multipole
-            // SCF): the moments are mixed jointly with the charges below, so the field relaxes
-            // self-consistently rather than chasing the unmixed output density.
-            let mp_fock: Option<Matrix> = if let Some((hardness, pos)) = &multipole_ctx {
-                if let Some(l) = generic_rank {
-                    // Arbitrary-rank generic multipole Fock from the mixed moments (ranks 1..=L) + the
-                    // monopole Δq from the mixed shell charges. Supersedes the dipole/quad/octupole blocks.
-                    let mut moments = crate::multipole::unpack_generic_moments(
-                        &v_mixed[nsh..nsh + moment_len],
-                        nat,
-                        l,
-                    );
-                    let gfn1_atomic = shell_model.atomic_charges(&basis, q_shell);
-                    let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
-                    for (a, m) in moments.iter_mut().enumerate() {
-                        m[0] = vec![qm[a]];
-                    }
-                    // Combined generic multipole + per-rank charge-cross Fock from the *mixed* moments +
-                    // mixed monopole Δq (one shared shift assembly; the cross terms relax self-consistently).
-                    // The cross block is skipped internally when `multipole_charge_order` is empty.
-                    let mut fock = crate::multipole::multipole_fock_generic_with_cross(
-                        &basis,
-                        nat,
-                        hardness,
-                        &gam3_atom,
-                        pos,
-                        mp_ints,
-                        &moments,
-                        &qm,
-                        &options.multipole_charge_order,
-                        l,
-                        generic_moment_cache.as_ref(),
-                    )
-                    .fock;
-                    if let Some(fdf) = &field_dipole_fock {
-                        for i in 0..basis.len() {
-                            for j in 0..basis.len() {
-                                fock[(i, j)] += fdf[(i, j)];
-                            }
-                        }
-                    }
-                    Some(fock)
+            for iter in 1..=rung_max_scc {
+                let _profile = crate::profile::scope("electronic.scf.iteration");
+                iterations = iter;
+                let q_shell = &v_mixed[0..nsh];
+                let d4_shell_potential = if d4_active {
+                    let _profile = crate::profile::scope("electronic.scf.d4_energy_potential");
+                    let q_atom = shell_model.atomic_charges(&basis, q_shell);
+                    let d4 = d4_dispersion_energy_potential_with_cn_pairs_and_atm(
+                        system,
+                        params,
+                        &q_atom,
+                        &d4_coordination,
+                        &d4_pairs,
+                        &d4_atm,
+                        d4_options,
+                    )?;
+                    Some(atomic_potential_to_shell_potential(
+                        &shell_model,
+                        &d4.atomic_potential,
+                    ))
                 } else {
-                    let moments =
-                        crate::multipole::unpack_moments(&v_mixed[nsh..nsh + moment_len], nat);
-                    let gfn1_atomic = shell_model.atomic_charges(&basis, q_shell);
-                    let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
-                    let mut fock = if let Some((kappa, scale, onsite)) = &camm_params {
-                        // CAMM-on-mDFTB2: off-site GFN2-AES on the (mixed) cumulative moments +
-                        // mDFTB on-site penalty; the mDFTB off-site Ohno multipole is not built.
-                        // Charge-dependent κ (if set): κ_A = κ₀/(1+γ Δq_A²) from the mixed charges.
-                        let dyn_kappa: Vec<f64>;
-                        let eff_kappa: &[f64] = if let Some((k0, g)) = options.camm_damp_charge {
-                            dyn_kappa = qm.iter().map(|&q| (k0 / (1.0 + g * q * q)).max(0.05)).collect();
-                            &dyn_kappa
-                        } else {
-                            kappa
-                        };
-                        crate::multipole::camm_aes_energy_fock(
-                            &basis, nat, hardness, pos, mp_ints, &moments, &qm, eff_kappa, *scale,
-                            onsite,
-                        )
-                        .fock
-                    } else {
-                        crate::multipole::multipole_fock_from_moments(
-                            &basis, nat, hardness, pos, mp_ints, &moments, &qm,
-                        )
-                        .fock
-                    };
-                    if octupole {
-                        // Add the octupole Fock built from the mixed octupole + dipole/quad moments.
-                        let octu = crate::multipole::unpack_octu(&v_mixed[nsh + moment_len..], nat);
-                        let of = crate::multipole::octupole_fock_from_moments(
+                    None
+                };
+                // Build the mDFTB2 multipole Fock from the *mixed* moments (tblite-style multipole
+                // SCF): the moments are mixed jointly with the charges below, so the field relaxes
+                // self-consistently rather than chasing the unmixed output density.
+                let mp_fock: Option<Matrix> = if let Some((hardness, pos)) = &multipole_ctx {
+                    if let Some(l) = generic_rank {
+                        // Arbitrary-rank generic multipole Fock from the mixed moments (ranks 1..=L) + the
+                        // monopole Δq from the mixed shell charges. Supersedes the dipole/quad/octupole blocks.
+                        let mut moments = crate::multipole::unpack_generic_moments(
+                            &v_mixed[nsh..nsh + moment_len],
+                            nat,
+                            l,
+                        );
+                        let gfn1_atomic = shell_model.atomic_charges(&basis, q_shell);
+                        let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
+                        for (a, m) in moments.iter_mut().enumerate() {
+                            m[0] = vec![qm[a]];
+                        }
+                        // Combined generic multipole + per-rank charge-cross Fock from the *mixed* moments +
+                        // mixed monopole Δq (one shared shift assembly; the cross terms relax self-consistently).
+                        // The cross block is skipped internally when `multipole_charge_order` is empty.
+                        let mut fock = crate::multipole::multipole_fock_generic_with_cross(
                             &basis,
                             nat,
                             hardness,
+                            &gam3_atom,
                             pos,
                             mp_ints,
+                            &moments,
                             &qm,
-                            &moments.dipole,
-                            &moments.quad,
-                            &octu,
-                            octu_cache.as_ref(),
+                            &options.multipole_charge_order,
+                            l,
+                            generic_moment_cache.as_ref(),
                         )
                         .fock;
-                        for i in 0..basis.len() {
-                            for j in 0..basis.len() {
-                                fock[(i, j)] += of[(i, j)];
+                        if let Some(fdf) = &field_dipole_fock {
+                            for i in 0..basis.len() {
+                                for j in 0..basis.len() {
+                                    fock[(i, j)] += fdf[(i, j)];
+                                }
                             }
                         }
-                    }
-                    if let Some(fdf) = &field_dipole_fock {
-                        // Stage 3: add the (constant) external-field–dipole coupling shift.
-                        for i in 0..basis.len() {
-                            for j in 0..basis.len() {
-                                fock[(i, j)] += fdf[(i, j)];
+                        Some(fock)
+                    } else {
+                        let moments =
+                            crate::multipole::unpack_moments(&v_mixed[nsh..nsh + moment_len], nat);
+                        let gfn1_atomic = shell_model.atomic_charges(&basis, q_shell);
+                        let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
+                        let mut fock = if let Some((kappa, scale, onsite)) = &camm_params {
+                            // CAMM-on-mDFTB2: off-site GFN2-AES on the (mixed) cumulative moments +
+                            // mDFTB on-site penalty; the mDFTB off-site Ohno multipole is not built.
+                            // Charge-dependent κ (if set): κ_A = κ₀/(1+γ Δq_A²) from the mixed charges.
+                            let dyn_kappa: Vec<f64>;
+                            let eff_kappa: &[f64] = if let Some((k0, g)) = options.camm_damp_charge
+                            {
+                                dyn_kappa = qm
+                                    .iter()
+                                    .map(|&q| (k0 / (1.0 + g * q * q)).max(0.05))
+                                    .collect();
+                                &dyn_kappa
+                            } else {
+                                kappa
+                            };
+                            crate::multipole::camm_aes_energy_fock(
+                                &basis, nat, hardness, pos, mp_ints, &moments, &qm, eff_kappa,
+                                *scale, onsite,
+                            )
+                            .fock
+                        } else {
+                            crate::multipole::multipole_fock_from_moments(
+                                &basis, nat, hardness, pos, mp_ints, &moments, &qm,
+                            )
+                            .fock
+                        };
+                        if octupole {
+                            // Add the octupole Fock built from the mixed octupole + dipole/quad moments.
+                            let octu =
+                                crate::multipole::unpack_octu(&v_mixed[nsh + moment_len..], nat);
+                            let of = crate::multipole::octupole_fock_from_moments(
+                                &basis,
+                                nat,
+                                hardness,
+                                pos,
+                                mp_ints,
+                                &qm,
+                                &moments.dipole,
+                                &moments.quad,
+                                &octu,
+                                octu_cache.as_ref(),
+                            )
+                            .fock;
+                            for i in 0..basis.len() {
+                                for j in 0..basis.len() {
+                                    fock[(i, j)] += of[(i, j)];
+                                }
                             }
                         }
-                    }
-                    if multipole_third_order {
-                        // Third-order on-site charge·dipole² / charge·quad² shift, built from the mixed
-                        // moments + the mixed monopole Δq (so it relaxes self-consistently).
-                        let m3 = crate::multipole::third_order_fock_from_moments(
-                            &basis, nat, hardness, &gam3_atom, mp_ints, &moments, &qm,
-                        )
-                        .fock;
-                        for i in 0..basis.len() {
-                            for j in 0..basis.len() {
-                                fock[(i, j)] += m3[(i, j)];
+                        if let Some(fdf) = &field_dipole_fock {
+                            // Stage 3: add the (constant) external-field–dipole coupling shift.
+                            for i in 0..basis.len() {
+                                for j in 0..basis.len() {
+                                    fock[(i, j)] += fdf[(i, j)];
+                                }
                             }
                         }
+                        if multipole_third_order {
+                            // Third-order on-site charge·dipole² / charge·quad² shift, built from the mixed
+                            // moments + the mixed monopole Δq (so it relaxes self-consistently).
+                            let m3 = crate::multipole::third_order_fock_from_moments(
+                                &basis, nat, hardness, &gam3_atom, mp_ints, &moments, &qm,
+                            )
+                            .fock;
+                            for i in 0..basis.len() {
+                                for j in 0..basis.len() {
+                                    fock[(i, j)] += m3[(i, j)];
+                                }
+                            }
+                        }
+                        Some(fock)
                     }
-                    Some(fock)
+                } else {
+                    None
+                };
+                // Long-range Fock exchange (MFX): add `K[ΔP_prev]` (ΔP from the previous iteration's
+                // density; none at iteration 1 → no exchange shift yet) to the SCC Fock, combined with the
+                // multipole Fock. Density-matrix self-consistency: the exchange relaxes as the density does.
+                let extra_fock: Option<Matrix> =
+                    if let Some((gamma, p0, onsite_cache)) = &exchange_ctx {
+                        // ΔP from the commutator-DIIS-extrapolated density (none at iteration 1 → no shift yet).
+                        let kx = exchange_density.as_ref().map(|p| {
+                            let nn = basis.len();
+                            let mut dp = Matrix::zeros(nn, nn);
+                            for i in 0..nn {
+                                for j in 0..nn {
+                                    dp[(i, j)] = p[(i, j)] - p0[(i, j)];
+                                }
+                            }
+                            let mut k =
+                                crate::exchange::mfx_kernel(&dp, &core.integrals.overlap, gamma);
+                            // OFX correction (exact one-center exchange − its Mulliken approximation).
+                            if let Some(cache) = onsite_cache {
+                                let kofx = crate::exchange::onsite_fock_exchange_kernel_cached(
+                                    &basis,
+                                    nat,
+                                    &core.integrals.overlap,
+                                    gamma,
+                                    &dp,
+                                    cache,
+                                );
+                                for i in 0..nn {
+                                    for j in 0..nn {
+                                        k[(i, j)] += kofx[(i, j)];
+                                    }
+                                }
+                            }
+                            k
+                        });
+                        match (mp_fock, kx) {
+                            (Some(mut f), Some(k)) => {
+                                let nn = basis.len();
+                                for i in 0..nn {
+                                    for j in 0..nn {
+                                        f[(i, j)] += k[(i, j)];
+                                    }
+                                }
+                                Some(f)
+                            }
+                            (Some(f), None) => Some(f),
+                            (None, Some(k)) => Some(k),
+                            (None, None) => None,
+                        }
+                    } else {
+                        mp_fock
+                    };
+                let step = scc_step(
+                    &basis,
+                    &core.integrals.overlap,
+                    &core.h0,
+                    &orth,
+                    &shell_model,
+                    &amat,
+                    q_shell,
+                    nelec,
+                    spin_channels,
+                    cur_etemp,
+                    options.eigen_tolerance,
+                    external_shell_potential.as_deref(),
+                    d4_shell_potential.as_deref(),
+                    cur_level_shift,
+                    prev_density.as_ref(),
+                    extra_fock.as_ref(),
+                )?;
+                let d4_iteration_energy = if d4_active {
+                    let _profile = crate::profile::scope("electronic.scf.d4_energy");
+                    let q_atom = shell_model.atomic_charges(&basis, &step.shell_charges);
+                    d4_dispersion_energy_with_cn_pairs_and_atm(
+                        system,
+                        params,
+                        &q_atom,
+                        &d4_coordination,
+                        &d4_pairs,
+                        &d4_atm,
+                        d4_options,
+                    )?
+                } else {
+                    0.0
+                };
+                // Output vector [shell charges | atomic moments] from the new density, and the
+                // multipole energy at the output density (eqs 16/21).
+                let mut v_out = vec![0.0; mix_len];
+                v_out[0..nsh].copy_from_slice(&step.shell_charges);
+                if let Some((hardness, pos)) = &multipole_ctx {
+                    if let Some(l) = generic_rank {
+                        // Arbitrary-rank output moments (ranks 1..=L, rank-0 = mixed monopole) + energy.
+                        let gfn1_atomic = shell_model.atomic_charges(&basis, &step.shell_charges);
+                        let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
+                        let out_moments = crate::multipole::build_generic_moments(
+                            &basis,
+                            nat,
+                            pos,
+                            mp_ints,
+                            &step.density,
+                            &qm,
+                            l,
+                            generic_moment_cache.as_ref(),
+                        );
+                        // Energy-only (no Fock build): the standard ½ M·V multipole energy at the output density.
+                        mp_energy = crate::multipole::multipole_energy_generic(
+                            nat,
+                            hardness,
+                            pos,
+                            &out_moments,
+                            l,
+                        );
+                        if let Some(f) = field_dipole {
+                            // Stage 3: external field's coupling to the atomic dipoles, −E·Σ d_A (rank-1).
+                            let mut dsum = crate::math::Vec3::zero();
+                            for m in &out_moments {
+                                dsum += crate::math::Vec3::new(m[1][0], m[1][1], m[1][2]);
+                            }
+                            mp_energy += -f.dot(dsum);
+                        }
+                        if multipole_charge_cross {
+                            // Per-rank multipole×charge cross-term energy at the output density (same Δq = qm).
+                            mp_energy += crate::multipole::multipole_charge_cross_energy(
+                                nat,
+                                hardness,
+                                &gam3_atom,
+                                &out_moments,
+                                &qm,
+                                &options.multipole_charge_order,
+                                l,
+                            );
+                        }
+                        crate::multipole::pack_generic_moments(
+                            &out_moments,
+                            l,
+                            &mut v_out[nsh..nsh + moment_len],
+                        );
+                    } else {
+                        let gfn1_atomic = shell_model.atomic_charges(&basis, &step.shell_charges);
+                        let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
+                        let out_moments = if camm_params.is_some() {
+                            crate::multipole::camm_atomic_moments(
+                                &basis,
+                                nat,
+                                mp_ints,
+                                &step.density,
+                                pos,
+                            )
+                        } else {
+                            crate::multipole::atomic_moments(&basis, nat, mp_ints, &step.density)
+                        };
+                        mp_energy = if let Some((kappa, scale, onsite)) = &camm_params {
+                            // CAMM-on-mDFTB2 off-site AES + on-site penalty energy at the output density.
+                            let dyn_kappa: Vec<f64>;
+                            let eff_kappa: &[f64] = if let Some((k0, g)) = options.camm_damp_charge
+                            {
+                                dyn_kappa = qm
+                                    .iter()
+                                    .map(|&q| (k0 / (1.0 + g * q * q)).max(0.05))
+                                    .collect();
+                                &dyn_kappa
+                            } else {
+                                kappa
+                            };
+                            crate::multipole::camm_aes_energy_fock(
+                                &basis,
+                                nat,
+                                hardness,
+                                pos,
+                                mp_ints,
+                                &out_moments,
+                                &qm,
+                                eff_kappa,
+                                *scale,
+                                onsite,
+                            )
+                            .energy
+                        } else {
+                            crate::multipole::multipole_energy_from_moments(
+                                nat,
+                                hardness,
+                                pos,
+                                &out_moments,
+                                &qm,
+                            )
+                        };
+                        if let Some(f) = field_dipole {
+                            // Stage 3: external field's coupling to the atomic dipoles, −E·Σ d_A.
+                            mp_energy += crate::multipole::field_dipole_energy(f, &out_moments);
+                        }
+                        if multipole_third_order {
+                            // Third-order on-site multipole energy at the output density.
+                            mp_energy += crate::multipole::third_order_energy_from_moments(
+                                nat,
+                                hardness,
+                                &gam3_atom,
+                                &out_moments,
+                                &qm,
+                            );
+                        }
+                        crate::multipole::pack_moments(
+                            &out_moments,
+                            &mut v_out[nsh..nsh + moment_len],
+                        );
+                        if octupole {
+                            let out_octu = crate::multipole::atomic_octupole_moments(
+                                &basis,
+                                nat,
+                                pos,
+                                mp_ints,
+                                &step.density,
+                                octu_cache.as_ref(),
+                            );
+                            mp_energy += crate::multipole::octupole_fock_from_moments(
+                                &basis,
+                                nat,
+                                hardness,
+                                pos,
+                                mp_ints,
+                                &qm,
+                                &out_moments.dipole,
+                                &out_moments.quad,
+                                &out_octu,
+                                octu_cache.as_ref(),
+                            )
+                            .energy;
+                            crate::multipole::pack_octu(&out_octu, &mut v_out[nsh + moment_len..]);
+                        }
+                    }
                 }
-            } else {
-                None
-            };
-            // Long-range Fock exchange (MFX): add `K[ΔP_prev]` (ΔP from the previous iteration's
-            // density; none at iteration 1 → no exchange shift yet) to the SCC Fock, combined with the
-            // multipole Fock. Density-matrix self-consistency: the exchange relaxes as the density does.
-            let extra_fock: Option<Matrix> = if let Some((gamma, p0, onsite_cache)) = &exchange_ctx
-            {
-                // ΔP from the commutator-DIIS-extrapolated density (none at iteration 1 → no shift yet).
-                let kx = exchange_density.as_ref().map(|p| {
-                    let nn = basis.len();
-                    let mut dp = Matrix::zeros(nn, nn);
-                    for i in 0..nn {
-                        for j in 0..nn {
-                            dp[(i, j)] = p[(i, j)] - p0[(i, j)];
-                        }
-                    }
-                    let mut k = crate::exchange::mfx_kernel(&dp, &core.integrals.overlap, gamma);
-                    // OFX correction (exact one-center exchange − its Mulliken approximation).
+                // Long-range Fock exchange energy at the output density, `½Tr[ΔP·K[ΔP]]` (added to the
+                // total electronic functional, like the multipole correction — no double-counting since the
+                // SCC energy is the explicit DFTB functional, not a band sum).
+                if let Some((gamma, p0, onsite_cache)) = &exchange_ctx {
+                    exchange_energy = crate::exchange::mfx_energy_fock(
+                        &step.density,
+                        p0,
+                        &core.integrals.overlap,
+                        gamma,
+                    )
+                    .energy;
+                    // OFX correction energy `½Tr[ΔP·K_OFX]` at the output density (same ΔP = P − P0).
                     if let Some(cache) = onsite_cache {
+                        let nn = basis.len();
+                        let mut dp = Matrix::zeros(nn, nn);
+                        for i in 0..nn {
+                            for j in 0..nn {
+                                dp[(i, j)] = step.density[(i, j)] - p0[(i, j)];
+                            }
+                        }
                         let kofx = crate::exchange::onsite_fock_exchange_kernel_cached(
                             &basis,
                             nat,
@@ -1609,337 +2080,156 @@ fn run_scc_with_core(
                             &dp,
                             cache,
                         );
-                        for i in 0..nn {
-                            for j in 0..nn {
-                                k[(i, j)] += kofx[(i, j)];
-                            }
-                        }
+                        let e_ofx = 0.5
+                            * dp.as_slice()
+                                .iter()
+                                .zip(kofx.as_slice().iter())
+                                .map(|(a, b)| a * b)
+                                .sum::<f64>();
+                        exchange_energy += e_ofx;
                     }
-                    k
-                });
-                match (mp_fock, kx) {
-                    (Some(mut f), Some(k)) => {
-                        let nn = basis.len();
-                        for i in 0..nn {
-                            for j in 0..nn {
-                                f[(i, j)] += k[(i, j)];
-                            }
-                        }
-                        Some(f)
-                    }
-                    (Some(f), None) => Some(f),
-                    (None, Some(k)) => Some(k),
-                    (None, None) => None,
-                }
-            } else {
-                mp_fock
-            };
-            let step = scc_step(
-                &basis,
-                &core.integrals.overlap,
-                &core.h0,
-                &orth,
-                &shell_model,
-                &amat,
-                q_shell,
-                nelec,
-                spin_channels,
-                cur_etemp,
-                options.eigen_tolerance,
-                external_shell_potential.as_deref(),
-                d4_shell_potential.as_deref(),
-                cur_level_shift,
-                prev_density.as_ref(),
-                extra_fock.as_ref(),
-            )?;
-            let d4_iteration_energy = if d4_active {
-                let _profile = crate::profile::scope("electronic.scf.d4_energy");
-                let q_atom = shell_model.atomic_charges(&basis, &step.shell_charges);
-                d4_dispersion_energy_with_cn_pairs_and_atm(
-                    system,
-                    params,
-                    &q_atom,
-                    &d4_coordination,
-                    &d4_pairs,
-                    &d4_atm,
-                    d4_options,
-                )?
-            } else {
-                0.0
-            };
-            // Output vector [shell charges | atomic moments] from the new density, and the
-            // multipole energy at the output density (eqs 16/21).
-            let mut v_out = vec![0.0; mix_len];
-            v_out[0..nsh].copy_from_slice(&step.shell_charges);
-            if let Some((hardness, pos)) = &multipole_ctx {
-                if let Some(l) = generic_rank {
-                    // Arbitrary-rank output moments (ranks 1..=L, rank-0 = mixed monopole) + energy.
-                    let gfn1_atomic = shell_model.atomic_charges(&basis, &step.shell_charges);
-                    let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
-                    let out_moments = crate::multipole::build_generic_moments(
-                        &basis,
-                        nat,
-                        pos,
-                        mp_ints,
+                    // Commutator-DIIS-extrapolate the density for the next iteration's exchange Fock. The
+                    // commutator uses the full Fock (which already contains the exchange shift), so its
+                    // error is the true SCF gradient — the exchange density-matrix self-consistency is
+                    // accelerated even though the charge mixer cannot see the off-diagonal oscillations.
+                    exchange_density = Some(exchange_diis.next(
                         &step.density,
-                        &qm,
-                        l,
-                        generic_moment_cache.as_ref(),
-                    );
-                    // Energy-only (no Fock build): the standard ½ M·V multipole energy at the output density.
-                    mp_energy = crate::multipole::multipole_energy_generic(
-                        nat,
-                        hardness,
-                        pos,
-                        &out_moments,
-                        l,
-                    );
-                    if let Some(f) = field_dipole {
-                        // Stage 3: external field's coupling to the atomic dipoles, −E·Σ d_A (rank-1).
-                        let mut dsum = crate::math::Vec3::zero();
-                        for m in &out_moments {
-                            dsum += crate::math::Vec3::new(m[1][0], m[1][1], m[1][2]);
-                        }
-                        mp_energy += -f.dot(dsum);
-                    }
-                    if multipole_charge_cross {
-                        // Per-rank multipole×charge cross-term energy at the output density (same Δq = qm).
-                        mp_energy += crate::multipole::multipole_charge_cross_energy(
-                            nat,
-                            hardness,
-                            &gam3_atom,
-                            &out_moments,
-                            &qm,
-                            &options.multipole_charge_order,
-                            l,
-                        );
-                    }
-                    crate::multipole::pack_generic_moments(
-                        &out_moments,
-                        l,
-                        &mut v_out[nsh..nsh + moment_len],
-                    );
-                } else {
-                    let gfn1_atomic = shell_model.atomic_charges(&basis, &step.shell_charges);
-                    let qm: Vec<f64> = gfn1_atomic.iter().map(|c| -c).collect();
-                    let out_moments = if camm_params.is_some() {
-                        crate::multipole::camm_atomic_moments(
-                            &basis,
-                            nat,
-                            mp_ints,
-                            &step.density,
-                            pos,
-                        )
-                    } else {
-                        crate::multipole::atomic_moments(&basis, nat, mp_ints, &step.density)
-                    };
-                    mp_energy = if let Some((kappa, scale, onsite)) = &camm_params {
-                        // CAMM-on-mDFTB2 off-site AES + on-site penalty energy at the output density.
-                        let dyn_kappa: Vec<f64>;
-                        let eff_kappa: &[f64] = if let Some((k0, g)) = options.camm_damp_charge {
-                            dyn_kappa = qm.iter().map(|&q| (k0 / (1.0 + g * q * q)).max(0.05)).collect();
-                            &dyn_kappa
-                        } else {
-                            kappa
-                        };
-                        crate::multipole::camm_aes_energy_fock(
-                            &basis, nat, hardness, pos, mp_ints, &out_moments, &qm, eff_kappa, *scale,
-                            onsite,
-                        )
-                        .energy
-                    } else {
-                        crate::multipole::multipole_energy_from_moments(
-                            nat,
-                            hardness,
-                            pos,
-                            &out_moments,
-                            &qm,
-                        )
-                    };
-                    if let Some(f) = field_dipole {
-                        // Stage 3: external field's coupling to the atomic dipoles, −E·Σ d_A.
-                        mp_energy += crate::multipole::field_dipole_energy(f, &out_moments);
-                    }
-                    if multipole_third_order {
-                        // Third-order on-site multipole energy at the output density.
-                        mp_energy += crate::multipole::third_order_energy_from_moments(
-                            nat,
-                            hardness,
-                            &gam3_atom,
-                            &out_moments,
-                            &qm,
-                        );
-                    }
-                    crate::multipole::pack_moments(&out_moments, &mut v_out[nsh..nsh + moment_len]);
-                    if octupole {
-                        let out_octu = crate::multipole::atomic_octupole_moments(
-                            &basis,
-                            nat,
-                            pos,
-                            mp_ints,
-                            &step.density,
-                            octu_cache.as_ref(),
-                        );
-                        mp_energy += crate::multipole::octupole_fock_from_moments(
-                            &basis,
-                            nat,
-                            hardness,
-                            pos,
-                            mp_ints,
-                            &qm,
-                            &out_moments.dipole,
-                            &out_moments.quad,
-                            &out_octu,
-                            octu_cache.as_ref(),
-                        )
-                        .energy;
-                        crate::multipole::pack_octu(&out_octu, &mut v_out[nsh + moment_len..]);
-                    }
-                }
-            }
-            // Long-range Fock exchange energy at the output density, `½Tr[ΔP·K[ΔP]]` (added to the
-            // total electronic functional, like the multipole correction — no double-counting since the
-            // SCC energy is the explicit DFTB functional, not a band sum).
-            if let Some((gamma, p0, onsite_cache)) = &exchange_ctx {
-                exchange_energy = crate::exchange::mfx_energy_fock(
-                    &step.density,
-                    p0,
-                    &core.integrals.overlap,
-                    gamma,
-                )
-                .energy;
-                // OFX correction energy `½Tr[ΔP·K_OFX]` at the output density (same ΔP = P − P0).
-                if let Some(cache) = onsite_cache {
-                    let nn = basis.len();
-                    let mut dp = Matrix::zeros(nn, nn);
-                    for i in 0..nn {
-                        for j in 0..nn {
-                            dp[(i, j)] = step.density[(i, j)] - p0[(i, j)];
-                        }
-                    }
-                    let kofx = crate::exchange::onsite_fock_exchange_kernel_cached(
-                        &basis,
-                        nat,
+                        &step.fock,
                         &core.integrals.overlap,
-                        gamma,
-                        &dp,
-                        cache,
-                    );
-                    let e_ofx = 0.5
-                        * dp.as_slice()
-                            .iter()
-                            .zip(kofx.as_slice().iter())
-                            .map(|(a, b)| a * b)
-                            .sum::<f64>();
-                    exchange_energy += e_ofx;
+                    ));
                 }
-                // Commutator-DIIS-extrapolate the density for the next iteration's exchange Fock. The
-                // commutator uses the full Fock (which already contains the exchange shift), so its
-                // error is the true SCF gradient — the exchange density-matrix self-consistency is
-                // accelerated even though the charge mixer cannot see the off-diagonal oscillations.
-                exchange_density =
-                    Some(exchange_diis.next(&step.density, &step.fock, &core.integrals.overlap));
-            }
-            final_rms = charge_rms(&step.shell_charges, &v_mixed[0..nsh]);
-            let scc_energy = scc_electronic_free_energy(
-                &basis,
-                &shell_model,
-                &amat,
-                &core.h0,
-                &step,
-                external_shell_potential.as_deref(),
-            )? + d4_iteration_energy
-                + mp_energy
-                + exchange_energy;
-            let energy_error = last_scc_energy
-                .map(|last| (scc_energy - last).abs())
-                .unwrap_or(f64::INFINITY);
-            if std::env::var("GFN1_SCC_DEBUG").is_ok() {
-                // Temporary diagnostic: per-iteration energy/charge change + HOMO-LUMO gap.
-                let occ = &step.occupations;
-                let eps = &step.orbital_energies;
-                let mut homo = f64::NEG_INFINITY;
-                let mut lumo = f64::INFINITY;
-                for (e, o) in eps.iter().zip(occ.iter()) {
-                    if *o > 0.5 {
-                        if *e > homo { homo = *e; }
-                    } else if *e < lumo {
-                        lumo = *e;
+                final_rms = charge_rms(&step.shell_charges, &v_mixed[0..nsh]);
+                let scc_energy = scc_electronic_free_energy(
+                    &basis,
+                    &shell_model,
+                    &amat,
+                    &core.h0,
+                    &step,
+                    external_shell_potential.as_deref(),
+                )? + d4_iteration_energy
+                    + mp_energy
+                    + exchange_energy;
+                let energy_error = last_scc_energy
+                    .map(|last| (scc_energy - last).abs())
+                    .unwrap_or(f64::INFINITY);
+                if let Some(logger) = &options.logger {
+                    logger.event(crate::LogLevel::Info,"scf_iteration",serde_json::json!({
+                "iteration":iter,"scc_free_energy_hartree":scc_energy,"energy_change_hartree":if energy_error.is_finite(){Some(energy_error)}else{None},
+                "charge_rms":final_rms,"energy_tolerance_hartree":options.energy_tolerance,"charge_tolerance":options.charge_tolerance,
+                "electronic_temperature_K":cur_etemp,"level_shift_hartree":cur_level_shift,"mixing":mixing}))?;
+                }
+                if std::env::var("GFN1_SCC_DEBUG").is_ok() {
+                    // Temporary diagnostic: per-iteration energy/charge change + HOMO-LUMO gap.
+                    let occ = &step.occupations;
+                    let eps = &step.orbital_energies;
+                    let mut homo = f64::NEG_INFINITY;
+                    let mut lumo = f64::INFINITY;
+                    for (e, o) in eps.iter().zip(occ.iter()) {
+                        if *o > 0.5 {
+                            if *e > homo {
+                                homo = *e;
+                            }
+                        } else if *e < lumo {
+                            lumo = *e;
+                        }
                     }
+                    let gap = lumo - homo;
+                    let qmax = v_out[0..nsh]
+                        .iter()
+                        .zip(v_mixed[0..nsh].iter())
+                        .map(|(a, b)| (a - b).abs())
+                        .fold(0.0_f64, f64::max);
+                    eprintln!(
+                        "[SCC] it={:3} dE={:.3e} rms={:.3e} dqmax={:.3e} gap={:.4} E={:.8}",
+                        iter, energy_error, final_rms, qmax, gap, scc_energy
+                    );
                 }
-                let gap = lumo - homo;
-                let qmax = v_out[0..nsh]
+                if energy_error < options.energy_tolerance && final_rms < options.charge_tolerance {
+                    if cur_level_shift != 0.0 {
+                        if let Some(logger) = &options.logger {
+                            logger.event(crate::LogLevel::Info,"scf_unshifted_polish",serde_json::json!({"iteration":iter,"previous_shift_hartree":cur_level_shift}))?;
+                        }
+                        // A shifted integer density may be a physical fixed point,
+                        // but its virtual eigenvalues are NOT physical response
+                        // denominators. Re-converge with the unshifted Hamiltonian
+                        // before publishing F, eigenvalues, W, or any derivatives.
+                        cur_level_shift = 0.0;
+                        prev_density = None;
+                        v_mixed = v_out;
+                        if multipole_ctx.is_none() && !d4_active {
+                            // A small-gap charge map may be unstable under plain
+                            // mixing even at its fixed point. Newton polishing uses
+                            // the physical gap instead of reintroducing a shift.
+                            accelerator = SccAccelerator::Newton;
+                        }
+                        broyden =
+                            BroydenMixer::new(mix_len, options.scc_broyden_size.max(2), mixing);
+                        cdiis = CdiisMixer::new(options.scc_broyden_size.max(2).min(20));
+                        last_scc_energy = None;
+                        last_result = Some(step);
+                        continue;
+                    }
+                    converged = true;
+                    last_result = Some(step);
+                    break;
+                }
+                let residual = v_out
                     .iter()
-                    .zip(v_mixed[0..nsh].iter())
-                    .map(|(a, b)| (a - b).abs())
-                    .fold(0.0_f64, f64::max);
-                eprintln!(
-                    "[SCC] it={:3} dE={:.3e} rms={:.3e} dqmax={:.3e} gap={:.4} E={:.8}",
-                    iter, energy_error, final_rms, qmax, gap, scc_energy
-                );
-            }
-            if energy_error < options.energy_tolerance && final_rms < options.charge_tolerance {
-                converged = true;
-                last_result = Some(step);
-                break;
-            }
-            let residual = v_out
-                .iter()
-                .zip(v_mixed.iter())
-                .map(|(qnew, qold)| qnew - qold)
-                .collect::<Vec<_>>();
-            let damped = || damped_charge_step(&v_mixed, &residual, mixing);
-            let q_next = if multipole_ctx.is_some() {
-                // Joint Broyden over [charges | moments]; the charge-trust filter checks only the
-                // charge block. (CDIIS/Newton are monopole-specific and not used here.)
-                match accelerator {
-                    SccAccelerator::Linear => damped(),
-                    _ => broyden
-                        .next(&v_mixed, &residual)
-                        .filter(|candidate| trusted_charge_vector(&candidate[0..nsh]))
-                        .unwrap_or_else(damped),
-                }
-            } else {
-                match accelerator {
-                    SccAccelerator::Linear => damped(),
-                    SccAccelerator::Broyden => broyden
-                        .next(&v_mixed, &residual)
-                        .filter(|candidate| trusted_charge_vector(candidate))
-                        .unwrap_or_else(damped),
-                    SccAccelerator::Cdiis => cdiis
-                        .next(&v_mixed, &step.shell_charges, &residual)
-                        .filter(|candidate| trusted_charge_vector(candidate))
-                        .unwrap_or_else(damped),
-                    SccAccelerator::Newton => newton_charge_step(
-                        &core.integrals.overlap,
-                        &amat,
-                        &shell_model,
-                        &basis,
-                        &step,
-                        &v_mixed,
-                        &residual,
-                    )
-                    .filter(|candidate| trusted_charge_vector(candidate))
-                    .unwrap_or_else(|| {
-                        broyden
+                    .zip(v_mixed.iter())
+                    .map(|(qnew, qold)| qnew - qold)
+                    .collect::<Vec<_>>();
+                let damped = || damped_charge_step(&v_mixed, &residual, mixing);
+                let q_next = if multipole_ctx.is_some() {
+                    // Joint Broyden over [charges | moments]; the charge-trust filter checks only the
+                    // charge block. (CDIIS/Newton are monopole-specific and not used here.)
+                    match accelerator {
+                        SccAccelerator::Linear => damped(),
+                        _ => broyden
+                            .next(&v_mixed, &residual)
+                            .filter(|candidate| trusted_charge_vector(&candidate[0..nsh]))
+                            .unwrap_or_else(damped),
+                    }
+                } else {
+                    match accelerator {
+                        SccAccelerator::Linear => damped(),
+                        SccAccelerator::Auto | SccAccelerator::Broyden => broyden
                             .next(&v_mixed, &residual)
                             .filter(|candidate| trusted_charge_vector(candidate))
-                            .unwrap_or_else(damped)
-                    }),
+                            .unwrap_or_else(damped),
+                        SccAccelerator::Cdiis => cdiis
+                            .next(&v_mixed, &step.shell_charges, &residual)
+                            .filter(|candidate| trusted_charge_vector(candidate))
+                            .unwrap_or_else(damped),
+                        SccAccelerator::Newton => newton_charge_step(
+                            &core.integrals.overlap,
+                            &amat,
+                            &shell_model,
+                            &basis,
+                            &step,
+                            &v_mixed,
+                            &residual,
+                        )
+                        .filter(|candidate| trusted_charge_vector(candidate))
+                        .unwrap_or_else(|| {
+                            broyden
+                                .next(&v_mixed, &residual)
+                                .filter(|candidate| trusted_charge_vector(candidate))
+                                .unwrap_or_else(damped)
+                        }),
+                    }
+                };
+                prev_density = if cur_level_shift != 0.0 {
+                    Some(step.density.clone())
+                } else {
+                    None
+                };
+                v_mixed = q_next;
+                last_scc_energy = Some(scc_energy);
+                last_result = Some(step);
+                if iter == rung_max_scc {
+                    break;
                 }
-            };
-            prev_density = if cur_level_shift != 0.0 {
-                Some(step.density.clone())
-            } else {
-                None
-            };
-            v_mixed = q_next;
-            last_scc_energy = Some(scc_energy);
-            last_result = Some(step);
-            if iter == rung_max_scc {
-                break;
             }
-        }
             // Converged on this rung → done. Otherwise fall through to the next, more robust rung.
             if converged {
                 break 'attempts;
@@ -1989,7 +2279,7 @@ fn run_scc_with_core(
             *v += *add;
         }
     }
-    let external_field_energy = external_shell_potential
+    let external_field_energy = external_electric_shell_potential
         .as_ref()
         .map(|v| electric_field_energy(v, &step.shell_charges))
         .unwrap_or(0.0);
@@ -2000,7 +2290,25 @@ fn run_scc_with_core(
         let fmoments = crate::multipole::atomic_moments(&basis, nat, mp_ints, &step.density);
         dipole += crate::multipole::total_atomic_dipole(&fmoments);
     }
-    let total_internal = electronic_energy
+    let solvation_energy = solvation
+        .as_ref()
+        .map(|s| s.energy(&scc.atomic_charges))
+        .transpose()?
+        .unwrap_or_default();
+    // The charge-dependent solvent energy was already included in amat.
+    let solvent_quadratic = solvation.as_ref().map_or(0.0, |s| {
+        let q = &scc.atomic_charges;
+        (0..q.len())
+            .map(|i| {
+                (0..q.len())
+                    .map(|j| 0.5 * q[i] * q[j] * s.matrix[(i, j)])
+                    .sum::<f64>()
+            })
+            .sum()
+    });
+    let solvent_affine_correction =
+        solvation_energy.electrostatic + solvation_energy.hydrogen_bond - solvent_quadratic;
+    let total_internal = solvent_affine_correction + solvation_energy.sasa + solvation_energy.shift + electronic_energy
         + scc.second_order
         + scc.third_order
         + scc.higher_order // 4th+ on-site charge orders (0 unless options.charge_order > 3)
@@ -2013,6 +2321,12 @@ fn run_scc_with_core(
     let total_free = total_internal + step.entropy_term;
 
     Ok(ElectronicResult {
+        calculation_id: None,
+        ml_parameters: None,
+        ml_correction_energy: 0.0,
+        solvation,
+        solvation_energy,
+        method_citations: crate::citations::electronic_citations(&options, false),
         basis,
         integrals: core.integrals,
         h0: core.h0,
@@ -2032,7 +2346,7 @@ fn run_scc_with_core(
         coordination_numbers: core.coordination_numbers,
         electronic_energy,
         repulsion_energy: repulsion,
-        isotropic_scc_energy: scc.second_order,
+        isotropic_scc_energy: scc.second_order - solvent_quadratic,
         third_order_energy: scc.third_order,
         dispersion_energy: dispersion,
         halogen_energy: halogen,
@@ -2971,7 +3285,11 @@ fn run_trah_exchange_scf(
     }
 
     // Exchange Fock K[ΔP] = MFX (+ OFX) at a density (also the response, since both are linear in P).
+    let zero_exchange = onsite_cache.is_none() && gamma.as_slice().iter().all(|x| *x == 0.0);
     let exchange_kernel = |dp: &Matrix| -> Matrix {
+        if zero_exchange {
+            return Matrix::zeros(n, n);
+        }
         let mut k = crate::exchange::mfx_kernel(dp, overlap, gamma);
         if let Some(cache) = onsite_cache {
             let kofx = crate::exchange::onsite_fock_exchange_kernel_cached(
@@ -3018,12 +3336,9 @@ fn run_trah_exchange_scf(
                 .zip(k.as_slice().iter())
                 .map(|(a, b)| a * b)
                 .sum::<f64>();
-        // mDFTB2 multipole correction in F[P] and the energy. NOTE: it is added to the gradient
-        // `F[P]` here but intentionally NOT to `fock_response` below, so TRAH's second-order step
-        // sees the exchange+charge curvature only — the multipole block is treated as a fixed
-        // first-order potential. TRAH is the *continuation* from a near-converged ADIIS/C-DIIS
-        // density (where the multipole is already nearly self-consistent), so this preserves the
-        // correct fixed point; only the (rarely-needed) polish's convergence rate is affected.
+        // Density-consistent multipole potential and energy. Its quadratic
+        // response is included below. Nonlinear charge-cross/third-order
+        // multipoles retain exact gradients with approximate Newton curvature.
         let mp_e = if let Some(mp) = mp {
             let (mf, me) = mp
                 .fock_energy(p, &qsh)
@@ -3045,6 +3360,16 @@ fn run_trah_exchange_scf(
     };
 
     let h0_zero = Matrix::zeros(n, n);
+    // For the quadratic multipole functional F_mp is affine in P. Subtract
+    // its zero-density value to obtain the exact linear response, including
+    // charge/moment coupling, without finite differences or a dense Hessian.
+    let linear_mp = mp.filter(|m| m.charge_order.is_empty() && !m.third_order);
+    let mp_zero = linear_mp.map(|m| {
+        let q = mulliken_shell_charges(basis, overlap, &h0_zero);
+        m.fock_energy(&h0_zero, &q)
+            .expect("multipole zero-density Fock")
+            .0
+    });
     let fock_response = |dp: &Matrix| -> Matrix {
         // Second-order charge response: δq_sh = −Σ_{μ∈sh,ν} S_{μν} δP_{μν}; δV = A·δq; δF = −½S∘(δVi+δVj).
         let mut dq = vec![0.0_f64; nsh];
@@ -3070,6 +3395,32 @@ fn run_trah_exchange_scf(
         for (fi, ki) in df.as_mut_slice().iter_mut().zip(k.as_slice().iter()) {
             *fi += *ki;
         }
+        if let (Some(m), Some(zero)) = (linear_mp, mp_zero.as_ref()) {
+            // Apply the affine map at unit amplitude, then rescale. Applying
+            // it directly to a tiny Krylov vector would lose its response
+            // when subtracting the reference-charge bias and could trip the
+            // negligible-moment screen, destroying linearity near convergence.
+            let scale = dp.as_slice().iter().map(|x| x.abs()).fold(0., f64::max);
+            if scale > 0. {
+                let mut unit = dp.clone();
+                for x in unit.as_mut_slice() {
+                    *x /= scale;
+                }
+                let q = mulliken_shell_charges(basis, overlap, &unit);
+                let mf = m
+                    .fock_energy(&unit, &q)
+                    .expect("multipole linear response")
+                    .0;
+                for ((out, value), bias) in df
+                    .as_mut_slice()
+                    .iter_mut()
+                    .zip(mf.as_slice())
+                    .zip(zero.as_slice())
+                {
+                    *out += scale * (value - bias);
+                }
+            }
+        }
         df
     };
 
@@ -3089,10 +3440,105 @@ fn run_trah_exchange_scf(
     };
     let res = crate::trah::run_trah_scf(&start_mo, &occ, fock_energy, fock_response, &opt)?;
 
-    // Canonical SccStep at the converged density (one diagonalisation with the converged charges +
-    // exchange Fock; Fermi occupations match the integer TRAH ones at the gap).
+    // Canonicalize within occupation subspaces at a multipole minimum. The
+    // high-rank density functional can have a stable non-Aufbau orbital
+    // minimum. Refilling the globally lowest eigenvalues would discard the
+    // variational solution and return a different, nonstationary density.
+    if mp.is_some() && electronic_temperature == 0.0 {
+        let (fock, _) = fock_energy(&res.density);
+        let fmo = res.mo.transpose().matmul(&fock)?.matmul(&res.mo)?;
+        let mut rotation = Matrix::zeros(nmo, nmo);
+        let mut eps = vec![0.; nmo];
+        let mut visited = vec![false; nmo];
+        for p in 0..nmo {
+            if visited[p] {
+                continue;
+            }
+            let block: Vec<_> = (0..nmo).filter(|&q| occ[q] == occ[p]).collect();
+            let mut sub = Matrix::zeros(block.len(), block.len());
+            for (i, &pi) in block.iter().enumerate() {
+                for (j, &pj) in block.iter().enumerate() {
+                    sub[(i, j)] = fmo[(pi, pj)];
+                }
+            }
+            let eig = crate::linalg::symmetric_eigen(&sub)?;
+            for (j, &pj) in block.iter().enumerate() {
+                visited[pj] = true;
+                eps[pj] = eig.values[j];
+                for (i, &pi) in block.iter().enumerate() {
+                    rotation[(pi, pj)] = eig.vectors[(i, j)];
+                }
+            }
+        }
+        let coeff = res.mo.matmul(&rotation)?;
+        let mut order: Vec<_> = (0..nmo).collect();
+        order.sort_by(|&i, &j| eps[i].total_cmp(&eps[j]));
+        let mut sorted = Matrix::zeros(n, nmo);
+        let mut energies = Vec::with_capacity(nmo);
+        let mut occupations = Vec::with_capacity(nmo);
+        for (j, &p) in order.iter().enumerate() {
+            energies.push(eps[p]);
+            occupations.push(occ[p]);
+            for i in 0..n {
+                sorted[(i, j)] = coeff[(i, p)];
+            }
+        }
+        let weighted: Vec<_> = energies
+            .iter()
+            .zip(&occupations)
+            .map(|(e, f)| e * f)
+            .collect();
+        let homo = energies
+            .iter()
+            .zip(&occupations)
+            .filter(|(_, f)| **f > 0.)
+            .map(|(e, _)| *e)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let lumo = energies
+            .iter()
+            .zip(&occupations)
+            .filter(|(_, f)| **f == 0.)
+            .map(|(e, _)| *e)
+            .fold(f64::INFINITY, f64::min);
+        let ex = exchange_kernel(&delta_p(&res.density));
+        let ex_energy = 0.5
+            * delta_p(&res.density)
+                .as_slice()
+                .iter()
+                .zip(ex.as_slice())
+                .map(|(a, b)| a * b)
+                .sum::<f64>();
+        let step = SccStep {
+            fock,
+            density: res.density.clone(),
+            energy_weighted_density: column_weighted_gram(&sorted, &weighted)?,
+            mo_coeff: sorted,
+            orbital_energies: energies,
+            occupations,
+            fermi_level: if homo.is_finite() && lumo.is_finite() {
+                0.5 * (homo + lumo)
+            } else {
+                0.
+            },
+            entropy_term: 0.,
+            shell_charges: mulliken_shell_charges(basis, overlap, &res.density),
+        };
+        return Ok((
+            step,
+            ex_energy,
+            res.iterations,
+            res.converged,
+            res.gradient_norm,
+        ));
+    }
+
+    // Canonical step for the existing gapped exchange path.
     let shell_charges = mulliken_shell_charges(basis, overlap, &res.density);
-    let k_final = exchange_kernel(&delta_p(&res.density));
+    let mut k_final = exchange_kernel(&delta_p(&res.density));
+    if let Some(m) = mp {
+        let mf = m.fock_energy(&res.density, &shell_charges)?.0;
+        add_assign_matrix(&mut k_final, &mf);
+    }
     let step = scc_step(
         basis,
         overlap,
@@ -3670,7 +4116,17 @@ pub(crate) fn scc_response_kernel(
             continue;
         }
         let offset = shell_model.atom_offsets[atom];
-        let add = 2.0 * qat * shell_model.hubbard_derivs[offset];
+        let gam3 = shell_model.hubbard_derivs[offset];
+        let mut add = 2.0 * qat * gam3;
+        if shell_model.charge_order > 3 {
+            let gamma = shell_model.hardness[offset];
+            if gamma.abs() > 1.0e-8 {
+                let ratio = 2.0 * gam3 / gamma;
+                for order in 4..=shell_model.charge_order {
+                    add += gamma * ratio.powi(order as i32 - 2) * qat.powi(order as i32 - 2);
+                }
+            }
+        }
         for li in 0..count {
             for lj in 0..count {
                 kernel[(offset + li, offset + lj)] += add;

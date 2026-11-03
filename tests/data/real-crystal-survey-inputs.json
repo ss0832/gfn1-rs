@@ -1,0 +1,550 @@
+{
+  "schema": "gfn1-rs-sourced-real-crystal-inputs-v1",
+  "geometry_reader": {
+    "ase": "3.29.0",
+    "numpy": "2.4.6"
+  },
+  "scope": "Published COD structure snapshots, not independently constructed ideal prototypes. Only the Skinner synthetic ZnS record is labelled an experimental measurement; handbook entries do not invent measurement conditions.",
+  "cases": [
+    {
+      "id": "diamond-cod9008564",
+      "source": {
+        "cod_id": "9008564",
+        "source_kind": "published_handbook_COD_structure",
+        "experimental_measurement_claim": false,
+        "citation": "R. W. G. Wyckoff, Crystal Structures, second edition, volume 1, pages 7-83 (1963)",
+        "repository": "https://github.com/cod-developers/cod-tools",
+        "commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "path": "tests/inputs/9008564-diamond.cif",
+        "raw_sha256": "73ada0f2ba5762a3142b7e889d2ec45652928b2770a46381806d3f3770cbc08e",
+        "cod_url": "https://www.crystallography.net/cod/9008564.cif",
+        "retrieved_url": "https://raw.githubusercontent.com/cod-developers/cod-tools/0060d4652a5a262fbda2276801f1244060d67128/tests/inputs/9008564-diamond.cif",
+        "license": "LicenseRef-COD-Public-Domain",
+        "license_policy": "https://doi.org/10.1093/nar/gkr900",
+        "reported_measurement_temperature_kelvin": null,
+        "reported_measurement_pressure": null,
+        "transformation": "ASE parses CIF coordinates and explicit reported symmetry operations (legacy space-group names are not reinterpreted); exact FCC primitive basis change; duplicate translational images removed; no idealization or relaxation",
+        "conventional_to_primitive_rows": [
+          [
+            0.0,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.0,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.0
+          ]
+        ]
+      },
+      "numbers": [
+        6,
+        6
+      ],
+      "positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.8916975,
+          0.8916975,
+          0.8916975
+        ]
+      ],
+      "cell_angstrom": [
+        [
+          0.0,
+          1.783395,
+          1.783395
+        ],
+        [
+          1.783395,
+          0.0,
+          1.783395
+        ],
+        [
+          1.783395,
+          1.783395,
+          0.0
+        ]
+      ],
+      "conventional_atom_count": 8,
+      "primitive_atom_count": 2,
+      "conventional_cell_angstrom": [
+        [
+          3.56679,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          3.56679,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          3.56679
+        ]
+      ],
+      "conventional_positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.783395,
+          1.783395
+        ],
+        [
+          1.783395,
+          0.0,
+          1.783395
+        ],
+        [
+          1.783395,
+          1.783395,
+          0.0
+        ],
+        [
+          2.6750925,
+          2.6750925,
+          0.8916975
+        ],
+        [
+          2.6750925,
+          0.8916975,
+          2.6750925
+        ],
+        [
+          0.8916975,
+          2.6750925,
+          2.6750925
+        ],
+        [
+          0.8916975,
+          0.8916975,
+          0.8916975
+        ]
+      ],
+      "masses_amu": [
+        12.011,
+        12.011
+      ]
+    },
+    {
+      "id": "zns-cod9000107",
+      "source": {
+        "cod_id": "9000107",
+        "source_kind": "experimental_synthetic_sphalerite_COD_structure",
+        "experimental_measurement_claim": true,
+        "citation": "B. J. Skinner, Unit-cell edges of natural and synthetic sphalerites, American Mineralogist 46, 1399-1411 (1961); synthetic sample",
+        "repository": "https://github.com/cryos/avogadro",
+        "commit": "e1146f240b6d9fe5e2ffe267f334610dfe4467e1",
+        "path": "crystals/sulfides/ZnS-Zincblende.cif",
+        "raw_sha256": "b1fe002d8474125395cedd66fa810bf94c046760e420ff1571a47db31226a53d",
+        "cod_url": "https://www.crystallography.net/cod/9000107.cif",
+        "retrieved_url": "https://raw.githubusercontent.com/cryos/avogadro/e1146f240b6d9fe5e2ffe267f334610dfe4467e1/crystals/sulfides/ZnS-Zincblende.cif",
+        "license": "LicenseRef-COD-Public-Domain",
+        "license_policy": "https://doi.org/10.1093/nar/gkr900",
+        "reported_measurement_temperature_kelvin": null,
+        "reported_measurement_pressure": null,
+        "transformation": "ASE parses CIF coordinates and explicit reported symmetry operations (legacy space-group names are not reinterpreted); exact FCC primitive basis change; duplicate translational images removed; no idealization or relaxation",
+        "conventional_to_primitive_rows": [
+          [
+            0.0,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.0,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.0
+          ]
+        ]
+      },
+      "numbers": [
+        30,
+        16
+      ],
+      "positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.3523249999999998,
+          1.3523249999999998,
+          1.3523249999999998
+        ]
+      ],
+      "cell_angstrom": [
+        [
+          0.0,
+          2.70465,
+          2.70465
+        ],
+        [
+          2.70465,
+          0.0,
+          2.70465
+        ],
+        [
+          2.70465,
+          2.70465,
+          0.0
+        ]
+      ],
+      "conventional_atom_count": 8,
+      "primitive_atom_count": 2,
+      "conventional_cell_angstrom": [
+        [
+          5.4093,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          5.4093,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          5.4093
+        ]
+      ],
+      "conventional_positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          2.70465,
+          2.70465
+        ],
+        [
+          2.70465,
+          0.0,
+          2.70465
+        ],
+        [
+          2.70465,
+          2.70465,
+          0.0
+        ],
+        [
+          1.3523249999999998,
+          1.3523249999999998,
+          1.3523249999999998
+        ],
+        [
+          1.3523249999999998,
+          4.0569749999999996,
+          4.0569749999999996
+        ],
+        [
+          4.0569749999999996,
+          1.3523249999999998,
+          4.0569749999999996
+        ],
+        [
+          4.0569749999999996,
+          4.0569749999999996,
+          1.3523249999999998
+        ]
+      ],
+      "masses_amu": [
+        65.38,
+        32.06
+      ]
+    },
+    {
+      "id": "sic-cod9008856",
+      "source": {
+        "cod_id": "9008856",
+        "source_kind": "published_handbook_COD_structure",
+        "experimental_measurement_claim": false,
+        "citation": "R. W. G. Wyckoff, Crystal Structures, second edition, volume 1, pages 85-237 (1963); cubic beta SiC",
+        "repository": "https://github.com/cryos/avogadro",
+        "commit": "e1146f240b6d9fe5e2ffe267f334610dfe4467e1",
+        "path": "crystals/carbides/SiC-3C-beta.cif",
+        "raw_sha256": "f70b738f6862a954f89201bbcb130701f08a6848f63f678db45d7f837b3b5a52",
+        "cod_url": "https://www.crystallography.net/cod/9008856.cif",
+        "retrieved_url": "https://raw.githubusercontent.com/cryos/avogadro/e1146f240b6d9fe5e2ffe267f334610dfe4467e1/crystals/carbides/SiC-3C-beta.cif",
+        "license": "LicenseRef-COD-Public-Domain",
+        "license_policy": "https://doi.org/10.1093/nar/gkr900",
+        "reported_measurement_temperature_kelvin": null,
+        "reported_measurement_pressure": null,
+        "transformation": "ASE parses CIF coordinates and explicit reported symmetry operations (legacy space-group names are not reinterpreted); exact FCC primitive basis change; duplicate translational images removed; no idealization or relaxation",
+        "conventional_to_primitive_rows": [
+          [
+            0.0,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.0,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.0
+          ]
+        ]
+      },
+      "numbers": [
+        14,
+        6
+      ],
+      "positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.087,
+          1.087,
+          1.087
+        ]
+      ],
+      "cell_angstrom": [
+        [
+          0.0,
+          2.174,
+          2.174
+        ],
+        [
+          2.174,
+          0.0,
+          2.174
+        ],
+        [
+          2.174,
+          2.174,
+          0.0
+        ]
+      ],
+      "conventional_atom_count": 8,
+      "primitive_atom_count": 2,
+      "conventional_cell_angstrom": [
+        [
+          4.348,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          4.348,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          4.348
+        ]
+      ],
+      "conventional_positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          2.174,
+          2.174
+        ],
+        [
+          2.174,
+          0.0,
+          2.174
+        ],
+        [
+          2.174,
+          2.174,
+          0.0
+        ],
+        [
+          1.087,
+          1.087,
+          1.087
+        ],
+        [
+          1.087,
+          3.261,
+          3.261
+        ],
+        [
+          3.261,
+          1.087,
+          3.261
+        ],
+        [
+          3.261,
+          3.261,
+          1.087
+        ]
+      ],
+      "masses_amu": [
+        28.085,
+        12.011
+      ]
+    },
+    {
+      "id": "nacl-cod9008678",
+      "source": {
+        "cod_id": "9008678",
+        "source_kind": "published_handbook_COD_structure",
+        "experimental_measurement_claim": false,
+        "citation": "R. W. G. Wyckoff, Crystal Structures, second edition, volume 1, pages 85-237 (1963); halite",
+        "repository": "https://github.com/cryos/avogadro",
+        "commit": "e1146f240b6d9fe5e2ffe267f334610dfe4467e1",
+        "path": "crystals/halides/NaCl-Halite.cif",
+        "raw_sha256": "9f1c5bbd2af8a70b0b0bb752618b5fb0259df7dc6c7fa6115dcc10bb652660ba",
+        "cod_url": "https://www.crystallography.net/cod/9008678.cif",
+        "retrieved_url": "https://raw.githubusercontent.com/cryos/avogadro/e1146f240b6d9fe5e2ffe267f334610dfe4467e1/crystals/halides/NaCl-Halite.cif",
+        "license": "LicenseRef-COD-Public-Domain",
+        "license_policy": "https://doi.org/10.1093/nar/gkr900",
+        "reported_measurement_temperature_kelvin": null,
+        "reported_measurement_pressure": null,
+        "transformation": "ASE parses CIF coordinates and explicit reported symmetry operations (legacy space-group names are not reinterpreted); exact FCC primitive basis change; duplicate translational images removed; no idealization or relaxation",
+        "conventional_to_primitive_rows": [
+          [
+            0.0,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.0,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.0
+          ]
+        ]
+      },
+      "numbers": [
+        11,
+        17
+      ],
+      "positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          2.82028,
+          2.82028,
+          2.82028
+        ]
+      ],
+      "cell_angstrom": [
+        [
+          0.0,
+          2.82028,
+          2.82028
+        ],
+        [
+          2.82028,
+          0.0,
+          2.82028
+        ],
+        [
+          2.82028,
+          2.82028,
+          0.0
+        ]
+      ],
+      "conventional_atom_count": 8,
+      "primitive_atom_count": 2,
+      "conventional_cell_angstrom": [
+        [
+          5.64056,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          5.64056,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          5.64056
+        ]
+      ],
+      "conventional_positions_angstrom": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          2.82028,
+          2.82028
+        ],
+        [
+          2.82028,
+          0.0,
+          2.82028
+        ],
+        [
+          2.82028,
+          2.82028,
+          0.0
+        ],
+        [
+          2.82028,
+          2.82028,
+          2.82028
+        ],
+        [
+          2.82028,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          2.82028,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          2.82028
+        ]
+      ],
+      "masses_amu": [
+        22.98976928,
+        35.45
+      ]
+    }
+  ]
+}

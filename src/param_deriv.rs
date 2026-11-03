@@ -75,7 +75,7 @@ fn evaluate_observables(
                 "parameter stress derivatives require a periodic system".to_string(),
             ));
         }
-        let pbc = PbcOptions::for_boundary(options.electronic.boundary);
+        let pbc = PbcOptions::for_electronic(&options.electronic)?;
         let st = pbc_stress(system, params, &options.electronic, &pbc)?;
         let gr = pbc_analytic_gradient(system, params, &options.electronic, &pbc)?;
         let mut stress = [[0.0_f64; 3]; 3];
@@ -92,7 +92,7 @@ fn evaluate_observables(
     }
     if options.include_forces {
         let gradient = if periodic {
-            let pbc = PbcOptions::for_boundary(options.electronic.boundary);
+            let pbc = PbcOptions::for_electronic(&options.electronic)?;
             pbc_analytic_gradient(system, params, &options.electronic, &pbc)?.forces
         } else {
             analytic_gradient(system, params, gradient_options(options))?.forces

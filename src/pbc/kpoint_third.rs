@@ -11,11 +11,12 @@
 //! `pbc::gamma_response` for the assembly) is
 //!
 //! ```text
-//!   d³E/dλ³ = frozen.total().third + density_path + g(X²) + B6 + 2·bg4
+//!   d³F/dλ³ = frozen.total().third + density_path + g(X²) + B6 + background_complete
 //! ```
 //!
 //! This module supplies the pieces of that structure that change when `pbc.kmesh` is a real
-//! Brillouin-zone mesh instead of `Gamma`. The complex second-order response `X²` is **not** here.
+//! Brillouin-zone mesh instead of `Gamma`. Canonical first- and second-order Fermi responses
+//! include one chemical-potential response shared by the whole mesh.
 //!
 //! # What actually depends on `k`
 //!
@@ -72,11 +73,13 @@ use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
 use crate::pbc::complex::CMatrix;
 use crate::pbc::gamma_third::{
-    gamma_realspace_densities, gamma_response_path_directional, pbc_band_pulay_third_directional,
-    pbc_cn_third_directional, pbc_dispersion_third_directional, pbc_halogen_third_directional,
-    pbc_repulsion_third_directional, pbc_scc2_bilinear_second_directional,
-    pbc_scc2_ewald_third_directional, pbc_scc2_realspace_third_directional,
-    shell_potential_second_directional, DirectionalDerivs, FrozenDensityImages, GammaFrozenThird,
+    gamma_realspace_densities, gamma_response_path_directional,
+    pbc_band_pulay_complete_third_directional, pbc_band_pulay_third_directional,
+    pbc_cn_complete_third_directional, pbc_cn_third_directional, pbc_dispersion_third_directional,
+    pbc_halogen_third_directional, pbc_repulsion_third_directional,
+    pbc_scc2_bilinear_second_directional, pbc_scc2_ewald_third_directional,
+    pbc_scc2_realspace_third_directional, shell_potential_second_directional, DirectionalDerivs,
+    FrozenDensityImages, GammaFrozenThird,
 };
 use crate::pbc::hessian::{
     build_response_band_pairs, kpoint_cpxtb_density_responses, periodic_response_kernel,
@@ -154,8 +157,9 @@ pub(crate) fn kpoint_shell_potential_first_directional(
 ///
 /// The claim that no *other* block needs a k-point form is a claim about the frozen half of the
 /// theory, and `kpoint_frozen_third_matches_bundle_second_fd` is the measurement: a central
-/// difference of this bundle's own `second` along `λ`, at frozen SCC, must reproduce `third` with
-/// an `h`-ladder ratio of 4.
+/// difference of this bundle's own `second` along `λ`, at frozen densities/charges with the
+/// geometry-dependent CN and SCC-potential reference values refreshed, must reproduce `third`
+/// with an `h`-ladder ratio of 4.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn kpoint_frozen_third_directional(
     system: &PeriodicSystem,
@@ -186,7 +190,7 @@ pub(crate) fn kpoint_frozen_third_directional(
             DirectionalDerivs::default()
         },
         coordination: if enable_cn {
-            pbc_cn_third_directional(
+            pbc_cn_complete_third_directional(
                 system,
                 params,
                 scf,
@@ -198,7 +202,7 @@ pub(crate) fn kpoint_frozen_third_directional(
         } else {
             DirectionalDerivs::default()
         },
-        band_pulay: pbc_band_pulay_third_directional(
+        band_pulay: pbc_band_pulay_complete_third_directional(
             system, params, scf, pbc, &dens, &v1, &v2, v,
         )?,
         scc2_realspace: pbc_scc2_realspace_third_directional(system, &lattice, scf, pbc, v),
@@ -539,8 +543,7 @@ pub(crate) fn kpoint_directional_second_matrices(
                     if s0 == 0.0 {
                         continue;
                     }
-                    fock.re[(mu, nu)] +=
-                        0.5 * (dsedcn[si_idx] + dsedcn[sj_idx]) * s0 * cn2[a];
+                    fock.re[(mu, nu)] += 0.5 * (dsedcn[si_idx] + dsedcn[sj_idx]) * s0 * cn2[a];
                 }
             }
         }
@@ -555,14 +558,11 @@ pub(crate) fn kpoint_directional_second_matrices(
             let sh_nu = basis.aos[nu].shell_index;
             let a2 = -0.5 * (v2_pot[sh_mu] + v2_pot[sh_nu]);
             let a1 = -(v1_pot[sh_mu] + v1_pot[sh_nu]);
-            let a0 = -0.5
-                * (scf.shell_scc_potential[sh_mu] + scf.shell_scc_potential[sh_nu]);
-            fock.re[(mu, nu)] += a2 * s_k.re[(mu, nu)]
-                + a1 * s1_mat.re[(mu, nu)]
-                + a0 * s2_mat.re[(mu, nu)];
-            fock.im[(mu, nu)] += a2 * s_k.im[(mu, nu)]
-                + a1 * s1_mat.im[(mu, nu)]
-                + a0 * s2_mat.im[(mu, nu)];
+            let a0 = -0.5 * (scf.shell_scc_potential[sh_mu] + scf.shell_scc_potential[sh_nu]);
+            fock.re[(mu, nu)] +=
+                a2 * s_k.re[(mu, nu)] + a1 * s1_mat.re[(mu, nu)] + a0 * s2_mat.re[(mu, nu)];
+            fock.im[(mu, nu)] +=
+                a2 * s_k.im[(mu, nu)] + a1 * s1_mat.im[(mu, nu)] + a0 * s2_mat.im[(mu, nu)];
         }
     }
 
@@ -852,8 +852,8 @@ impl DkTablesK {
     /// Build the tables from one k-point's band energies and occupations.
     ///
     /// `kt = 0` is not the molecular code's path (the molecular context builds DK tables only on
-    /// its finite-temperature branch, so it can divide by `kt` unguarded) but it is the *normal*
-    /// case here: the k-point analytic FC3 targets gapped insulators. The `kt → 0` limit of a
+    /// its finite-temperature branch, so it can divide by `kt` unguarded). Both finite-temperature
+    /// and gapped zero-temperature references are supported here. The `kt → 0` limit of a
     /// gapped occupation function is `f' = f'' = 0` — `f` is locally constant at every band
     /// energy — and taking it explicitly keeps every divided difference finite. The chemical
     /// potential then drops out of the response entirely (`w_sum = Σ(−f') = 0`), which is the
@@ -1169,9 +1169,7 @@ pub(crate) fn kpoint_second_order_directional(
     v: &[f64],
 ) -> Result<KSecondOrder> {
     let skeletons = kpoint_mesh_skeletons(system, params, scf, options, pbc)?;
-    kpoint_second_order_directional_cached(
-        system, params, scf, options, pbc, &skeletons, first, v,
-    )
+    kpoint_second_order_directional_cached(system, params, scf, options, pbc, &skeletons, first, v)
 }
 
 /// The production k-point skeleton derivative set at **every** k-point of the mesh.
@@ -1261,9 +1259,7 @@ pub(crate) fn kpoint_second_order_directional_cached(
     let chain = kernel_chain_potential(scf, options.charge_order, q1, q1);
 
     // dv_ext = (∂_y γ)q^x + (∂_x γ)q^y + chain, with x = y = v.
-    let dv_ext: Vec<f64> = (0..nsh)
-        .map(|s| 2.0 * dgamma_v_q1[s] + chain[s])
-        .collect();
+    let dv_ext: Vec<f64> = (0..nsh).map(|s| 2.0 * dgamma_v_q1[s] + chain[s]).collect();
 
     // ---- per-k reference data ----
     let mut refs: Vec<KRefData> = Vec::with_capacity(nk);
@@ -1362,8 +1358,8 @@ pub(crate) fn kpoint_second_order_directional_cached(
                 tgt -= r.tables.f[p] * r.s_xy.re[(p, p)];
                 for q in 0..nb {
                     // 2·Re Tr[S^v P^{1v}] (both cross orderings coincide for x = y = v).
-                    tgt -= 2.0
-                        * (r.s_x.re[(p, q)] * p1.re[(q, p)] - r.s_x.im[(p, q)] * p1.im[(q, p)]);
+                    tgt -=
+                        2.0 * (r.s_x.re[(p, q)] * p1.re[(q, p)] - r.s_x.im[(p, q)] * p1.im[(q, p)]);
                 }
                 tr += r.weight * pk.re[(p, p)];
             }
@@ -1547,10 +1543,6 @@ fn kpoint_static_susceptibility(
 // Shared reference, assembly, and the public analytic entry points
 // ---------------------------------------------------------------------------------------------
 
-/// Occupations closer than this to 0 or 2 count as integer. Mirrors
-/// `pbc::gamma_response`'s own epsilon.
-const FRACTIONAL_OCC_EPS: f64 = 1.0e-10;
-
 /// **Shared, direction-INDEPENDENT reference state** for the analytic Brillouin-zone-sampled
 /// third derivative: one k-mesh SCC, one full per-DOF CPXTB response sweep, the real-space ground
 /// densities, the response band-pair table, the screening kernel, the coordination derivatives
@@ -1589,8 +1581,9 @@ impl KpointThirdReference {
     ///
     /// Guards, in cheap-to-expensive order: the term registry at analytic order 3 (which rejects
     /// multipole / long-range exchange / DFT+U / spin polarization / external fields /
-    /// experimental D4, all capped at order 1), a lattice, SCC convergence, and — only knowable
-    /// after the SCC — integer occupations at **every** k-point of the mesh.
+    /// experimental D4, all capped at order 1), a lattice and SCC convergence. Fractional
+    /// occupations use the canonical finite-temperature response; degenerate band blocks are
+    /// evaluated through confluent divided differences rather than an arbitrary orbital frame.
     ///
     /// There is deliberately **no k-mesh restriction**: that is the whole point of this path.
     /// A Gamma-only mesh is accepted and reproduces
@@ -1612,27 +1605,11 @@ impl KpointThirdReference {
             crate::error::Gfn1Error::InvalidInput("periodic third needs a lattice".into())
         })?;
         let scf = crate::pbc::scf::run_pbc_scc(system, params, options, pbc)?;
+        crate::pbc::ml::require_cubic_response(&scf)?;
         if !scf.converged {
             return Err(crate::error::Gfn1Error::InvalidInput(
                 "periodic SCC did not converge for the analytic k-point third derivative".into(),
             ));
-        }
-        for ik in 0..scf.kpoints.len() {
-            let mos = crate::pbc::hessian::kpoint_complex_mos(&scf, ik)?;
-            if mos
-                .occupations
-                .iter()
-                .any(|&f| f > FRACTIONAL_OCC_EPS && f < 2.0 - FRACTIONAL_OCC_EPS)
-            {
-                return Err(crate::error::Gfn1Error::InvalidInput(
-                    "the analytic k-point periodic third derivative requires integer (gapped) \
-                     occupations, but the periodic SCC converged to a Fermi-smeared filling; set \
-                     ElectronicOptions::electronic_temperature = 0, or use \
-                     pbc_kpoint_third_derivative_seminumerical_* which supports fractional \
-                     occupations"
-                        .into(),
-                ));
-            }
         }
         let dens0 = gamma_realspace_densities(&scf, &lattice, pbc.ao_cutoff);
         let band_pairs = build_response_band_pairs(system, params, &scf, &dens0.p, pbc)?;
@@ -1684,7 +1661,7 @@ impl KpointThirdReference {
 ///   e³[v] = frozen third                      (kpoint_frozen_third_directional, all blocks)
 ///         + density path                      (∂frozen²/∂X₀ · X¹)
 ///         + g(X²)·v                           (response gradient, second-order slots)
-///         + B6(X¹)[v,v] + 2·bg4(X¹, X¹)·v     (gamma_response_path_directional)
+///         + B6(X¹)[v,v] + background_complete (gamma_response_path_directional)
 /// ```
 ///
 /// # Why the Gamma consumers work unchanged
@@ -1794,7 +1771,7 @@ pub fn pbc_kpoint_third_with_reference(
         .map(|(at, g)| g.x * v[3 * at] + g.y * v[3 * at + 1] + g.z * v[3 * at + 2])
         .sum();
 
-    // ---- B6 + bg4 ----
+    // ---- B6 plus the complete background derivative (including cached potential motion) ----
     let path = gamma_response_path_directional(
         system, params, scf, options, pbc, dens0, &dens1, &x1.q, &v1_pot, v,
     )?;
@@ -1847,7 +1824,11 @@ pub fn pbc_kpoint_third_with_reference(
         for (s, dv) in scf_shift.shell_scc_potential.iter_mut().zip(&kq1) {
             *s += dv;
         }
-        let v1_shift: Vec<f64> = v1_pot.iter().zip(&dgamma_v_q1).map(|(a, b)| a + b).collect();
+        let v1_shift: Vec<f64> = v1_pot
+            .iter()
+            .zip(&dgamma_v_q1)
+            .map(|(a, b)| a + b)
+            .collect();
         let v2_shift: Vec<f64> = v2_pot
             .iter()
             .zip(&dgamma2_v_q1)
@@ -1867,15 +1848,15 @@ pub fn pbc_kpoint_third_with_reference(
     if std::env::var("GFN1_K3_DEBUG").is_ok() {
         eprintln!(
             "k3 components: frozen {:+.10e}  dpath {density_path:+.10e}  g2 {g2:+.10e}  b6 \
-             {:+.10e}  bg4 {:+.10e}\n  b6 blocks {:?}\n  bg4 families {:?}",
+             {:+.10e}  background {:+.10e}\n  b6 blocks {:?}\n  legacy bg4 families {:?}",
             frozen.total().third,
             path.b6,
-            path.bg4,
+            path.background_complete,
             path.b6_blocks,
             path.bg4_families
         );
     }
-    Ok(frozen.total().third + density_path + g2 + path.b6 + 2.0 * path.bg4)
+    Ok(frozen.total().third + density_path + g2 + path.b6 + path.background_complete)
 }
 
 /// **Analytic k-point periodic third derivative, Vector mode**: the single contracted scalar
@@ -1883,8 +1864,8 @@ pub fn pbc_kpoint_third_with_reference(
 ///
 /// The cheapest output mode — one shared-reference build plus one directional evaluation. Unlike
 /// the Gamma entry points this accepts **any** Monkhorst-Pack mesh; see
-/// [`KpointThirdReference::build`] for the option coverage (integer occupations, analytic order 3
-/// terms) and [`pbc_kpoint_third_with_reference`] for the assembly.
+/// [`KpointThirdReference::build`] for the option coverage (canonical thermal or integer
+/// occupations, analytic order 3 terms) and [`pbc_kpoint_third_with_reference`] for the assembly.
 pub fn pbc_kpoint_third_analytic_vector(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -1944,69 +1925,11 @@ fn kpoint_third_polarized(
     pbc: &PbcOptions,
     dofs: &[usize],
 ) -> Result<SymmetricThird> {
-    use rayon::prelude::*;
-    use std::collections::BTreeMap;
-
     let reference = KpointThirdReference::build(system, params, options, pbc)?;
-    let ndof = 3 * system.atoms.len();
-    let m = dofs.len();
-
-    // Phase 1: deduplicate the subset directions of every canonical triple.
-    let mut key_index: HashMap<Vec<(usize, u8)>, usize> = HashMap::new();
-    let mut keys: Vec<Vec<(usize, u8)>> = Vec::new();
-    let mut plan: Vec<((usize, usize, usize), Vec<(f64, usize)>)> = Vec::new();
-    for k in 0..m {
-        for j in 0..=k {
-            for i in 0..=j {
-                let idxs = [dofs[i], dofs[j], dofs[k]];
-                let mut terms = Vec::with_capacity(7);
-                for mask in 1u8..8 {
-                    let mut dir: BTreeMap<usize, u8> = BTreeMap::new();
-                    for (bit, &dof) in idxs.iter().enumerate() {
-                        if mask & (1 << bit) != 0 {
-                            *dir.entry(dof).or_insert(0) += 1;
-                        }
-                    }
-                    let key: Vec<(usize, u8)> = dir.into_iter().collect();
-                    let sign = if (3 - mask.count_ones()) % 2 == 0 {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let idx = *key_index.entry(key.clone()).or_insert_with(|| {
-                        keys.push(key);
-                        keys.len() - 1
-                    });
-                    terms.push((sign, idx));
-                }
-                plan.push(((i, j, k), terms));
-            }
-        }
-    }
-
-    // Phase 2: evaluate each distinct direction once, in parallel, against the shared reference.
-    let values: Result<Vec<f64>> = keys
-        .par_iter()
-        .map(|key| {
-            let mut v = vec![0.0_f64; ndof];
-            for &(dof, weight) in key {
-                v[dof] = weight as f64;
-            }
-            pbc_kpoint_third_with_reference(system, params, options, pbc, &reference, &v)
-        })
-        .collect();
-    let values = values?;
-
-    // Phase 3: assemble the packed tensor.
-    let mut store = SymmetricThird::zeros(m);
-    for ((i, j, k), terms) in plan {
-        let mut t = 0.0;
-        for (sign, idx) in terms {
-            t += sign * values[idx];
-        }
-        store.add(i, j, k, t / 6.0);
-    }
-    Ok(store)
+    let plan = crate::derivative_assembly::periodic_cubic_plan(
+        dofs, reference.ndof, reference.scf.basis.len(), reference.scf.kpoints.len(),
+    )?;
+    plan.cubic(|v| pbc_kpoint_third_with_reference(system, params, options, pbc, &reference, v))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2022,9 +1945,9 @@ mod tests {
 
     /// The same skewed primitive diamond cell the Gamma frozen-block gates use: an asymmetric
     /// cell strain (no residual point group, so no block can pass by accidental cancellation)
-    /// plus an internal displacement that lifts diamond's triply degenerate `t2` frontier
-    /// orbitals — mandatory here, because the k-point CPXTB is documented (`docs/pbc.md` §2b) to
-    /// be wrong on an exactly degenerate frontier manifold.
+    /// plus an internal displacement that lifts diamond's triply degenerate `t2` frontier.
+    /// Exact degenerate fractional bands are tested separately by the finite-temperature B2
+    /// component audit; this fixture retains a general nonsymmetric geometry.
     const DIAMOND_SKEW: &str = "2\n\
 Lattice=\"0.06 1.83 1.75 1.75 0.04 1.81 1.82 1.76 0.03\" pbc=\"T T T\"\n\
 C 0.000000 0.000000 0.000000\n\
@@ -2045,6 +1968,97 @@ N 0.940000 0.890000 0.920000\n";
 
     fn params() -> Gfn1Parameters {
         Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed")
+    }
+
+    fn thermal_second_response_audit(xyz: &str, mesh: [usize; 3]) {
+        let system = PeriodicSystem::from_xyz_str(xyz, 0., false).unwrap();
+        let params = params();
+        let options = ElectronicOptions {
+            electronic_temperature: 30000.,
+            enable_dispersion: false,
+            energy_tolerance: 1e-13,
+            charge_tolerance: 1e-11,
+            max_scc: 1000,
+            ..Default::default()
+        };
+        let pbc = PbcOptions {
+            kmesh: KMesh::monkhorst_pack(mesh),
+            ao_cutoff: 20.,
+            ewald: EwaldOptions {
+                sr_cutoff: 12.,
+                ..Default::default()
+            },
+        };
+        let v = direction(6, 41);
+        let scf = run_pbc_scc(&system, &params, &options, &pbc).unwrap();
+        let first =
+            kpoint_first_order_directional(&system, &params, &scf, &options, &pbc, &v).unwrap();
+        let second =
+            kpoint_second_order_directional(&system, &params, &scf, &options, &pbc, &first, &v)
+                .unwrap();
+        let response_at = |lambda| {
+            let displaced = displaced(&system, &v, lambda);
+            let state = run_pbc_scc(&displaced, &params, &options, &pbc).unwrap();
+            kpoint_first_order_directional(&displaced, &params, &state, &options, &pbc, &v).unwrap()
+        };
+        let steps = [1e-3, 5e-4];
+        let mut data = Vec::new();
+        for h in steps {
+            data.push((response_at(h), response_at(-h)));
+        }
+        let mut errors = [0.0_f64; 3];
+        for ik in 0..scf.kpoints.len() {
+            for i in 0..scf.basis.len() {
+                for j in 0..scf.basis.len() {
+                    for channel in 0..2 {
+                        for imaginary in [false, true] {
+                            let select = |r: &KFirstOrder| {
+                                let m = if channel == 0 { &r.p_k[ik] } else { &r.w_k[ik] };
+                                if imaginary {
+                                    m.im[(i, j)]
+                                } else {
+                                    m.re[(i, j)]
+                                }
+                            };
+                            let a = if channel == 0 {
+                                &second.p_k[ik]
+                            } else {
+                                &second.w_k[ik]
+                            };
+                            let value = if imaginary {
+                                a.im[(i, j)]
+                            } else {
+                                a.re[(i, j)]
+                            };
+                            let coarse =
+                                (select(&data[0].0) - select(&data[0].1)) / (2. * steps[0]);
+                            let fine = (select(&data[1].0) - select(&data[1].1)) / (2. * steps[1]);
+                            errors[channel] =
+                                errors[channel].max((value - (4. * fine - coarse) / 3.).abs());
+                        }
+                    }
+                }
+            }
+        }
+        for s in 0..scf.basis.shells.len() {
+            let coarse = (data[0].0.q[s] - data[0].1.q[s]) / (2. * steps[0]);
+            let fine = (data[1].0.q[s] - data[1].1.q[s]) / (2. * steps[1]);
+            errors[2] = errors[2].max((second.q[s] - (4. * fine - coarse) / 3.).abs());
+        }
+        eprintln!("thermal second-response mesh={mesh:?} errors P/W/q: {errors:?}");
+        assert!(errors.iter().all(|&e| e < 2e-7), "{errors:?}");
+    }
+
+    #[test]
+    fn kpoint_thermal_density_second_matches_reconverged_first_response() {
+        thermal_second_response_audit(
+            "2\nLattice=\"6 0 0 0 6 0 0 0 6\" pbc=\"T T T\"\nH .13 .21 .07\nH .31 .09 1.02\n",
+            [1, 1, 2],
+        );
+        thermal_second_response_audit(
+            "2\nLattice=\"6 0 0 0 6 0 0 0 2.8\" pbc=\"T T T\"\nF .13 .21 .07\nH .31 .09 1.02\n",
+            [1, 1, 3],
+        );
     }
 
     /// Tight SCC with the electronic temperature pinned to exactly zero: these gates must not
@@ -2117,7 +2131,14 @@ N 0.940000 0.890000 0.920000\n";
     /// step halves. The magnitude test uses the Richardson extrapolant so it is not a disguised
     /// statement about `h`; the ratio is the real discriminator (flat ⇒ a missing term,
     /// falling ⇒ the round-off floor).
-    fn assert_ladder(name: &str, f: &dyn Fn(f64) -> f64, analytic: f64, h: f64, rel_tol: f64, abs_tol: f64) {
+    fn assert_ladder(
+        name: &str,
+        f: &dyn Fn(f64) -> f64,
+        analytic: f64,
+        h: f64,
+        rel_tol: f64,
+        abs_tol: f64,
+    ) {
         let fd_h = central(f, h);
         let fd_h2 = central(f, 0.5 * h);
         let e1 = (fd_h - analytic).abs();
@@ -2158,10 +2179,15 @@ N 0.940000 0.890000 0.920000\n";
         let mut scale = 0.0_f64;
         for i in 0..n {
             for j in 0..n {
-                scale = scale.max(analytic.re[(i, j)].abs()).max(analytic.im[(i, j)].abs());
+                scale = scale
+                    .max(analytic.re[(i, j)].abs())
+                    .max(analytic.im[(i, j)].abs());
             }
         }
-        assert!(scale > 1.0e-10, "{name}: the matrix is identically zero, the gate is vacuous");
+        assert!(
+            scale > 1.0e-10,
+            "{name}: the matrix is identically zero, the gate is vacuous"
+        );
         let mut worst = (0.0_f64, 0.0_f64, 0.0_f64, 0usize, 0usize, 'r');
         for i in 0..n {
             for j in 0..n {
@@ -2184,7 +2210,11 @@ N 0.940000 0.890000 0.920000\n";
                 }
             }
         }
-        let ratio = if worst.1 > 0.0 { worst.0 / worst.1 } else { f64::INFINITY };
+        let ratio = if worst.1 > 0.0 {
+            worst.0 / worst.1
+        } else {
+            f64::INFINITY
+        };
         println!(
             "{name:<52} max|analytic|={scale:.4e} worst=({},{},{}) err(h)={:.3e} \
              err(h/2)={:.3e} ratio={ratio:.2} richardson_err={:.3e}",
@@ -2323,7 +2353,10 @@ N 0.940000 0.890000 0.920000\n";
             &f.system, &f.params, &f.scf, &f.opts, &f.pbc, &f.v,
         )
         .expect("k-point V1");
-        assert!(f.scf.kpoints.len() > 1, "the mesh collapsed to a single k-point");
+        assert!(
+            f.scf.kpoints.len() > 1,
+            "the mesh collapsed to a single k-point"
+        );
         // Both halves below compare `V₁` against something; if `V₁` were identically zero they
         // would both pass on nothing. `DIAMOND_SKEW`'s two carbons carry zero *atomic* charge by
         // symmetry, but their s/p **shell** charges do not cancel, so the scalar potential and
@@ -2397,23 +2430,21 @@ N 0.940000 0.890000 0.920000\n";
 
     /// **The load-bearing gate of this module.** The whole frozen bundle evaluated against a
     /// `2 x 2 x 2` k-mesh SCC: a central difference of its own directional `second` along `λ`
-    /// (SCC frozen, geometry only) must reproduce its `third`. If the k-point density images
+    /// (densities/charges frozen, geometry-dependent caches refreshed) must reproduce its `third`.
+    /// If the k-point density images
     /// broke any frozen block, the ratio would go flat here.
     #[test]
     #[ignore = "periodic k-point gate: full frozen bundle, 5 sweeps over a 2x2x2 mesh"]
     fn kpoint_frozen_third_matches_bundle_second_fd() {
         let f = KFrozen::build(DIAMOND_SKEW, kpbc_opts(), 23);
-        assert!(f.scf.kpoints.len() > 1, "the mesh collapsed to a single k-point");
+        assert!(
+            f.scf.kpoints.len() > 1,
+            "the mesh collapsed to a single k-point"
+        );
         let bundle_at = |lam: f64| {
+            let (system, scf) = f.refreshed_at(lam);
             kpoint_frozen_third_directional(
-                &f.at(lam),
-                &f.params,
-                &f.scf,
-                &f.opts,
-                &f.pbc,
-                true,
-                None,
-                &f.v,
+                &system, &f.params, &scf, &f.opts, &f.pbc, true, None, &f.v,
             )
             .expect("k-point frozen bundle")
         };
@@ -2429,25 +2460,42 @@ N 0.940000 0.890000 0.920000\n";
         );
     }
 
-    /// Component-resolved companion to the bundle gate: if one block breaks under k-sampling, the
-    /// bundle ladder can still pass by cancellation, so each frozen component closes its own
-    /// ladder too.
+    /// Strict component diagnostics retain their fixed-cache convention. The complete CN cubic
+    /// also contains `se' f''` from the band Hessian, so only the full complete bundle (tested
+    /// above with refreshed reference values) is the derivative of the whole frozen Hessian.
+    /// Check the original individual block definitions separately here.
     #[test]
     #[ignore = "periodic k-point gate: 5 frozen-bundle sweeps over a 2x2x2 mesh"]
     fn kpoint_frozen_components_match_their_own_second_fd() {
         let f = KFrozen::build(DIAMOND_SKEW, kpbc_opts(), 29);
         let bundle_at = |lam: f64| {
-            kpoint_frozen_third_directional(
-                &f.at(lam),
+            let system = f.at(lam);
+            let scf = &f.scf;
+            let mut bundle = kpoint_frozen_third_directional(
+                &system, &f.params, scf, &f.opts, &f.pbc, true, None, &f.v,
+            )
+            .expect("k-point frozen bundle");
+            let densities = gamma_realspace_densities(scf, &f.lattice(), f.pbc.ao_cutoff);
+            let v1 = kpoint_shell_potential_first_directional(
+                &system, &f.params, scf, &f.opts, &f.pbc, &f.v,
+            )
+            .unwrap();
+            let v2 = shell_potential_second_directional(&system, &f.lattice(), scf, &f.pbc, &f.v);
+            bundle.coordination = pbc_cn_third_directional(
+                &system,
                 &f.params,
-                &f.scf,
-                &f.opts,
+                scf,
                 &f.pbc,
-                true,
-                None,
+                f.opts.hamiltonian.coordination_cutoff,
+                &densities.p,
                 &f.v,
             )
-            .expect("k-point frozen bundle")
+            .unwrap();
+            bundle.band_pulay = pbc_band_pulay_third_directional(
+                &system, &f.params, scf, &f.pbc, &densities, &v1, &v2, &f.v,
+            )
+            .unwrap();
+            bundle
         };
         let at0 = bundle_at(0.0);
         let picks: [(&str, fn(&GammaFrozenThird) -> DirectionalDerivs); 4] = [
@@ -2540,9 +2588,7 @@ N 0.940000 0.890000 0.920000\n";
                 worst = worst.max(((cp[s] - cm[s]) / (2.0 * h) - x1.q[s]).abs());
                 scale = scale.max(x1.q[s].abs());
             }
-            println!(
-                "kpoint_q1/{label}: max|q1| {scale:.4e}  worst |analytic - FD| {worst:.3e}"
-            );
+            println!("kpoint_q1/{label}: max|q1| {scale:.4e}  worst |analytic - FD| {worst:.3e}");
             assert!(
                 worst < 1.0e-7,
                 "[{label}] directional k-point shell-charge response vs reconverged FD: \
@@ -2565,7 +2611,10 @@ N 0.940000 0.890000 0.920000\n";
                     }
                 }
             }
-            assert!(p_scale > 1.0e-6, "[{label}] P1 images are zero, the gate is vacuous");
+            assert!(
+                p_scale > 1.0e-6,
+                "[{label}] P1 images are zero, the gate is vacuous"
+            );
             assert!(
                 worst_img == 0.0,
                 "[{label}] P1 images drifted from the transform: {worst_img:.3e}"
@@ -2599,8 +2648,14 @@ N 0.940000 0.890000 0.920000\n";
             }
         }
         println!("kpoint_images: max|P(T)| {scale:.4e} worst drift {worst:.3e}");
-        assert!(scale > 1.0e-6, "the density images are zero, the gate is vacuous");
-        assert!(worst == 0.0, "realspace_images drifted from gamma_realspace_densities");
+        assert!(
+            scale > 1.0e-6,
+            "the density images are zero, the gate is vacuous"
+        );
+        assert!(
+            worst == 0.0,
+            "realspace_images drifted from gamma_realspace_densities"
+        );
     }
 
     // -- Gate 4: the complex second-order skeleton matrices -------------------------------------
@@ -2619,8 +2674,15 @@ N 0.940000 0.890000 0.920000\n";
     #[ignore = "periodic k-point gate: 2 SCCs plus 4 second-order skeleton sweeps"]
     fn kpoint_second_matrices_match_gamma_builder() {
         use crate::pbc::gamma_third::gamma_directional_second_matrices;
-        for (label, opts) in [("gamma-mesh", gamma_pbc_opts()), ("2x2x2-mesh", kpbc_opts())] {
-            let f = KFrozen::build(DIAMOND_SKEW, opts, if label == "gamma-mesh" { 41 } else { 43 });
+        for (label, opts) in [
+            ("gamma-mesh", gamma_pbc_opts()),
+            ("2x2x2-mesh", kpbc_opts()),
+        ] {
+            let f = KFrozen::build(
+                DIAMOND_SKEW,
+                opts,
+                if label == "gamma-mesh" { 41 } else { 43 },
+            );
             let v1 = kpoint_shell_potential_first_directional(
                 &f.system, &f.params, &f.scf, &f.opts, &f.pbc, &f.v,
             )
@@ -2660,7 +2722,10 @@ N 0.940000 0.890000 0.920000\n";
                     "kpoint_second/{label}/{name}: max|gamma|={scale:.4e} \
                      worst|Δre|={worst_re:.3e} worst|im|={worst_im:.3e}"
                 );
-                assert!(scale > 1.0e-8, "{name}: the Gamma matrix is zero, the gate is vacuous");
+                assert!(
+                    scale > 1.0e-8,
+                    "{name}: the Gamma matrix is zero, the gate is vacuous"
+                );
                 assert!(
                     worst_re <= 1.0e-12 * scale.max(1.0) && worst_im <= 1.0e-12 * scale.max(1.0),
                     "{label}/{name}: k = 0 does not reproduce the Gamma builder \
@@ -2695,8 +2760,7 @@ N 0.940000 0.890000 0.920000\n";
             &f.system, &f.params, &f.scf, &f.opts, &f.pbc, &f.v,
         )
         .expect("V1");
-        let v2 =
-            shell_potential_second_directional(&f.system, &f.lattice(), &f.scf, &f.pbc, &f.v);
+        let v2 = shell_potential_second_directional(&f.system, &f.lattice(), &f.scf, &f.pbc, &f.v);
         for (label, kfrac) in [("k=0", [0.0, 0.0, 0.0]), ("k=live", live)] {
             println!("kpoint_second/fd {label}: k = {kfrac:?}");
             let (fock2, overlap2) = kpoint_directional_second_matrices(
@@ -2750,8 +2814,7 @@ N 0.940000 0.890000 0.920000\n";
             &f.system, &f.params, &f.scf, &f.opts, &f.pbc, &f.v,
         )
         .expect("V1");
-        let v2 =
-            shell_potential_second_directional(&f.system, &f.lattice(), &f.scf, &f.pbc, &f.v);
+        let v2 = shell_potential_second_directional(&f.system, &f.lattice(), &f.scf, &f.pbc, &f.v);
         let (fock2, overlap2) = kpoint_directional_second_matrices(
             &f.system, &f.params, &f.scf, &f.opts, &f.pbc, &v1, &v2, &f.v, kfrac,
         )
@@ -2840,7 +2903,10 @@ N 0.940000 0.890000 0.920000\n";
         assert!(e1 < 1.0e-14, "confluent f^[1] branch: {e1:.3e}");
         assert!(e2 < 1.0e-14, "fully confluent f^[2] branch: {e2:.3e}");
         assert!(e3 < 1.0e-14, "pinched f^[2] branch: {e3:.3e}");
-        assert!(classical.abs() > 1.0, "the non-confluent reference is ~zero, the check is vacuous");
+        assert!(
+            classical.abs() > 1.0,
+            "the non-confluent reference is ~zero, the check is vacuous"
+        );
         assert!(
             e4 < 1.0e-12 * classical.abs(),
             "non-confluent f^[2] branch vs the classical symmetric form: {e4:.3e}"
@@ -3000,8 +3066,14 @@ N 0.940000 0.890000 0.920000\n";
                 "gamma-equiv[{label}]/{name:<4}: max|ref| {scale:.4e}  worst |k - gamma| \
                  {worst:.3e}  max|Im| {im:.3e}"
             );
-            assert!(scale > 1.0e-8, "{name}: the reference is zero, the gate is vacuous");
-            assert!(im < 1.0e-12, "{name}: a Gamma-only mesh left a nonzero imaginary part: {im:.3e}");
+            assert!(
+                scale > 1.0e-8,
+                "{name}: the reference is zero, the gate is vacuous"
+            );
+            assert!(
+                im < 1.0e-12,
+                "{name}: a Gamma-only mesh left a nonzero imaginary part: {im:.3e}"
+            );
             worst
         };
         let w_p = cmp("P^vv", &x2.p_k[0], &second.bundle.density);
@@ -3023,13 +3095,25 @@ N 0.940000 0.890000 0.920000\n";
                 w_img = w_img.max((x2.p_images[&[0, 0, 0]][(i, j)] - x2.p_k[0].re[(i, j)]).abs());
             }
         }
-        assert!(w_img == 0.0, "the origin image is not the k = 0 block: {w_img:.3e}");
+        assert!(
+            w_img == 0.0,
+            "the origin image is not the k = 0 block: {w_img:.3e}"
+        );
 
         let tol = 1.0e-9;
         assert!(w_q1 < tol && w_p1 < tol, "[{label}] the FIRST-order inputs already disagree (q {w_q1:.3e}, P {w_p1:.3e}) — the second-order algebra is not implicated");
-        assert!(w_p <= tol, "[{label}] P^vv: complex resolvent vs Gamma coefficient path: {w_p:.3e}");
-        assert!(w_w <= tol, "[{label}] W^vv: complex resolvent vs Gamma coefficient path: {w_w:.3e}");
-        assert!(w_q <= tol, "[{label}] q^vv: complex resolvent vs Gamma coefficient path: {w_q:.3e}");
+        assert!(
+            w_p <= tol,
+            "[{label}] P^vv: complex resolvent vs Gamma coefficient path: {w_p:.3e}"
+        );
+        assert!(
+            w_w <= tol,
+            "[{label}] W^vv: complex resolvent vs Gamma coefficient path: {w_w:.3e}"
+        );
+        assert!(
+            w_q <= tol,
+            "[{label}] q^vv: complex resolvent vs Gamma coefficient path: {w_q:.3e}"
+        );
         q_scale
     }
 
@@ -3054,7 +3138,10 @@ N 0.940000 0.890000 0.920000\n";
         opts.energy_tolerance = 1.0e-13;
         opts.charge_tolerance = 1.0e-12;
         let scf = run_pbc_scc(&system, &params, &opts, &pbc).expect("tight k-mesh SCC");
-        assert!(scf.converged && scf.kpoints.len() > 1, "the mesh must be a real one");
+        assert!(
+            scf.converged && scf.kpoints.len() > 1,
+            "the mesh must be a real one"
+        );
         let v = direction(3 * system.atoms.len(), 31);
 
         let x1 = kpoint_first_order_directional(&system, &params, &scf, &opts, &pbc, &v)

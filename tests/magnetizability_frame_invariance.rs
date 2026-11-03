@@ -159,7 +159,9 @@ fn magnetizability_frame_residual_calibration() {
         let moved = translate_system(&sys, shift);
         let dist = (shift[0] * shift[0] + shift[1] * shift[1] + shift[2] * shift[2]).sqrt();
         println!("[M0] shift = {shift:?} (|d| = {dist:.3} bohr)");
-        for step in [1.6e-2_f64, 8.0e-3, 4.0e-3, 2.0e-3, 1.0e-3, 5.0e-4, 2.5e-4, 1.0e-4] {
+        for step in [
+            1.6e-2_f64, 8.0e-3, 4.0e-3, 2.0e-3, 1.0e-3, 5.0e-4, 2.5e-4, 1.0e-4,
+        ] {
             let call = |s: &PeriodicSystem, h: f64| {
                 magnetizability_tensor_analytic(s, &params, &opts, None, h).unwrap()
             };
@@ -178,10 +180,7 @@ fn magnetizability_frame_residual_calibration() {
             // Rotation covariance about the coordinate origin.
             let rot = call(&rotate_system(&sys, &r), step);
             let (dr, _) = worst(&rot, &rotate_tensor(&r, &base));
-            let rot_r = richardson(
-                &rot,
-                &call(&rotate_system(&sys, &r), 0.5 * step),
-            );
+            let rot_r = richardson(&rot, &call(&rotate_system(&sys, &r), 0.5 * step));
             let (dr_r, _) = worst(&rot_r, &rotate_tensor(&r, &base_r));
 
             println!(
@@ -217,7 +216,10 @@ fn magnetizability_step_roundoff_floor() {
     ] {
         let x = magnetizability_tensor_analytic(&sys, &params, &opts, None, step).unwrap();
         let (d, scale) = worst(&x, &exact);
-        println!("[M1]   h = {step:.2e}: |dchi| = {d:.4e} (rel {:.3e})", d / scale);
+        println!(
+            "[M1]   h = {step:.2e}: |dchi| = {d:.4e} (rel {:.3e})",
+            d / scale
+        );
     }
 }
 
@@ -279,13 +281,22 @@ fn magnetizability_is_rotationally_covariant() {
         let base = magnetizability_tensor_analytic(&sys, &params, &opts, None, 4.0e-3).unwrap();
         for (rname, axis, angle) in [
             ("(1,2,3) 0.7 rad", [1.0, 2.0, 3.0], 0.7),
-            ("(0,0,1) 90 deg", [0.0, 0.0, 1.0], std::f64::consts::FRAC_PI_2),
+            (
+                "(0,0,1) 90 deg",
+                [0.0, 0.0, 1.0],
+                std::f64::consts::FRAC_PI_2,
+            ),
             ("(-2,1,4) 2.4 rad", [-2.0, 1.0, 4.0], 2.4),
         ] {
             let r = rotation_matrix(axis, angle);
-            let x =
-                magnetizability_tensor_analytic(&rotate_system(&sys, &r), &params, &opts, None, 4.0e-3)
-                    .unwrap();
+            let x = magnetizability_tensor_analytic(
+                &rotate_system(&sys, &r),
+                &params,
+                &opts,
+                None,
+                4.0e-3,
+            )
+            .unwrap();
             let (d, scale) = worst(&x, &rotate_tensor(&r, &base));
             println!(
                 "[M4] {name} rotated {rname}: |chi(Rr) - R chi R^T|_max = {d:.3e} \
@@ -337,6 +348,9 @@ fn magnetizability_cost_probe() {
         for _ in 0..3 {
             magnetizability_tensor_analytic(&sys, &params, &opts, None, 4.0e-3).unwrap();
         }
-        println!("[M2] {name}: {:.1} ms / call", t0.elapsed().as_secs_f64() * 1000.0 / 3.0);
+        println!(
+            "[M2] {name}: {:.1} ms / call",
+            t0.elapsed().as_secs_f64() * 1000.0 / 3.0
+        );
     }
 }

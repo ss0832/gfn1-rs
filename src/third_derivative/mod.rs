@@ -17,12 +17,15 @@ use crate::linalg::Matrix;
 use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
 use crate::system::PeriodicSystem;
+pub mod contracted;
+pub use contracted::CubicReference;
 
 /// Symmetric-packed storage for a fully-symmetric third-derivative tensor `T[i][j][k]`
 /// (`T_{abc}` is invariant under permutations of its three nuclear DOF indices). Only the
 /// `n(n+1)(n+2)/6` canonical entries `i ≤ j ≤ k` are stored, a ~6x memory and
 /// accumulation-cost reduction over the dense `n³`. The Dense output mode and the per-pair
 /// assemblies use this to exploit the permutation symmetry.
+#[derive(Clone, Debug)]
 pub struct SymmetricThird {
     n: usize,
     data: Vec<f64>,
@@ -30,10 +33,34 @@ pub struct SymmetricThird {
 
 impl SymmetricThird {
     pub fn zeros(n: usize) -> Self {
-        Self {
-            n,
-            data: vec![0.0; n * (n + 1) * (n + 2) / 6],
+        Self::try_zeros(n, usize::MAX).expect("cubic allocation failed")
+    }
+    pub fn try_zeros(n: usize, max_bytes: usize) -> Result<Self> {
+        let max_bytes = crate::resources::effective_memory_budget(max_bytes);
+        let mut len = 1u128;
+        for k in 1..=3u128 {
+            len = len
+                .checked_mul(n as u128 + k - 1)
+                .ok_or_else(|| crate::Gfn1Error::InvalidInput("FC3 size overflow".into()))?
+                / k;
+            if len > usize::MAX as u128 {
+                return Err(crate::Gfn1Error::InvalidInput(
+                    "FC3 size exceeds address space".into(),
+                ));
+            }
         }
+        let len = len as usize;
+        let bytes = len
+            .checked_mul(8)
+            .ok_or_else(|| crate::Gfn1Error::InvalidInput("FC3 byte size overflow".into()))?;
+        if bytes > max_bytes {
+            return Err(crate::Gfn1Error::InvalidInput(format!("FC3 packed output needs {bytes} bytes; budget {max_bytes}; use CubicReference contractions")));
+        }
+        let mut data = Vec::new();
+        data.try_reserve_exact(len)
+            .map_err(|e| crate::Gfn1Error::InvalidInput(format!("FC3 allocation failed: {e}")))?;
+        data.resize(len, 0.0);
+        Ok(Self { n, data })
     }
 
     pub fn n(&self) -> usize {
@@ -55,7 +82,9 @@ impl SymmetricThird {
         let mut t = [i, j, k];
         t.sort_unstable();
         let (a, b, c) = (t[0], t[1], t[2]);
-        c * (c + 1) * (c + 2) / 6 + b * (b + 1) / 2 + a
+        ((c as u128) * (c as u128 + 1) * (c as u128 + 2) / 6
+            + (b as u128) * (b as u128 + 1) / 2
+            + a as u128) as usize
     }
 
     /// Accumulate `v` into the symmetric slot for `(i,j,k)` (any index order).
@@ -269,7 +298,7 @@ pub fn third_derivative_geometric(
     let rep = crate::repulsion::repulsion_third_derivative(system, params)?;
     let hal = crate::halogen::halogen_third_derivative(system, params)?;
     let n = rep.len();
-    let mut store = SymmetricThird::zeros(n);
+    let mut store = SymmetricThird::try_zeros(n, usize::MAX)?;
     // Read each canonical (i ≤ j ≤ k) entry once (the slabs hold the full symmetric tensor).
     for k in 0..n {
         for j in 0..=k {
@@ -298,7 +327,7 @@ pub fn third_derivative_frozen_electronic(
     )?;
     let pulay = crate::hessian::fixed_density_pulay_third_derivative(system, params, electronic)?;
     let n = scc.len();
-    let mut store = SymmetricThird::zeros(n);
+    let mut store = SymmetricThird::try_zeros(n, usize::MAX)?;
     for k in 0..n {
         for j in 0..=k {
             for i in 0..=j {
@@ -338,7 +367,7 @@ pub fn third_derivative_dispersion(
 ) -> Result<SymmetricThird> {
     let disp = crate::dispersion::dispersion_third_derivative(system, params, reference_path)?;
     let n = disp.ndof;
-    let mut store = SymmetricThird::zeros(n);
+    let mut store = SymmetricThird::try_zeros(n, usize::MAX)?;
     for k in 0..n {
         for j in 0..=k {
             for i in 0..=j {
@@ -381,7 +410,7 @@ pub fn third_derivative_frozen_full(
 /// total third derivative; symmetric-packing the frozen part alone would discard the asymmetry the
 /// response must cancel. FD-validates exactly (per slab) against the full frozen Hessian.
 ///
-/// **Dispersion gating (bug fix 2026-07-01):** the D3 dispersion 3rd derivative is included ONLY
+/// **Dispersion gating (bug fix ):** the D3 dispersion 3rd derivative is included ONLY
 /// when `include_dispersion` is true. Previously this always added `dispersion_third_derivative`
 /// (which is nonzero even for `reference_path = None` — D3's built-in default reference), so the
 /// analytic third derivative carried a spurious D3 term even when dispersion was disabled by the
@@ -407,7 +436,11 @@ pub fn third_derivative_frozen_complete(
     )?;
     let pulay = crate::hessian::fixed_density_pulay_third_derivative(system, params, electronic)?;
     let disp = if include_dispersion {
-        Some(crate::dispersion::dispersion_third_derivative(system, params, reference_path)?)
+        Some(crate::dispersion::dispersion_third_derivative(
+            system,
+            params,
+            reference_path,
+        )?)
     } else {
         None
     };
@@ -424,7 +457,9 @@ pub fn third_derivative_frozen_complete(
                 total[c][(a, b)] = geo[c][(a, b)]
                     + scc[c][(a, b)]
                     + pulay[c][(a, b)]
-                    + disp.as_ref().map_or(0.0, |d| d.third[(a * ndof + b) * ndof + c])
+                    + disp
+                        .as_ref()
+                        .map_or(0.0, |d| d.third[(a * ndof + b) * ndof + c])
                     + cn_h0[c][(a, b)];
             }
         }
@@ -481,7 +516,7 @@ fn cphf_metric_residual_hessian(
 ///     interchange via the self-adjoint Z-vector `y_a = A⁻¹ L_a` (no second-order CPHF solve).
 /// Final tensor averaged over the 6 index permutations.
 ///
-/// **State (v0.5.0, 2026-08-10): production-accurate.** The analytic path matches the seminumerical
+/// **State (v0.5.0): production-accurate.** The analytic path matches the seminumerical
 /// reference to the FD noise floor (~1e-7 abs at FD step 2e-4) on equilibrium AND non-equilibrium
 /// geometries, including charged species, halogen-bonded systems, and symmetric molecules with
 /// degenerate orbitals. Three historical bugs, all fixed:
@@ -1263,9 +1298,7 @@ pub(crate) fn closed_form_response_hessian_derivative(
                         }
                         dcwa[(i, j)] = 0.5
                             * (occ[i] + occ[j])
-                            * (d_f_tilde[(i, j)]
-                                - e_s
-                                - (eps[i] + eps[j]) * d_s_tilde[(i, j)]);
+                            * (d_f_tilde[(i, j)] - e_s - (eps[i] + eps[j]) * d_s_tilde[(i, j)]);
                         dcwb[(i, j)] = 0.5 * (occ[i] + occ[j]) * d_rf_mo_s[(i, j)];
                     }
                 }
@@ -1383,7 +1416,22 @@ fn third_derivative_closed_form_total(
     params: &Gfn1Parameters,
     options: crate::hessian::AnalyticHessianOptions,
     coordination_cutoff: f64,
+    memory_budget_bytes: usize,
 ) -> Result<Vec<Matrix>> {
+    let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
+    let ndof = system
+        .atoms
+        .len()
+        .checked_mul(3)
+        .ok_or_else(|| crate::Gfn1Error::InvalidInput("FC3 DOF overflow".into()))?;
+    let bytes = ndof
+        .checked_mul(ndof)
+        .and_then(|n| n.checked_mul(ndof))
+        .and_then(|n| n.checked_mul(16 * 8))
+        .ok_or_else(|| crate::Gfn1Error::InvalidInput("FC3 workspace size overflow".into()))?;
+    if bytes > memory_budget_bytes {
+        return Err(crate::Gfn1Error::InvalidInput(format!("Cartesian FC3 slab workspace estimate {bytes} bytes exceeds budget {memory_budget_bytes}; use CubicReference direct contractions")));
+    }
     crate::terms::require_order(
         &options.electronic_options,
         params,
@@ -1392,19 +1440,16 @@ fn third_derivative_closed_form_total(
     )?;
     let electronic =
         crate::electronic::run_electronic(system, params, options.electronic_options.clone())?;
-    // TEMPORARY guard (until the finite-temperature response rework): the closed-form
-    // response-derivative algebra below assumes integer (0/2) occupations. With Fermi
-    // smearing it would silently return wrong numbers, so reject honestly instead.
-    // The seminumerical path fully supports fractional occupations today.
+    // This private producer is the T=0 backend. Positive-temperature public
+    // calls have already selected canonical response before reaching it.
     if electronic
         .occupations
         .iter()
         .any(|&f| f > 1.0e-8 && (f - 2.0).abs() > 1.0e-8)
     {
         return Err(crate::error::Gfn1Error::InvalidInput(
-            "analytic third derivative with fractional (Fermi-smeared) occupations is not yet \
-             supported; use third_derivative_seminumerical_* until the finite-temperature \
-             analytic path lands"
+            "zero-temperature analytic third derivative requires integer occupations; \
+             choose positive electronic temperature for a fractional ensemble"
                 .to_string(),
         ));
     }
@@ -1439,8 +1484,7 @@ fn third_derivative_closed_form_total(
     // Dispersion is included only when BOTH the Hessian-level flag and the electronic-level flag are
     // on — exactly the gate `analytic_hessian_from_result` uses — so the analytic third derivative
     // matches the seminumerical FD-of-Hessian ground truth (which excludes D3 when disabled).
-    let include_disp =
-        options.include_dispersion && options.electronic_options.enable_dispersion;
+    let include_disp = options.include_dispersion && options.electronic_options.enable_dispersion;
     let dispersion_ref = if include_disp {
         options.electronic_options.d3_reference_path.as_deref()
     } else {
@@ -1470,7 +1514,10 @@ fn third_derivative_closed_form_total(
     // like the CPHF's `include_cn_h0`. `cn_grad[at][c] = ∂CN_at/∂R_c` (grad-only, lean). See
     // `fixed_density_pulay_cn_h0_response`; FD-gated in `diag_nonEq_third_derivative_decompose` (STEP5/6).
     let cn_grad = if options.electronic_options.hamiltonian.enable_cn_hamiltonian {
-        Some(crate::hessian::cn_gradient_matrix(system, coordination_cutoff)?)
+        Some(crate::hessian::cn_gradient_matrix(
+            system,
+            coordination_cutoff,
+        )?)
     } else {
         None
     };
@@ -1547,9 +1594,52 @@ pub fn third_derivative_analytic_dense(
     options: crate::hessian::AnalyticHessianOptions,
     coordination_cutoff: f64,
 ) -> Result<SymmetricThird> {
-    let total = third_derivative_closed_form_total(system, params, options, coordination_cutoff)?;
+    third_derivative_analytic_dense_with_budget(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        512 * 1024 * 1024,
+    )
+}
+
+pub fn third_derivative_analytic_dense_with_budget(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: crate::hessian::AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    memory_budget_bytes: usize,
+) -> Result<SymmetricThird> {
+    let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
+    if options.electronic_options.ml_model.is_some() || options.electronic_options.solvation.is_some() {
+        let dofs: Vec<usize> = (0..3 * system.atoms.len()).collect();
+        return crate::variational_derivatives::cubic_packed(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            &dofs,
+            memory_budget_bytes,
+        );
+    }
+    if options.electronic_options.electronic_temperature > 0. {
+        return finite_t::third_derivative_finite_t_dense_with_budget(
+            system,
+            params,
+            &options,
+            coordination_cutoff,
+            memory_budget_bytes,
+        );
+    }
+    let total = third_derivative_closed_form_total(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        memory_budget_bytes,
+    )?;
     let ndof = total.len();
-    let mut store = SymmetricThird::zeros(ndof);
+    let mut store = SymmetricThird::try_zeros(ndof, memory_budget_bytes)?;
     // Visit each canonical triple `i ≤ j ≤ k` ONCE and store its explicit 6-permutation average. (Summing
     // over all n³ orderings and dividing by 6 would be wrong for repeated indices, whose orbit is smaller
     // than 6 — the explicit 6-term mean is correct for distinct AND repeated triples alike.)
@@ -1582,7 +1672,31 @@ pub fn third_derivative_analytic_vector(
     coordination_cutoff: f64,
     v: &[f64],
 ) -> Result<Matrix> {
-    let total = third_derivative_closed_form_total(system, params, options, coordination_cutoff)?;
+    if options.electronic_options.ml_model.is_some() || options.electronic_options.solvation.is_some() {
+        return crate::variational_derivatives::cubic_vector(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            v,
+        );
+    }
+    if options.electronic_options.electronic_temperature > 0. {
+        return finite_t::third_derivative_finite_t_vector(
+            system,
+            params,
+            &options,
+            coordination_cutoff,
+            v,
+        );
+    }
+    let total = third_derivative_closed_form_total(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        512 * 1024 * 1024,
+    )?;
     let ndof = total.len();
     if v.len() != ndof {
         return Err(crate::error::Gfn1Error::InvalidInput(format!(
@@ -1626,7 +1740,47 @@ pub fn third_derivative_analytic_block(
     coordination_cutoff: f64,
     atoms: &[usize],
 ) -> Result<(Vec<usize>, Vec<Matrix>)> {
-    let total = third_derivative_closed_form_total(system, params, options, coordination_cutoff)?;
+    if atoms.iter().any(|&a| a >= system.atoms.len()) {
+        return Err(crate::Gfn1Error::InvalidInput(
+            "third-derivative block atom out of range".into(),
+        ));
+    }
+    if options.electronic_options.ml_model.is_some() || options.electronic_options.solvation.is_some() {
+        let dofs: Vec<usize> = atoms
+            .iter()
+            .flat_map(|&a| [3 * a, 3 * a + 1, 3 * a + 2])
+            .collect();
+        let tensor = crate::variational_derivatives::cubic_packed(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            &dofs,
+            512 * 1024 * 1024,
+        )?;
+        return Ok((dofs, tensor.to_dense_slabs()));
+    }
+    if options.electronic_options.electronic_temperature > 0. {
+        let dofs: Vec<_> = atoms
+            .iter()
+            .flat_map(|&a| [3 * a, 3 * a + 1, 3 * a + 2])
+            .collect();
+        let tensor = finite_t::third_derivative_finite_t_block(
+            system,
+            params,
+            &options,
+            coordination_cutoff,
+            &dofs,
+        )?;
+        return Ok((dofs, tensor.to_dense_slabs()));
+    }
+    let total = third_derivative_closed_form_total(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        512 * 1024 * 1024,
+    )?;
     let mut dofs = Vec::with_capacity(3 * atoms.len());
     for &a in atoms {
         for axis in 0..3 {
@@ -1712,7 +1866,7 @@ pub fn third_derivative_seminumerical_dense(
 ) -> Result<SymmetricThird> {
     let nat = system.atoms.len();
     let ndof = 3 * nat;
-    let mut store = SymmetricThird::zeros(ndof);
+    let mut store = SymmetricThird::try_zeros(ndof, usize::MAX)?;
     for c in 0..ndof {
         let (atom, axis) = (c / 3, c % 3);
         let mut plus = system.clone();
@@ -1774,7 +1928,7 @@ pub fn third_derivative_seminumerical_block(
     // Block-local symmetric store, indexed 0..m over the block DOFs. Canonical packing: slab `ci`
     // owns the triples whose largest block-index is `ci`, finite-differenced along global axis
     // `dofs[ci]` -- identical to the Dense path restricted to these DOFs.
-    let mut store = SymmetricThird::zeros(m);
+    let mut store = SymmetricThird::try_zeros(m, usize::MAX)?;
     for ci in 0..m {
         let c = dofs[ci];
         let (atom, axis) = (c / 3, c % 3);

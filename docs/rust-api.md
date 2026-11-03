@@ -2,6 +2,42 @@
 
 The library target is `gfn1_rs` (Cargo package `gfn1-rs`).
 
+Start with the [public API overview](api-overview.md) for the capability map,
+three API layers/CLI, compatible mesh keywords, units and research boundaries.
+The sections below retain the detailed typed Rust reference.
+
+Use [`resources::ResourceLimits`](resources.md) or a reusable `ResourceContext`
+to select CPU workers and a checked calculation-workspace budget.
+
+## v0.7.0 additions
+
+Complete runnable subsystem guides cover [native sTDA-xTB](stda-xtb.md),
+[FMO/DC](fragments.md), [SOC/DFPT](soc-dfpt.md) and [ML training and custom
+weights](ml-training.md). Molecular TDA adds `solve_tda_with_dipole` with
+`TdaTransitionDipole::AoLength`; existing calls retain their legacy behavior.
+See [crystal-dfpt-results.md](crystal-dfpt-results.md) for measured 300 K crystal
+Hessians and exact mesh controls. Both CLI drivers are also public through
+`cli::main`, with in-process training through `cli::train_model`.
+
+## v0.6.0 additions
+
+| Task | Public entry points |
+| --- | --- |
+| Equilibrium molecular solvent | Set `ElectronicOptions.solvation = Some(SolvationOptions::new(SolvationModel::Alpb, "water"))`; use `run_electronic` or `analytic_gradient` |
+| Explicit-parameter molecular SOC | `soc::{SocParameters::from_zeta_str, run_soc_scc, soc_analytic_gradient, soc_static_polarizability}` |
+| Explicit-parameter periodic SOC | `pbc::soc::{run_pbc_soc_scc, pbc_soc_analytic_gradient, pbc_soc_stress, pbc_soc_hessian}` |
+| Commensurate phonons | `pbc::phonon::{AnalyticSupercellPhonons, PhononSupercellOptions}`; build with `build` or `build_soc`, then call `at_q` |
+| Structural ML | `ml::MlHamiltonian::resolve`; set `ElectronicOptions.ml_model` to an `Arc` of the model |
+| Bounded FC3 contractions | `third_derivative::CubicReference::{build, directional, mixed}` |
+| Molecular PES-only VPT2 | `vpt2::molecular_vpt2_pes`; explicit isotope masses and stationarity tolerance |
+| Optional JSONL logging | `CalculationLogger::append`; set `ElectronicOptions.logger` |
+
+Module-qualified names above are callable without crate-root re-exports.
+SOC zeta values are supplied in hartree in the explicit `zeta L.S` convention,
+with a required provenance line. No literature atomic-constant set is embedded.
+The solvent, SOC, ML and VPT2 limitations in [scope.md](scope.md) apply separately;
+capabilities from different drivers cannot be combined implicitly.
+
 **Parameters are bundled.** The official GFN1-xTB parametrization ships inside the
 crate, so [`Gfn1Parameters::resolve`]`(None)` just works. The resolution order is
 explicit spec (`--param` / the argument) > `GFN1_XTB_PARAM` > builtin; see
@@ -168,8 +204,9 @@ jointly mixed with the shell charges — the tblite/GFN2 joint-mixing scheme —
   relaxed [`PeriodicSystem`] with energy, gradient, forces, and convergence flags.
   It accepts **periodic** systems too: a lattice-bearing `PeriodicSystem` relaxes
   the atomic positions at **fixed cell** (the gradient auto-routes to the Γ /
-  k-point PBC path and the lattice is preserved). For variable-cell relaxation,
-  drive the lattice externally from [`pbc_stress`] (e.g. an ASE cell filter).
+  k-point PBC path and the lattice is preserved). Native variable-cell
+  relaxation is the separate `pbc::mechanical::pbc_relax` API; see
+  [mechanical-properties.md](mechanical-properties.md).
 - **Vibrational analysis**: [`vibrational_analysis`]`(&hessian, &atomic_numbers)`
   mass-weights a Cartesian Hessian (Hartree/Bohr², ordered `3*atom + axis`) and
   returns [`VibrationalModes`] (`wavenumbers` in cm⁻¹, `eigenvalues`, `modes`).
@@ -354,19 +391,17 @@ Note the signature difference from the molecular path: these take `&ElectronicOp
   routes. The k-point path deliberately has **no** mesh restriction — a Gamma-only mesh is accepted
   there and reproduces the Γ path (gated to rel `1e-9`).
 - No lattice; a periodic SCC that did not converge.
-- **Integer (gapped) occupations only** — a Fermi-smeared filling is rejected (at *every* k-point
-  for the k-point path) with a pointer to `pbc_*_third_derivative_seminumerical_*`. There is no
+- Canonical fractional occupations and exact fractional degeneracy are supported (at every k-point
+  for the k-point path), with one global chemical potential. No finite differences enter the
   periodic finite-temperature analytic FC3.
 - Direction length ≠ `3N` (vector / with-reference), or a block DOF ≥ `3N`.
 
-**Accuracy caveat.** The assembly agrees with the Richardson-extrapolated seminumerical reference
-to `~1e-7` absolute (`8.5e-8` skew diamond, `8.0e-8` skew BN, on a `~1e-3` Eh/Bohr³ scale). That
-residual is `h`-independent — a genuinely missing term localised to the band/Pulay block, not FD
-truncation — and the k-point path inherits it exactly, since it reuses the Γ assembly. If you need
-better than `1e-7` absolute, use the seminumerical route. Exact invariances are clean: the
-acoustic sum rule holds to `<1e-10` and the polarization identity reproduces the directional
-evaluator to rel `1e-9`. Full details in [pbc.md](pbc.md) and
-[limitations.md](limitations.md).
+The earlier `~1e-7` diamond/BN residual was traced to omitted CN/SCC reference-motion
+terms and corrected. The T=0 directional recheck differs from Richardson-extrapolated
+Hessian differences by `9.9e-16` / `5.5e-16`. Finite-temperature complete Cartesian
+gates on H2/HF and exactly degenerate B2 are below `8.5e-11` at Γ and `7.2e-12`
+on a k-mesh, with vector/block agreement and the acoustic sum rule checked.
+See [pbc.md](pbc.md) for the fixtures and temperatures.
 
 ### Mode and thermodynamic Grüneisen parameters (v0.5.0)
 
@@ -412,8 +447,8 @@ With `second_order = false` (the default) the second-order fields of [`Gruneisen
 
 **Errors:** no lattice; a `delta` that is non-finite or outside `(0, 1)`; `acoustic_modes` greater
 than `3N`; and — only when `second_order` is on — the same range check on the effective
-`delta_second`, plus a rejection of `delta_second >= 0.5` under the five-point stencil. Keep
-`electronic.electronic_temperature = 0`: as with the seminumerical estimators above, nothing here
+`delta_second`, plus a rejection of `delta_second >= 0.5` under the five-point stencil.
+As with the seminumerical estimators above, this supports finite electronic temperature and never
 rejects smearing.
 
 ### Berry-phase bulk polarization (v0.5.0)
@@ -498,9 +533,10 @@ println!("dipole = {:?}", result.dipole);
 ## Cubic force constants (nuclear third derivative)
 
 The non-PBC nuclear **third derivative** `T_abc = ∂³E/∂R_a∂R_b∂R_c` (cubic force constants —
-for anharmonic vibrational corrections and mode coupling) is available three ways: a strict
-`T = 0` closed form, a seminumerical FD of the analytic Hessian, and (v0.5.0) a natively
-Fermi-smeared analytic path.
+for anharmonic vibrational corrections and mode coupling) is available through standard
+analytic APIs, a seminumerical FD of the analytic Hessian, and explicit `finite_t` aliases.
+The standard APIs retain the closed form at `T = 0` and select analytic canonical
+free-energy response at positive temperature without changing the requested temperature.
 
 **(1) Strict closed form (v0.3.0).** [`third_derivative_analytic`] assembles the full tensor by
 the **2n+1 rule with no finite differences anywhere**: `T_abc = D_c H_frozen + D_c R_static +
@@ -540,10 +576,8 @@ let (dofs, block) = third_derivative_analytic_block(&system, &params, opts.clone
 
 **Errors (all four).** [`crate::terms::require_order`]`(.., 3, ..)` rejects any active term capped
 below analytic order 3 (`multipole`, `lr_exchange`, `plus_u`, `spin_polarization`,
-`experimental_d4`, an external electric field), and **fractional (Fermi-smeared) occupations are
-rejected outright** — the closed-form response-derivative algebra assumes integer `0/2`
-occupations. Use `third_derivative_seminumerical_*` or the `finite_t` drivers below for smeared
-systems. The Vector mode additionally rejects a direction whose length is not `3N`. Note that
+`experimental_d4`, an external electric field). Fractional thermal occupations, including exact
+degeneracy, are supported. The Vector mode additionally rejects a direction whose length is not `3N`. Note that
 `third_derivative_analytic_block` / `third_derivative_seminumerical_block` take **atom** indices
 (each contributing its 3 Cartesian DOFs), while the newer `finite_t` / PBC / FC4 block entry points
 take **DOF** indices and validate their range explicitly.
@@ -612,8 +646,8 @@ direction whose length is not `3N`, and the block entry point a DOF index `>= 3N
 occupations are not an error here** — that is the whole point of this path — and neither are
 *exactly degenerate* fractionally occupied blocks any more: the second-order charge-space solve
 switches to the frame-free Daleckii–Krein resolvent form for exactly those references, and the
-guard that used to refuse them is gone. (The remaining exact-degeneracy rejection is one order up,
-in the **third**-order response used by the finite-T FC4 — see below.)
+guard that used to refuse them is gone. The third-order response used by finite-T FC4
+also uses confluent spectral divided differences and supports those references.
 
 `directional_third_finite_t`, `third_derivative_finite_t_dense`, `third_derivative_finite_t_block`
 and `FiniteTThirdReference` are re-exported at the crate root;
@@ -627,10 +661,11 @@ Python has `third_derivative_finite_t_directional` / `third_derivative_finite_t`
 `options.electronic_options.electronic_temperature > 0` the analytic Hessian it differentiates is
 the electronic **free-energy** Hessian, so the result is the free-energy cubic force constant
 (e.g. Ni(CO)₄ at 3000 K has fractional frontier occupations, yet the directional third derivative
-along a rigid translation still vanishes). The **strict closed form**
-(`third_derivative_analytic*`) rejects fractional occupations with an explicit error — its
-response-derivative algebra assumes integer (0/2) occupations and would otherwise be silently
-wrong. See [limitations.md](limitations.md#finite-temperature--fermi-smearing).
+along a rigid translation still vanishes). The standard `third_derivative_analytic*` APIs
+select the analytic finite-temperature backend at positive temperature. The low-memory
+`CubicReference` instead uses a metric-normalized full orbital trial and occupation-matrix
+entropy, including the full response inside degenerate blocks; ML FC3 uses this route.
+See [limitations.md](limitations.md#finite-temperature--fermi-smearing).
 
 ### Analytic frozen `L_abc` blocks
 
@@ -742,7 +777,7 @@ let scalar = q.contract_vvvv(&v)?;
 let third  = q.contract_last(&v)?;          // -> SymmetricThird
 let matrix = q.contract_last2(&v, &w)?;     // -> Matrix
 
-// Verification reference / smeared-occupation fallback (central FD of the analytic third):
+// Verification reference (central FD of the analytic third; also supports smearing):
 let e4_fd = directional_fourth_seminumerical(&system, &params, &opts, cutoff, &v, 1.0e-3)?;
 ```
 
@@ -772,9 +807,10 @@ point that goes through a reference inherits them:
 - `terms::require_order(..., 4, ...)` — stock GFN1 passes; any experimental model flag
   (`multipole`, `lr_exchange`, `plus_u`, `spin_polarization`, `experimental_d4`, an external
   electric field) fails, since all of those are capped at analytic order 1.
-- Fractional (Fermi-smeared) occupations are rejected — use the finite-T quartic below, or
-  `directional_fourth_seminumerical`, whose differenced reference is the occupation-agnostic
-  finite-T cubic and which therefore serves smeared systems too.
+- Positive temperature selects the canonical thermal backend, including exact fractional
+  degeneracy; zero-temperature integer occupations retain the original backend.
+- CN-disabled FC4 and ML FC4 are rejected. Workspace estimates are checked against the budget
+  before the reference SCF; thermal reference storage is included.
 
 The directional entry points additionally reject a direction whose length is not `3N`;
 `directional_fourth_seminumerical` rejects a non-finite or non-positive `step`; and
@@ -829,17 +865,10 @@ against the Richardson-extrapolated FD of `directional_third_finite_t` (`6.6e-12
 ratio 3.99); dense `T = 0` element-wise equality vs `fourth_derivative_analytic_dense` (`7.5e-14`).
 
 **Errors.** `terms::require_order(..., 4, ...)` as above; a direction whose length is not `3N`; a
-block DOF `>= 3N`. Fractional occupations are supported — that is the point — but **exactly
-degenerate *and* fractionally occupied orbital pairs are rejected here**, at *third* order:
-
-> `third-order finite-temperature response: orbitals {p} and {q} are exactly degenerate (gap …)
-> with fractional occupation — the third-order assembly is still frame-based and the frame is not
-> defined inside such a block (the second order takes the frame-free resolvent form instead);
-> break the symmetry or use a seminumerical path`
-
-A *near*-degenerate reference (gap ≥ `1e-10`) is fully supported. This is the one exact-degeneracy
-rejection left in the stack: the second order was closed by the Daleckii–Krein resolvent form, so
-the finite-T **cubic** no longer refuses these references. No CLI flag and no Python binding.
+block DOF `>= 3N`. Fractional occupations and exactly degenerate fractional blocks are
+supported by canonical spectral response through third order. The standard quartic
+APIs, including Python and ASE, select this same backend at positive temperature;
+the explicit Rust `finite_t` names remain available.
 
 ## Charge-space response solver
 
@@ -889,12 +918,11 @@ documents the silently-unconverged fixed point this replaced.
   rotation `U`, no gauge choice, no in-block case split. Gated element-wise against the validated
   coefficient/rotation algebra on a non-degenerate reference, and against a reconverged finite
   difference on exactly degenerate T_d Ni(CO)₄.
-- The **third** order is still frame-based and therefore **rejects** an exactly degenerate
-  fractionally occupied reference (see the finite-T FC4 section above for the message). Near
-  degeneracy (gap ≥ `1e-10`) is supported.
+- The **third** order also uses fixed-frame spectral resolvents, with confluent Fermi divided
+  differences and canonical chemical-potential derivatives through third order. Exact fractional
+  degeneracy is supported without choosing an orbital frame inside the degenerate block.
 
-The degeneracy check itself only fires at finite temperature and only for orbitals carrying a
-non-negligible Fermi weight, so a gapped `T = 0` reference never trips it. The periodic Γ and
+The zero-temperature occupied/virtual singularity remains an error. The periodic Γ and
 k-point analytic FC3 paths reuse this same solver through a crate-internal constructor that feeds
 it the periodic MOs, so their response algebra is literally this code.
 
@@ -937,7 +965,7 @@ let result = run_electronic(&system, &params, eo)?;
 ```
 
 CLI: `--plus-u` / `--hubbard-u Fe:0.15` / `--plus-u-v --hubbard-v Fe:N:0.04` / `--linear-response-u`
-/ `--plus-u-all-d` (see `gfn1_rs_cli --help`). Python: the same names as `Gfn1NativeCalculator` /
+/ `--plus-u-all-d` (see `gfn1-rs --help`). Python: the same names as `Gfn1NativeCalculator` /
 `GFN1RSCalculator` kwargs (`plus_u`, `hubbard_u=[(28, 0.12)]`, `plus_u_v`, `hubbard_v`,
 `hubbard_u_linear_response`, `plus_u_all_d`).
 
@@ -1186,16 +1214,18 @@ magnetic transition dipoles + [`crate::magnetic::angular_momentum_matrix`]),
 [`crate::td::tda_optical_rotation`] (Rosenfeld `beta(omega)`),
 [`crate::magnetic::magnetic_polarizability`] (`alpha(B)`),
 [`crate::magnetic::cotton_mouton_tensor`] (`d^2 alpha/dB^2`),
-[`crate::magnetic::mcd_tensor`] (`d alpha/dB`, Faraday/MCD), and
-[`crate::magnetic::lao_dipole_matrix`] (raw LAO electric-dipole integrals). In the
-GFN1 point-charge electric model the static optical-rotation `G`-tensor and the MCD
-vanish by time reversal (`dq/dB = 0`); the length-gauge `lao_dipole_matrix` is the
-route to their orbital-current versions. The Cotton-Mouton tensor is nonzero.
+[`crate::magnetic::mcd_tensor`] (legacy-named static `d alpha/dB`), and
+[`crate::magnetic::lao_dipole_matrix`] (raw LAO electric-dipole integrals).
+The static first magnetic derivative of the polarizability vanishes at zero
+field for a time-reversal-symmetric closed shell, including a length-gauge
+dipole model. This API does not implement frequency-dependent optical
+MCD/Faraday response. The Cotton-Mouton second derivative is nonzero.
 
-[`crate::magnetic::magnetic_analytic_gradient`] returns the **analytic** nuclear
+[`crate::magnetic::magnetic_analytic_gradient`] returns a stationary-density nuclear
 gradient by the Hellmann-Feynman contraction `Re Tr(P dH0(B)/dR) - Re Tr(W dS(B)/dR)
-+ shift-Pulay + 1/2 q dgamma/dR q + classical` (one SCC plus cheap integral-builder
-derivatives, M0 and M1). At `B = 0` it reproduces the field-free analytic gradient,
++ shift-Pulay + 1/2 q dgamma/dR q + classical` (one SCC plus finite-differenced
+integral/fixed-charge builders, M0 and M1). The historical function name does
+not imply fully analytic integral derivatives. At `B = 0` it reproduces the field-free analytic gradient,
 and at finite `B` it matches the `6N+1`-SCC finite-difference
 [`crate::magnetic::magnetic_gradient`] (both tested).
 
@@ -1218,8 +1248,8 @@ let g = magnetic_analytic_gradient(&system, &params, &options, Some(&secondary),
 let xi = magnetizability_isotropic(&system, &params, &options, Some(&secondary), 0.02)? * MAGNETIZABILITY_AU_TO_SI;
 ```
 
-Still to do: open-shell spin-Zeeman / NMR shieldings and the length-gauge
-(orbital-current) MCD / optical-rotation `G`-tensor. The ordinary `run_electronic`
+Still to do: open-shell spin-Zeeman / NMR shieldings and frequency-dependent
+optical MCD/Faraday response. The ordinary `run_electronic`
 errors if a magnetic field is set — the magnetic path is the dedicated
 `run_magnetic_scc[_m1]`.
 
@@ -1413,7 +1443,7 @@ let scf = run_electronic(&system, &params, options)?;
   replaces the old `symmetric_eigen_jacobi(input, tol, max_sweeps)` whose
   `tol`/`max_sweeps` were silently ignored (the old name remains as a deprecated
   wrapper).
-- The crate builds both an `rlib` and a `cdylib`; the CLI binary is `gfn1_rs_cli`.
+- The crate builds both an `rlib` and a `cdylib`; the CLI binary is `gfn1-rs`.
 - Set `GFN1_PROFILE=1` to emit one line per scoped region to stderr; scopes are
   created with `gfn1_rs::profile::scope(...)`.
 - [`crate::terms`] is the single source of truth for each energy term's highest

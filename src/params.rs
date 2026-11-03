@@ -1092,7 +1092,10 @@ $end
         // lanthanoid (Ln-xTB) set that is merged into the same file — the
         // La–Lu blocks must actually be present.
         assert!(desc.contains("10.1021/acs.jctc.7b00118"), "desc: {desc}");
-        assert!(desc.contains("10.1021/acs.inorgchem.7b01950"), "desc: {desc}");
+        assert!(
+            desc.contains("10.1021/acs.inorgchem.7b01950"),
+            "desc: {desc}"
+        );
         for z in 57..=71 {
             assert!(
                 p.element(z).is_ok(),

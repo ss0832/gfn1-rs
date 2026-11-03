@@ -13,7 +13,12 @@
 //! reuses the entire validated molecular solver stack for the analytic
 //! periodic third derivative.
 //!
-//! Gate: the context's first-order field must agree with the independent
+//! The result is the canonical free-energy derivative at the reference's
+//! electronic temperature and fixed electron number. Thermal density and
+//! chemical-potential responses use matrix-function divided differences,
+//! including confluent limits at exactly degenerate fractional occupations.
+//!
+//! Gate: at integer filling the context's first-order field agrees with the independent
 //! occ-virt PCG route ([`crate::pbc::hessian::gamma_cpxtb_response_directional`]),
 //! which is itself pinned against reconverged-SCC finite differences.
 
@@ -30,11 +35,6 @@ use crate::pbc::scf::PbcSccResult;
 use crate::response::charge_space::ChargeSpaceContext;
 use crate::system::PeriodicSystem;
 use crate::third_derivative::SymmetricThird;
-
-/// Occupations closer than this to 0 or 2 count as integer (the Fermi fill at
-/// the default 300 K leaves a gapped insulator at exactly integer filling).
-/// Mirrors `pbc::hessian`'s own fractional-occupation epsilon.
-const FRACTIONAL_OCC_EPS: f64 = 1.0e-10;
 
 /// Build a [`ChargeSpaceContext`] on the Gamma-point Bloch reference.
 ///
@@ -111,8 +111,9 @@ impl GammaThirdReference {
     /// Guards, in cheap-to-expensive order: the term registry at analytic
     /// order 3 (which is what rejects multipole / long-range exchange /
     /// DFT+U / spin polarization / external fields / experimental D4, all
-    /// capped at order 1), a Gamma-only k-mesh, a lattice, SCC convergence,
-    /// and finally — only knowable after the SCC — integer occupations.
+    /// capped at order 1), a Gamma-only k-mesh, a lattice, and SCC convergence.
+    /// The converged reference's canonical occupations may be integer or
+    /// fractional; both use the same analytic response assembly.
     pub fn build(
         system: &PeriodicSystem,
         params: &Gfn1Parameters,
@@ -120,7 +121,9 @@ impl GammaThirdReference {
         pbc: &crate::pbc::PbcOptions,
     ) -> Result<Self> {
         use crate::pbc::gamma_third::gamma_realspace_densities;
-        use crate::pbc::hessian::{build_response_band_pairs, gamma_mos, gamma_skeleton_derivatives};
+        use crate::pbc::hessian::{
+            build_response_band_pairs, gamma_mos, gamma_skeleton_derivatives,
+        };
 
         crate::terms::require_order(
             options,
@@ -141,25 +144,13 @@ impl GammaThirdReference {
             .as_ref()
             .ok_or_else(|| Gfn1Error::InvalidInput("periodic third needs a lattice".into()))?;
         let scf = crate::pbc::scf::run_pbc_scc(system, params, options, pbc)?;
+        crate::pbc::ml::require_cubic_response(&scf)?;
         if !scf.converged {
             return Err(Gfn1Error::InvalidInput(
                 "periodic SCC did not converge for the analytic third derivative".into(),
             ));
         }
         let mos = gamma_mos(&scf, scf.nelec)?;
-        if mos
-            .occupations
-            .iter()
-            .any(|&f| f > FRACTIONAL_OCC_EPS && f < 2.0 - FRACTIONAL_OCC_EPS)
-        {
-            return Err(Gfn1Error::InvalidInput(
-                "the analytic Gamma-point periodic third derivative requires integer (gapped) \
-                 occupations, but the periodic SCC converged to a Fermi-smeared filling; \
-                 set ElectronicOptions::electronic_temperature = 0, or use \
-                 pbc_third_derivative_seminumerical_* which supports fractional occupations"
-                    .into(),
-            ));
-        }
         let sk = gamma_skeleton_derivatives(system, params, &scf, options, pbc)?;
         let ctx = gamma_charge_space_context(system, params, &scf, &mos, options.charge_order)?;
         let dens0 = gamma_realspace_densities(&scf, &lattice, pbc.ao_cutoff);
@@ -212,7 +203,7 @@ impl GammaThirdReference {
 ///   e³[v] = frozen third                      (GammaFrozenThird, all blocks)
 ///         + density path                      (∂frozen²/∂X₀ · X¹)
 ///         + g(X²)·v                           (response gradient, second-order slots)
-///         + B6(X¹)[v,v] + 2·bg4(X¹, X¹)·v     (gamma_response_path_directional)
+///         + B6(X¹)[v,v] + background_complete (gamma_response_path_directional)
 /// ```
 ///
 /// with `X¹` from the directional first-order charge-space solve and `X²`
@@ -224,13 +215,10 @@ impl GammaThirdReference {
 /// function of `v`: the `F¹/S¹` skeleton contractions, the first-order field,
 /// the `F^vv/S^vv` directional second-order skeleton matrices, the
 /// second-order field, the frozen third, the response path and the density
-/// path. One item is per-direction and NOT cheap: `dγ_v_q1` needs the
-/// geometric kernel motion evaluated AT the response charges `q¹`, which the
-/// skeleton builder only exposes through a full `gamma_skeleton_derivatives`
-/// call on an SCC record doctored to carry `q¹`. That is a second O(N²)
-/// image-summed skeleton build per direction — unavoidable without a
-/// charge-slot-generic skeleton entry point, and it is why the dense driver
-/// costs ~2x a naive per-direction skeleton count.
+/// path. The geometric kernel motion at response charges uses the borrowed
+/// charge-slot potential builder. It avoids cloning the SCC record and
+/// rebuilding AO skeleton integrals for each direction. The reference also
+/// reuses its immutable spectral divided-difference tables.
 pub fn pbc_gamma_third_with_reference(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -244,7 +232,9 @@ pub fn pbc_gamma_third_with_reference(
         pbc_gamma_frozen_third_directional, shell_potential_first_directional,
         shell_potential_second_directional, uniform_density_images,
     };
-    use crate::pbc::hessian::{gamma_skeleton_derivatives, response_gradient, DensityLookup};
+    use crate::pbc::hessian::{
+        response_gradient, shell_potential_derivatives_for_charges, DensityLookup,
+    };
 
     let GammaThirdReference {
         scf,
@@ -304,15 +294,19 @@ pub fn pbc_gamma_third_with_reference(
 
     // ---- geometric kernel motion at the response charges: (∂γ/∂R·v)·q¹ ----
     let dgamma_v_q1 = {
-        let mut doctored = scf.clone();
-        doctored.shell_charges = q1.clone();
         let mut atom_q = vec![0.0_f64; nat];
         for (ish, shell) in scf.basis.shells.iter().enumerate() {
             atom_q[shell.atom_index] += q1[ish];
         }
-        doctored.atomic_charges = atom_q;
-        let sk1 = gamma_skeleton_derivatives(system, params, &doctored, options, pbc)?;
-        shell_potential_first_directional(&sk1, v)
+        let derivatives =
+            shell_potential_derivatives_for_charges(system, &lattice, scf, pbc, &q1, &atom_q)?;
+        let mut value = vec![0.; q1.len()];
+        for (coordinate, &weight) in v.iter().enumerate() {
+            for (shell, result) in value.iter_mut().enumerate() {
+                *result += weight * derivatives[coordinate][shell];
+            }
+        }
+        value
     };
 
     // ---- X²: the molecular second-order solver on the periodic inputs ----
@@ -320,7 +314,8 @@ pub fn pbc_gamma_third_with_reference(
     let v2_pot = shell_potential_second_directional(system, &lattice, scf, pbc, v);
     let (f_vv, s_vv) =
         gamma_directional_second_matrices(system, params, scf, options, pbc, &v1_pot, &v2_pot, v)?;
-    let second = ctx.second_order_field(&field, &field, &f_vv, &s_vv, &dgamma_v_q1, &dgamma_v_q1)?;
+    let second =
+        ctx.second_order_field(&field, &field, &f_vv, &s_vv, &dgamma_v_q1, &dgamma_v_q1)?;
 
     // ---- g(X²)·v ----
     let g2_grad = response_gradient(
@@ -341,7 +336,7 @@ pub fn pbc_gamma_third_with_reference(
         .map(|(at, g)| g.x * v[3 * at] + g.y * v[3 * at + 1] + g.z * v[3 * at + 2])
         .sum();
 
-    // ---- B6 + bg4 ----
+    // ---- B6 + complete geometric/reference background ----
     let dens1 = uniform_density_images(
         &lattice,
         pbc.ao_cutoff,
@@ -408,32 +403,27 @@ pub fn pbc_gamma_third_with_reference(
         for (s, dv) in scf_shift.shell_scc_potential.iter_mut().zip(&kq1) {
             *s += dv;
         }
-        let v1_shift: Vec<f64> =
-            v1_pot.iter().zip(&dgamma_v_q1).map(|(a, b)| a + b).collect();
-        let v2_shift: Vec<f64> =
-            v2_pot.iter().zip(&dgamma2_v_q1).map(|(a, b)| a + b).collect();
+        let v1_shift: Vec<f64> = v1_pot
+            .iter()
+            .zip(&dgamma_v_q1)
+            .map(|(a, b)| a + b)
+            .collect();
+        let v2_shift: Vec<f64> = v2_pot
+            .iter()
+            .zip(&dgamma2_v_q1)
+            .map(|(a, b)| a + b)
+            .collect();
         let shifted = pbc_band_pulay_third_directional(
             system, params, &scf_shift, pbc, dens0, &v1_shift, &v2_shift, v,
         )?
         .second;
-        let base = pbc_band_pulay_third_directional(
-            system, params, scf, pbc, dens0, &v1_pot, &v2_pot, v,
-        )?
-        .second;
+        let base =
+            pbc_band_pulay_third_directional(system, params, scf, pbc, dens0, &v1_pot, &v2_pot, v)?
+                .second;
         dp += shifted - base;
-        // NOT ADDED — the self-energy cache motion. `pbc_band_pulay_*` carries
-        // the H0 prefactor's ½(se_i + se_j) and `se` moves with the
-        // coordination numbers, and the cache probe measures that channel at
-        // −5.18e-8 (diamond) / −3.02e-8 (BN). Adding it via the affine trick
-        // (`se := dsedcn ⊙ CN¹` minus `se := 0`) moves the total gate by
-        // exactly those amounts: diamond improves 8.53e-8 → 3.36e-8, but BN
-        // degrades 8.03e-8 → 1.10e-7. So the channel is real yet a
-        // compensating piece of the opposite sign is still missing on the
-        // heteronuclear fixture — most likely the CN block's third already
-        // absorbs part of the same physics (its cross term is built from
-        // `dE/dCN`, which is the se-mediated coupling), so the two must be
-        // apportioned rather than summed. Left out until that boundary is
-        // derived; the residual it would fix is the documented ~1e-7 tail.
+        // The reference self-energy value's geometric motion belongs to the
+        // complete frozen CN cubic, not this density-slot derivative. Its
+        // response-gradient counterpart is the second CN1*E1(P1) term in B6.
         if dbg {
             // The X¹ band/Pulay block WITHOUT potential legs, for the
             // dpath-inventory bisection against the FD target.
@@ -460,11 +450,11 @@ pub fn pbc_gamma_third_with_reference(
     if std::env::var("GFN1_G3_DEBUG").is_ok() {
         eprintln!(
             "g3 components: frozen {:+.10e}  dpath {density_path:+.10e}  g2 {g2:+.10e}  b6 \
-             {:+.10e}  bg4 {:+.10e}\n  b6 blocks {:?}\n  bg4 families {:?}\n  frozen thirds: bp \
+             {:+.10e}  background {:+.10e}\n  b6 blocks {:?}\n  raw background families {:?}\n  frozen thirds: bp \
              {:+.10e}  cn {:+.10e}  scc2r {:+.10e}  scc2e {:+.10e}",
             frozen.total().third,
             path.b6,
-            path.bg4,
+            path.background_complete,
             path.b6_blocks,
             path.bg4_families,
             frozen.band_pulay.third,
@@ -473,11 +463,7 @@ pub fn pbc_gamma_third_with_reference(
             frozen.scc2_ewald.third
         );
     }
-    // bg4 enters twice: the response gradient's bilinear self-terms
-    // differentiate into BOTH slots (e.g. d/dλ[−P¹(Kq¹)∇S] feeds the mixed
-    // (X²,X¹) pairs from either side), while g(X²) supplies only the
-    // diagonal — the two mixed completions are exactly the bg4 families.
-    Ok(frozen.total().third + density_path + g2 + path.b6 + 2.0 * path.bg4)
+    Ok(frozen.total().third + density_path + g2 + path.b6 + path.background_complete)
 }
 
 /// **Analytic Gamma-point periodic third derivative, Vector mode**: the single
@@ -485,7 +471,7 @@ pub fn pbc_gamma_third_with_reference(
 ///
 /// The cheapest output mode — one shared-reference build plus one directional
 /// evaluation. See [`GammaThirdReference`] for the option coverage (Gamma-only
-/// mesh, integer occupations, analytic order 3 terms) and
+/// mesh, canonical integer/fractional occupations, analytic order 3 terms) and
 /// [`pbc_gamma_third_with_reference`] for the assembly.
 pub fn pbc_gamma_third_analytic_vector(
     system: &PeriodicSystem,
@@ -549,71 +535,11 @@ fn gamma_third_polarized(
     pbc: &crate::pbc::PbcOptions,
     dofs: &[usize],
 ) -> Result<SymmetricThird> {
-    use rayon::prelude::*;
-    use std::collections::{BTreeMap, HashMap};
-
     let reference = GammaThirdReference::build(system, params, options, pbc)?;
-    let ndof = 3 * system.atoms.len();
-    let m = dofs.len();
-
-    // Phase 1: deduplicate the subset directions of every canonical triple.
-    let mut key_index: HashMap<Vec<(usize, u8)>, usize> = HashMap::new();
-    let mut keys: Vec<Vec<(usize, u8)>> = Vec::new();
-    // Per canonical triple: the 7 (sign, key) polarization terms.
-    let mut plan: Vec<((usize, usize, usize), Vec<(f64, usize)>)> = Vec::new();
-    for k in 0..m {
-        for j in 0..=k {
-            for i in 0..=j {
-                let idxs = [dofs[i], dofs[j], dofs[k]];
-                let mut terms = Vec::with_capacity(7);
-                for mask in 1u8..8 {
-                    let mut dir: BTreeMap<usize, u8> = BTreeMap::new();
-                    for (bit, &dof) in idxs.iter().enumerate() {
-                        if mask & (1 << bit) != 0 {
-                            *dir.entry(dof).or_insert(0) += 1;
-                        }
-                    }
-                    let key: Vec<(usize, u8)> = dir.into_iter().collect();
-                    let sign = if (3 - mask.count_ones()) % 2 == 0 {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let idx = *key_index.entry(key.clone()).or_insert_with(|| {
-                        keys.push(key);
-                        keys.len() - 1
-                    });
-                    terms.push((sign, idx));
-                }
-                plan.push(((i, j, k), terms));
-            }
-        }
-    }
-
-    // Phase 2: evaluate each distinct direction once, in parallel, against
-    // the shared reference.
-    let values: Result<Vec<f64>> = keys
-        .par_iter()
-        .map(|key| {
-            let mut v = vec![0.0_f64; ndof];
-            for &(dof, weight) in key {
-                v[dof] = weight as f64;
-            }
-            pbc_gamma_third_with_reference(system, params, options, pbc, &reference, &v)
-        })
-        .collect();
-    let values = values?;
-
-    // Phase 3: assemble the packed tensor.
-    let mut store = SymmetricThird::zeros(m);
-    for ((i, j, k), terms) in plan {
-        let mut t = 0.0;
-        for (sign, idx) in terms {
-            t += sign * values[idx];
-        }
-        store.add(i, j, k, t / 6.0);
-    }
-    Ok(store)
+    let plan = crate::derivative_assembly::periodic_cubic_plan(
+        dofs, reference.ndof, reference.n, 1,
+    )?;
+    plan.cubic(|v| pbc_gamma_third_with_reference(system, params, options, pbc, &reference, v))
 }
 
 #[cfg(test)]
@@ -628,6 +554,129 @@ mod tests {
 
     fn params() -> Gfn1Parameters {
         Gfn1Parameters::builtin().unwrap()
+    }
+
+    #[test]
+    #[ignore = "finite-temperature response-ladder diagnostic"]
+    fn gamma_thermal_response_ladder_diagnostic() {
+        use crate::pbc::gamma_third::{
+            gamma_directional_second_matrices, shell_potential_first_directional,
+            shell_potential_second_directional,
+        };
+        use crate::pbc::hessian::{pbc_gamma_hessian, shell_potential_derivatives_for_charges};
+        use crate::response::charge_space::FirstOrderField;
+        let params = params();
+        let system=PeriodicSystem::from_xyz_str("2\nLattice=\"5.13 0 0 0 5.13 0 0 0 5.13\" pbc=\"T T T\"\nH .11 -.07 .03\nH .93 .12 -.06\n",0.,false).unwrap();
+        let pbc = PbcOptions {
+            kmesh: KMesh::gamma(),
+            ao_cutoff: 12.,
+            ewald: EwaldOptions {
+                real_cutoff: 20.,
+                sr_cutoff: 8.,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let v = vec![1., 0., 0., 0., 0., 0.];
+        for temperature in [0., 30000.] {
+            for cn in [false, true] {
+                let mut options = ElectronicOptions {
+                    electronic_temperature: temperature,
+                    enable_dispersion: false,
+                    energy_tolerance: 1e-13,
+                    charge_tolerance: 1e-11,
+                    max_scc: 1000,
+                    ..Default::default()
+                };
+                options.hamiltonian.enable_cn_hamiltonian = cn;
+                let field_at =
+                    |step: f64| -> (PeriodicSystem, GammaThirdReference, FirstOrderField) {
+                        let mut moved = system.clone();
+                        moved.atoms[0].position.x += step;
+                        let reference =
+                            GammaThirdReference::build(&moved, &params, &options, &pbc).unwrap();
+                        let field = reference
+                            .ctx
+                            .first_order_field(
+                                reference.sk.fock[0].clone(),
+                                reference.sk.overlap[0].clone(),
+                            )
+                            .unwrap();
+                        (moved, reference, field)
+                    };
+                let (_, reference, field) = field_at(0.);
+                let scf = &reference.scf;
+                let q1 = &field.bundle.shell_charges;
+                let mut aq = vec![0.; 2];
+                for (shell, &q) in scf.basis.shells.iter().zip(q1) {
+                    aq[shell.atom_index] += q;
+                }
+                let dgamma = shell_potential_derivatives_for_charges(
+                    &system,
+                    &reference.lattice,
+                    scf,
+                    &pbc,
+                    q1,
+                    &aq,
+                )
+                .unwrap()[0]
+                    .clone();
+                let v1 = shell_potential_first_directional(&reference.sk, &v);
+                let v2 =
+                    shell_potential_second_directional(&system, &reference.lattice, scf, &pbc, &v);
+                let (f2, s2) = gamma_directional_second_matrices(
+                    &system, &params, scf, &options, &pbc, &v1, &v2, &v,
+                )
+                .unwrap();
+                let second = reference
+                    .ctx
+                    .second_order_field(&field, &field, &f2, &s2, &dgamma, &dgamma)
+                    .unwrap();
+                for h in [1e-3, 5e-4] {
+                    let (sp, rp, fp) = field_at(h);
+                    let (sm, rm, fm) = field_at(-h);
+                    let worst = |a: &Matrix, p: &Matrix, m: &Matrix| {
+                        a.as_slice()
+                            .iter()
+                            .zip(p.as_slice())
+                            .zip(m.as_slice())
+                            .map(|((&a, &p), &m)| (a - (p - m) / (2. * h)).abs())
+                            .fold(0., f64::max)
+                    };
+                    let p1 = worst(
+                        &field.bundle.density,
+                        &rp.scf.density_k[0].re,
+                        &rm.scf.density_k[0].re,
+                    );
+                    let w1 = worst(
+                        &field.bundle.energy_weighted,
+                        &rp.scf.ew_density_k[0].re,
+                        &rm.scf.ew_density_k[0].re,
+                    );
+                    let p2 = worst(
+                        &second.bundle.density,
+                        &fp.bundle.density,
+                        &fm.bundle.density,
+                    );
+                    let w2 = worst(
+                        &second.bundle.energy_weighted,
+                        &fp.bundle.energy_weighted,
+                        &fm.bundle.energy_weighted,
+                    );
+                    let hp = pbc_gamma_hessian(&sp, &params, &options, &pbc)
+                        .unwrap()
+                        .hessian;
+                    let hm = pbc_gamma_hessian(&sm, &params, &options, &pbc)
+                        .unwrap()
+                        .hessian;
+                    let analytic = pbc_gamma_third_with_reference(
+                        &system, &params, &options, &pbc, &reference, &v,
+                    )
+                    .unwrap();
+                    println!("thermal ladder T={temperature} CN={cn} h={h}: P1={p1:e},W1={w1:e},P2={p2:e},W2={w2:e}; FC3={analytic:e}, FD={:e}",(hp[(0,0)]-hm[(0,0)])/(2.*h));
+                }
+            }
+        }
     }
 
     fn electronic() -> ElectronicOptions {
@@ -677,9 +726,79 @@ N 0.940000 0.890000 0.920000\n",
             .collect()
     }
 
+    #[test]
+    #[ignore = "paired timing of the borrowed charge-slot optimization against the former full skeleton build"]
+    fn charge_slot_potential_benchmark() {
+        use crate::pbc::hessian::shell_potential_derivatives_for_charges;
+        for (name, xyz) in FIXTURES {
+            let system = PeriodicSystem::from_xyz_str(xyz, 0., false).unwrap();
+            let params = params();
+            let options = electronic();
+            let pbc = pbc_opts();
+            let scf = run_pbc_scc(&system, &params, &options, &pbc).unwrap();
+            assert!(scf.converged);
+            let q: Vec<_> = (0..scf.basis.shells.len())
+                .map(|s| 0.03 - 0.02 * s as f64)
+                .collect();
+            let mut atomic = vec![0.; system.atoms.len()];
+            for (shell, &value) in scf.basis.shells.iter().zip(&q) {
+                atomic[shell.atom_index] += value;
+            }
+            let legacy = || {
+                let mut copied = scf.clone();
+                copied.shell_charges = q.clone();
+                copied.atomic_charges = atomic.clone();
+                gamma_skeleton_derivatives(&system, &params, &copied, &options, &pbc)
+                    .unwrap()
+                    .shell_potential
+            };
+            let borrowed = || {
+                shell_potential_derivatives_for_charges(
+                    &system,
+                    system.lattice.as_ref().unwrap(),
+                    &scf,
+                    &pbc,
+                    &q,
+                    &atomic,
+                )
+                .unwrap()
+            };
+            let expected = legacy();
+            let actual = borrowed();
+            let error = expected
+                .iter()
+                .flatten()
+                .zip(actual.iter().flatten())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0., f64::max);
+            assert!(error < 1e-13);
+            let mut old_ms = Vec::new();
+            let mut new_ms = Vec::new();
+            for repetition in 0..5 {
+                let mut sample = |old: bool| {
+                    let start = std::time::Instant::now();
+                    std::hint::black_box(if old { legacy() } else { borrowed() });
+                    let elapsed = start.elapsed().as_secs_f64() * 1000.;
+                    if old {
+                        old_ms.push(elapsed);
+                    } else {
+                        new_ms.push(elapsed);
+                    }
+                };
+                sample(repetition % 2 == 0);
+                sample(repetition % 2 != 0);
+            }
+            old_ms.sort_by(f64::total_cmp);
+            new_ms.sort_by(f64::total_cmp);
+            let avoided_payload =
+                2 * 3 * system.atoms.len() * scf.basis.len().pow(2) * std::mem::size_of::<f64>();
+            println!("charge_slot_benchmark fixture={name} legacy_median_ms={} borrowed_median_ms={} max_error={error:e} avoided_ao_matrix_payload_bytes={avoided_payload}",old_ms[2],new_ms[2]);
+        }
+    }
+
     /// FD split diagnostic: the true `D_v[r2]` (reconverged first-order
     /// response gradient contraction at displaced geometries) vs the
-    /// assembly's response side `g(X²) + B6 + bg4`, and by subtraction the
+    /// assembly's response side `g(X²) + B6 + background_complete`, and by subtraction the
     /// frozen side vs `GammaFrozenThird.total().third`.
     #[test]
     #[ignore = "diagnostic"]
@@ -690,73 +809,71 @@ N 0.940000 0.890000 0.920000\n",
             gamma_skeleton_derivatives, response_gradient, DensityLookup,
         };
         for (name, xyz) in FIXTURES {
-        let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
-        let params = params();
-        let opts = electronic();
-        let pbc = pbc_opts();
-        let ndof = 3 * system.atoms.len();
-        let v = direction(ndof, 41);
-        let r2_at = |lam: f64| -> f64 {
-            let mut sys = system.clone();
-            for (atom, a) in sys.atoms.iter_mut().enumerate() {
-                a.position.x += lam * v[3 * atom];
-                a.position.y += lam * v[3 * atom + 1];
-                a.position.z += lam * v[3 * atom + 2];
-            }
-            let lattice = *sys.lattice.as_ref().unwrap();
-            let scf = crate::pbc::scf::run_pbc_scc(&sys, &params, &opts, &pbc).unwrap();
-            let mos = gamma_mos(&scf, scf.nelec).unwrap();
-            let sk = gamma_skeleton_derivatives(&sys, &params, &scf, &opts, &pbc).unwrap();
-            let n = scf.basis.len();
-            let mut f1 = Matrix::zeros(n, n);
-            let mut s1 = Matrix::zeros(n, n);
-            for (y, &vy) in v.iter().enumerate() {
-                for i in 0..n {
-                    for j in 0..n {
-                        f1[(i, j)] += vy * sk.fock[y][(i, j)];
-                        s1[(i, j)] += vy * sk.overlap[y][(i, j)];
+            let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
+            let params = params();
+            let opts = electronic();
+            let pbc = pbc_opts();
+            let ndof = 3 * system.atoms.len();
+            let v = direction(ndof, 41);
+            let r2_at = |lam: f64| -> f64 {
+                let mut sys = system.clone();
+                for (atom, a) in sys.atoms.iter_mut().enumerate() {
+                    a.position.x += lam * v[3 * atom];
+                    a.position.y += lam * v[3 * atom + 1];
+                    a.position.z += lam * v[3 * atom + 2];
+                }
+                let lattice = *sys.lattice.as_ref().unwrap();
+                let scf = crate::pbc::scf::run_pbc_scc(&sys, &params, &opts, &pbc).unwrap();
+                let mos = gamma_mos(&scf, scf.nelec).unwrap();
+                let sk = gamma_skeleton_derivatives(&sys, &params, &scf, &opts, &pbc).unwrap();
+                let n = scf.basis.len();
+                let mut f1 = Matrix::zeros(n, n);
+                let mut s1 = Matrix::zeros(n, n);
+                for (y, &vy) in v.iter().enumerate() {
+                    for i in 0..n {
+                        for j in 0..n {
+                            f1[(i, j)] += vy * sk.fock[y][(i, j)];
+                            s1[(i, j)] += vy * sk.overlap[y][(i, j)];
+                        }
                     }
                 }
-            }
-            let (p1, w1, q1) = gamma_cpxtb_response_directional(&scf, &mos, &f1, &s1).unwrap();
-            let dens0 = gamma_realspace_densities(&scf, &lattice, pbc.ao_cutoff);
-            let band_pairs =
-                build_response_band_pairs(&sys, &params, &scf, &dens0.p, &pbc).unwrap();
-            let kernel = periodic_response_kernel(&scf);
-            let cn = crate::coordination::coordination_with_derivatives(
-                &sys,
-                crate::coordination::CoordinationOptions {
-                    cutoff: opts.hamiltonian.coordination_cutoff,
-                    ..crate::coordination::CoordinationOptions::default()
-                },
-            )
-            .unwrap();
-            let g = response_gradient(
-                &sys,
-                &params,
-                &scf,
-                &band_pairs,
-                DensityLookup::Uniform(&p1),
-                DensityLookup::Uniform(&w1),
-                &q1,
-                &kernel,
-                &pbc,
-                Some(&cn),
-            )
-            .unwrap();
-            g.iter()
-                .enumerate()
-                .map(|(at, gg)| {
-                    gg.x * v[3 * at] + gg.y * v[3 * at + 1] + gg.z * v[3 * at + 2]
-                })
-                .sum()
-        };
-        let h = 1.0e-3;
-        let fd_r2 = (r2_at(h) - r2_at(-h)) / (2.0 * h);
-        let fd_r2_half = (r2_at(0.5 * h) - r2_at(-0.5 * h)) / h;
-        let rich = (4.0 * fd_r2_half - fd_r2) / 3.0;
-        println!("split/{name}: D_v[r2] FD {fd_r2:+.10e}  richardson {rich:+.10e}");
-        assert!(fd_r2.is_finite());
+                let (p1, w1, q1) = gamma_cpxtb_response_directional(&scf, &mos, &f1, &s1).unwrap();
+                let dens0 = gamma_realspace_densities(&scf, &lattice, pbc.ao_cutoff);
+                let band_pairs =
+                    build_response_band_pairs(&sys, &params, &scf, &dens0.p, &pbc).unwrap();
+                let kernel = periodic_response_kernel(&scf);
+                let cn = crate::coordination::coordination_with_derivatives(
+                    &sys,
+                    crate::coordination::CoordinationOptions {
+                        cutoff: opts.hamiltonian.coordination_cutoff,
+                        ..crate::coordination::CoordinationOptions::default()
+                    },
+                )
+                .unwrap();
+                let g = response_gradient(
+                    &sys,
+                    &params,
+                    &scf,
+                    &band_pairs,
+                    DensityLookup::Uniform(&p1),
+                    DensityLookup::Uniform(&w1),
+                    &q1,
+                    &kernel,
+                    &pbc,
+                    Some(&cn),
+                )
+                .unwrap();
+                g.iter()
+                    .enumerate()
+                    .map(|(at, gg)| gg.x * v[3 * at] + gg.y * v[3 * at + 1] + gg.z * v[3 * at + 2])
+                    .sum()
+            };
+            let h = 1.0e-3;
+            let fd_r2 = (r2_at(h) - r2_at(-h)) / (2.0 * h);
+            let fd_r2_half = (r2_at(0.5 * h) - r2_at(-0.5 * h)) / h;
+            let rich = (4.0 * fd_r2_half - fd_r2) / 3.0;
+            println!("split/{name}: D_v[r2] FD {fd_r2:+.10e}  richardson {rich:+.10e}");
+            assert!(fd_r2.is_finite());
         }
     }
 
@@ -768,9 +885,9 @@ N 0.940000 0.890000 0.920000\n",
     #[ignore = "diagnostic"]
     fn gamma_frozen_block_split_diagnostic() {
         use crate::pbc::gamma_third::{
-            gamma_realspace_densities, pbc_band_pulay_third_directional,
-            pbc_cn_third_directional, pbc_scc2_realspace_third_directional,
-            shell_potential_first_directional, shell_potential_second_directional,
+            gamma_realspace_densities, pbc_band_pulay_third_directional, pbc_cn_third_directional,
+            pbc_scc2_realspace_third_directional, shell_potential_first_directional,
+            shell_potential_second_directional,
         };
         use crate::pbc::hessian::gamma_skeleton_derivatives;
         for (name, xyz) in FIXTURES {
@@ -862,9 +979,8 @@ N 0.940000 0.890000 0.920000\n",
                     }
                 }
             }
-            let ctx =
-                gamma_charge_space_context(&system, &params, &scf, &mos, opts.charge_order)
-                    .unwrap();
+            let ctx = gamma_charge_space_context(&system, &params, &scf, &mos, opts.charge_order)
+                .unwrap();
             let field = ctx.first_order_field(f1, s1).unwrap();
             let q1 = field.bundle.shell_charges.clone();
             let dgamma_v_q1 = {
@@ -875,8 +991,7 @@ N 0.940000 0.890000 0.920000\n",
                     atom_q[shell.atom_index] += q1[ish];
                 }
                 d.atomic_charges = atom_q;
-                let sk1 =
-                    gamma_skeleton_derivatives(&system, &params, &d, &opts, &pbc).unwrap();
+                let sk1 = gamma_skeleton_derivatives(&system, &params, &d, &opts, &pbc).unwrap();
                 shell_potential_first_directional(&sk1, &v)
             };
             let v1_pot = shell_potential_first_directional(&sk, &v);
@@ -928,11 +1043,10 @@ N 0.940000 0.890000 0.920000\n",
             let analytic = pbc_gamma_third_analytic_vector(&system, &params, &opts, &pbc, &v)
                 .expect("analytic third");
             let ref_at = |h: f64| -> f64 {
-                let dv_h =
-                    crate::pbc::third_derivative::pbc_third_derivative_seminumerical_vector(
-                        &system, &params, &opts, &pbc, h, &v,
-                    )
-                    .expect("seminumerical");
+                let dv_h = crate::pbc::third_derivative::pbc_third_derivative_seminumerical_vector(
+                    &system, &params, &opts, &pbc, h, &v,
+                )
+                .expect("seminumerical");
                 let mut acc = 0.0;
                 for a in 0..ndof {
                     for b in 0..ndof {
@@ -973,8 +1087,8 @@ N 0.940000 0.890000 0.920000\n",
             let scf = run_pbc_scc(&system, &params, &opts, &pbc).expect("periodic SCC");
             assert!(scf.converged, "fixture SCC did not converge");
             let mos = gamma_mos(&scf, scf.nelec).expect("gamma mos");
-            let sk = gamma_skeleton_derivatives(&system, &params, &scf, &opts, &pbc)
-                .expect("skeleton");
+            let sk =
+                gamma_skeleton_derivatives(&system, &params, &scf, &opts, &pbc).expect("skeleton");
             let ndof = 3 * system.atoms.len();
             let v = direction(ndof, 37);
             let n = scf.basis.len();
@@ -1000,8 +1114,8 @@ N 0.940000 0.890000 0.920000\n",
             for i in 0..n {
                 for j in 0..n {
                     worst_p = worst_p.max((field.bundle.density[(i, j)] - p_ref[(i, j)]).abs());
-                    worst_w = worst_w
-                        .max((field.bundle.energy_weighted[(i, j)] - w_ref[(i, j)]).abs());
+                    worst_w =
+                        worst_w.max((field.bundle.energy_weighted[(i, j)] - w_ref[(i, j)]).abs());
                 }
             }
             let mut worst_q = 0.0_f64;

@@ -11,12 +11,29 @@ use gfn1_rs::{
     SecondaryBasis, MAGNETIZABILITY_AU_TO_SI,
 };
 
-/// Load the GFN1-xTB-M1 secondary basis from the path in `GFN1_M1_BASIS` (the
-/// paper's `$Basis = GFN1-xTB-cc-pVDZ` file). Tests no-op when it is absent.
+/// Exercise bundled M1 data by default; explicit invalid inputs must fail.
 fn load_m1_basis() -> Option<SecondaryBasis> {
-    let path = std::env::var("GFN1_M1_BASIS").ok()?;
-    let text = std::fs::read_to_string(path).ok()?;
-    parse_secondary_basis(&text).ok()
+    Some(match std::env::var("GFN1_M1_BASIS") {
+        Ok(path) => {
+            parse_secondary_basis(&std::fs::read_to_string(path).expect("M1 basis read failed"))
+                .expect("M1 basis parse failed")
+        }
+        Err(_) => gfn1_rs::builtin_secondary("cc-pVDZ").unwrap().unwrap(),
+    })
+}
+
+#[test]
+fn strict_m1_missing_shell_is_an_error_even_at_zero_field() {
+    let params = Gfn1Parameters::builtin().unwrap();
+    let system = PeriodicSystem::from_xyz_str(WATER, 0.0, false).unwrap();
+    let error = run_magnetic_scc_m1(
+        &system,
+        &params,
+        &opts_with_field(Vec3::zero()),
+        &SecondaryBasis::default(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("strict M1") && error.to_string().contains("Z=8"));
 }
 
 fn load_params() -> Option<Gfn1Parameters> {
@@ -36,6 +53,43 @@ fn opts_with_field(b: Vec3) -> ElectronicOptions {
         },
         ..ElectronicOptions::default()
     }
+}
+
+#[test]
+fn magnetic_rejects_unsupported_models_and_invalid_inputs() {
+    let params = Gfn1Parameters::builtin().unwrap();
+    let system = PeriodicSystem::from_xyz_str(WATER, 0.0, false).unwrap();
+    let mut invalid = Vec::new();
+    let mut options = opts_with_field(Vec3::zero());
+    options.charge_order = 4;
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::zero());
+    options.multipole = true;
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::zero());
+    options.experimental_d4 = true;
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::zero());
+    options.spin_multiplicity = Some(3);
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::zero());
+    options.max_scc = 0;
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::new(f64::NAN, 0., 0.));
+    options.charge = Some(f64::INFINITY);
+    invalid.push(options);
+    let mut options = opts_with_field(Vec3::zero());
+    options.charge = Some(-1000.);
+    invalid.push(options);
+    for options in invalid {
+        assert!(run_magnetic_scc(&system, &params, &options).is_err());
+    }
+    let mut options = opts_with_field(Vec3::zero());
+    options.max_scc = 1;
+    let message = run_magnetic_scc(&system, &params, &options)
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("did not converge") && !message.contains("rms=0.000000"));
 }
 
 #[test]
@@ -463,7 +517,10 @@ fn magnetic_energy_is_rotation_invariant() {
         let er = run_magnetic_scc(&rotated, &params, &opts_with_field(apply_rotation(&r, b)))
             .unwrap()
             .energy;
-        eprintln!("B = {b:?}: E = {e:.12}, E(rotated) = {er:.12}, d = {:.3e}", e - er);
+        eprintln!(
+            "B = {b:?}: E = {e:.12}, E(rotated) = {er:.12}, d = {:.3e}",
+            e - er
+        );
         assert!(
             (e - er).abs() < 1.0e-9,
             "magnetic energy is not rotation invariant at B = {b:?}: {e} vs {er} \
@@ -557,7 +614,11 @@ fn magnetic_energy_is_translation_and_gauge_origin_invariant() {
     )
     .unwrap()
     .energy;
-    for (name, e) in [("gauge", e_gauge), ("translation", e_trans), ("both", e_both)] {
+    for (name, e) in [
+        ("gauge", e_gauge),
+        ("translation", e_trans),
+        ("both", e_both),
+    ] {
         assert!(
             (e - e_ref).abs() < 1.0e-9,
             "magnetic energy is not {name} invariant: {e} vs {e_ref} (diff {:.3e})",
@@ -620,7 +681,9 @@ fn lao_overlap_is_gauge_origin_free_but_phase_dressing_is_not() {
                 .max((d1.im[(i, j)] - d2.im[(i, j)]).abs());
         }
     }
-    eprintln!("gauge-origin shift: |dS(LAO)| = {lao_diff:.3e}, |dS(phase dressing)| = {dress_diff:.3e}");
+    eprintln!(
+        "gauge-origin shift: |dS(LAO)| = {lao_diff:.3e}, |dS(phase dressing)| = {dress_diff:.3e}"
+    );
     assert!(
         dress_diff > 1.0e-3,
         "the phase-dressing control did not move with the gauge origin ({dress_diff:.3e}) - \
@@ -700,13 +763,9 @@ fn magnetic_energy_is_even_in_field_and_matrices_are_hermitian() {
     let ep = run_magnetic_scc(&system, &params, &field_opts(b, Vec3::zero()))
         .unwrap()
         .energy;
-    let em = run_magnetic_scc(
-        &system,
-        &params,
-        &field_opts(-b, Vec3::zero()),
-    )
-    .unwrap()
-    .energy;
+    let em = run_magnetic_scc(&system, &params, &field_opts(-b, Vec3::zero()))
+        .unwrap()
+        .energy;
     assert!(
         (ep - em).abs() < 1.0e-9,
         "the closed-shell magnetic energy must be even in B: E(B) = {ep}, E(-B) = {em}"
@@ -810,9 +869,8 @@ fn magnetic_h0_and_overlap_are_translation_covariant() {
     let modulus = |m: &gfn1_rs::pbc::complex::CMatrix, i: usize, j: usize| {
         (m.re[(i, j)].powi(2) + m.im[(i, j)].powi(2)).sqrt()
     };
-    let phase = |m: &gfn1_rs::pbc::complex::CMatrix, i: usize, j: usize| {
-        m.im[(i, j)].atan2(m.re[(i, j)])
-    };
+    let phase =
+        |m: &gfn1_rs::pbc::complex::CMatrix, i: usize, j: usize| m.im[(i, j)].atan2(m.re[(i, j)]);
     let wrap = |mut x: f64| {
         while x > std::f64::consts::PI {
             x -= 2.0 * std::f64::consts::PI;
@@ -839,7 +897,10 @@ fn magnetic_h0_and_overlap_are_translation_covariant() {
         "translation covariance: max d|S| = {dmod_s:.3e}, max d|H0| = {dmod_h:.3e}, \
          max phase mismatch = {dphase:.3e}"
     );
-    assert!(dmod_s < 1.0e-12, "|S(B)| is not translation invariant: {dmod_s:.3e}");
+    assert!(
+        dmod_s < 1.0e-12,
+        "|S(B)| is not translation invariant: {dmod_s:.3e}"
+    );
     assert!(
         dmod_h < 1.0e-12,
         "|H0(B)| is not translation invariant: {dmod_h:.3e} - the band prefactor \
@@ -907,7 +968,9 @@ fn magnetizability_au_to_si_matches_codata() {
     let me = 9.109_383_701_5e-31_f64;
     let au = e * e * a0 * a0 / me; // J T^-2
     let expected = au * 1.0e30;
-    eprintln!("e^2 a_0^2 / m_e = {expected:.9} x 10^-30 J T^-2 (constant: {MAGNETIZABILITY_AU_TO_SI})");
+    eprintln!(
+        "e^2 a_0^2 / m_e = {expected:.9} x 10^-30 J T^-2 (constant: {MAGNETIZABILITY_AU_TO_SI})"
+    );
     assert!(
         (MAGNETIZABILITY_AU_TO_SI - expected).abs() < 1.0e-9 * expected,
         "MAGNETIZABILITY_AU_TO_SI = {MAGNETIZABILITY_AU_TO_SI} but e^2 a_0^2 / m_e = \

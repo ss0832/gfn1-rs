@@ -4,11 +4,11 @@ build-backend = "maturin"
 
 [project]
 name = "gfn1-rs-python"
-version = "0.5.1"
-description = "Python and ASE interface for the native Rust GFN1-RS implementation"
+version = "0.7.2"
+description = "Python and ASE interface for the native Rust GFN1-xTB implementation"
 requires-python = ">=3.9,<3.15"
 license = "GPL-3.0-or-later"
-license-files = ["LICENSE", "third_party/*/COPYING*"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "third_party/*/COPYING*", "third_party/*/LICENSE*"]
 authors = [{ name = "ss0832" }]
 readme = "README.md"
 keywords = [
@@ -41,6 +41,10 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+gfn1-rs = "gfn1_rs.cli:main"
+gfn1-rs-train = "gfn1_rs.cli:train_main"
+
 [project.urls]
 Homepage = "https://github.com/ss0832/gfn1-rs"
 Repository = "https://github.com/ss0832/gfn1-rs"
@@ -48,14 +52,18 @@ Documentation = "https://github.com/ss0832/gfn1-rs/tree/master/docs"
 Issues = "https://github.com/ss0832/gfn1-rs/issues"
 
 [project.optional-dependencies]
-ase = ["ase>=3.22", "numpy>=1.22"]
-test = ["pytest>=8", "ase>=3.22", "numpy>=1.22"]
+# ASE's empty-Atoms copy uses ndarray.shape assignment, deprecated in NumPy 2.5.
+# Keep a compatible NumPy range until ASE replaces that operation with reshape.
+ase = ["ase>=3.22", "numpy>=1.22,<2.5"]
+test = ["pytest>=8", "ase>=3.22", "numpy>=1.22,<2.5"]
 
 [tool.maturin]
 bindings = "pyo3"
 features = ["python"]
 module-name = "gfn1_rs._native"
 python-source = "python"
+exclude = ["**/__pycache__/**", "**/*.pyc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+filterwarnings = ["error"]

@@ -1,0 +1,2467 @@
+{
+  "by_group": {
+    "extrapolation": {
+      "water-1": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.030784138133929936,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.006609174507725559,
+        "baseline_relative_rmse_hartree": 0.0030364829329165826,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 11.690666747707954
+        },
+        "dipole_components": 3,
+        "gradient_components": 9,
+        "model_dipole_rmse_e_bohr": 0.01199607242937538,
+        "model_gradient_rmse_hartree_per_bohr": 0.0038540675535569525,
+        "model_relative_rmse_hartree": 0.0014891687414246828,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 5.733401396192834
+        },
+        "relative_energy_cases": 1,
+        "structures_evaluated": 2,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-2": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.08271771309881817,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.0044786179543257415,
+        "baseline_relative_rmse_hartree": 0.002756762043018668,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 25.992256889536527
+        },
+        "dipole_components": 3,
+        "gradient_components": 18,
+        "model_dipole_rmse_e_bohr": 0.048410467322649406,
+        "model_gradient_rmse_hartree_per_bohr": 0.002349373805594276,
+        "model_relative_rmse_hartree": 0.0045414259621416875,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 42.81904219906513
+        },
+        "relative_energy_cases": 1,
+        "structures_evaluated": 2,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-3": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.021118951271830066,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.004948356382461676,
+        "baseline_relative_rmse_hartree": 0.00777793467205967,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 32.52574975416396
+        },
+        "dipole_components": 3,
+        "gradient_components": 27,
+        "model_dipole_rmse_e_bohr": 0.005476853533278974,
+        "model_gradient_rmse_hartree_per_bohr": 0.004484034892443724,
+        "model_relative_rmse_hartree": 0.012217817029831936,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 51.09243983264812
+        },
+        "relative_energy_cases": 1,
+        "structures_evaluated": 2,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-4": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 1.869736451627805e-13,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005149599038522168,
+        "baseline_relative_rmse_hartree": 0.02361260876191922,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 31.765003128597233
+        },
+        "dipole_components": 6,
+        "gradient_components": 72,
+        "model_dipole_rmse_e_bohr": 1.908075645585083e-13,
+        "model_gradient_rmse_hartree_per_bohr": 0.005247261028947407,
+        "model_relative_rmse_hartree": 0.02196040205692591,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 30.006768889382464
+        },
+        "relative_energy_cases": 2,
+        "structures_evaluated": 3,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      }
+    },
+    "train": {
+      "water-1": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.028307344536653362,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005253972102733754,
+        "baseline_relative_rmse_hartree": 0.0007854541319664621,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 16.137974769398795
+        },
+        "dipole_components": 18,
+        "gradient_components": 54,
+        "model_dipole_rmse_e_bohr": 0.01032985072090972,
+        "model_gradient_rmse_hartree_per_bohr": 0.001853043951869426,
+        "model_relative_rmse_hartree": 0.00041455125294220856,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 8.602883911602598
+        },
+        "relative_energy_cases": 6,
+        "structures_evaluated": 7,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-2": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.09448347651763775,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.004181338378136231,
+        "baseline_relative_rmse_hartree": 0.004581925805474546,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 26.106603685886807
+        },
+        "dipole_components": 12,
+        "gradient_components": 72,
+        "model_dipole_rmse_e_bohr": 0.05779831680103894,
+        "model_gradient_rmse_hartree_per_bohr": 0.0016945740171002161,
+        "model_relative_rmse_hartree": 0.0005058327870060227,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 2.5613661037309194
+        },
+        "relative_energy_cases": 4,
+        "structures_evaluated": 5,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-3": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.020794586924572648,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005936069238217166,
+        "baseline_relative_rmse_hartree": 0.010602265398787636,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 30.38753865975326
+        },
+        "dipole_components": 12,
+        "gradient_components": 108,
+        "model_dipole_rmse_e_bohr": 0.004959020203583088,
+        "model_gradient_rmse_hartree_per_bohr": 0.003668409079489987,
+        "model_relative_rmse_hartree": 0.0007859068389545056,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 2.182350454827368
+        },
+        "relative_energy_cases": 4,
+        "structures_evaluated": 5,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      }
+    },
+    "validation": {
+      "water-1": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.0275428214517512,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005044310089575052,
+        "baseline_relative_rmse_hartree": 0.000477622888840139,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 20.577999653721903
+        },
+        "dipole_components": 6,
+        "gradient_components": 18,
+        "model_dipole_rmse_e_bohr": 0.008591499818613839,
+        "model_gradient_rmse_hartree_per_bohr": 0.0016016357330586825,
+        "model_relative_rmse_hartree": 0.00007212652666220473,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 2.6557502977595817
+        },
+        "relative_energy_cases": 2,
+        "structures_evaluated": 3,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-2": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.09508147632495118,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.004163020987685618,
+        "baseline_relative_rmse_hartree": 0.0045068590845470415,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 25.23512090660614
+        },
+        "dipole_components": 6,
+        "gradient_components": 36,
+        "model_dipole_rmse_e_bohr": 0.05828802553493282,
+        "model_gradient_rmse_hartree_per_bohr": 0.0016462960579711086,
+        "model_relative_rmse_hartree": 0.0006000317100012587,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 3.376981411977953
+        },
+        "relative_energy_cases": 2,
+        "structures_evaluated": 3,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-3": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 0.02129172942666096,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005908536380319232,
+        "baseline_relative_rmse_hartree": 0.010990870246538931,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 29.663402444870258
+        },
+        "dipole_components": 6,
+        "gradient_components": 54,
+        "model_dipole_rmse_e_bohr": 0.0051229591787231,
+        "model_gradient_rmse_hartree_per_bohr": 0.003250233068763698,
+        "model_relative_rmse_hartree": 0.0004061834989989093,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 1.0743401297800586
+        },
+        "relative_energy_cases": 2,
+        "structures_evaluated": 3,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      },
+      "water-4": {
+        "absolute_energy_cases": 0,
+        "baseline_dipole_rmse_e_bohr": 7.227217682062543e-13,
+        "baseline_gradient_rmse_hartree_per_bohr": 0.005400229597482458,
+        "baseline_relative_rmse_hartree": 0.02487888726291917,
+        "baseline_rmse_hartree": null,
+        "baseline_shape_rmse_hartree": null,
+        "baseline_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 25.80537941522619
+        },
+        "dipole_components": 6,
+        "gradient_components": 72,
+        "model_dipole_rmse_e_bohr": 7.297115068061137e-13,
+        "model_gradient_rmse_hartree_per_bohr": 0.00349565545647075,
+        "model_relative_rmse_hartree": 0.01514205325069281,
+        "model_rmse_hartree": null,
+        "model_shape_rmse_hartree": null,
+        "model_wtmad2_kcal_mol": {
+          "status": "measured",
+          "value": 12.82337047299067
+        },
+        "relative_energy_cases": 2,
+        "structures_evaluated": 3,
+        "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+      }
+    }
+  },
+  "dataset_license_spdx": "CC0-1.0",
+  "dataset_provenance": "Independently generated by scripts/generate_water_clusters.py; constructed neutral monomers, dimers, cyclic trimers and tetramers; analytic hybrid-DFT gradients including grid response; no xTB or pretrained targets",
+  "dataset_sha256": "071e215e35a7dc48a63e708558d10ad780db5cb227203187f173f2dafe15e2ca",
+  "decay_bias": false,
+  "dipole_origin_bohr": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "electronic_temperature_K": 0.0,
+  "energy_alignment": "one constant per predictor fitted only on training absolute-energy residual mean; none for relative cases",
+  "energy_alignment_offsets_hartree": null,
+  "energy_definition": "mermin_free",
+  "epochs": 250,
+  "extrapolation": {
+    "absolute_energy_cases": 0,
+    "baseline_dipole_rmse_e_bohr": 0.040585448928819816,
+    "baseline_gradient_rmse_hartree_per_bohr": 0.005136722690303629,
+    "baseline_relative_rmse_hartree": 0.015442971335941013,
+    "baseline_rmse_hartree": null,
+    "baseline_shape_rmse_hartree": null,
+    "baseline_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 27.552102446307988
+    },
+    "dipole_components": 15,
+    "gradient_components": 126,
+    "model_dipole_rmse_e_bohr": 0.022438694368225244,
+    "model_gradient_rmse_hartree_per_bohr": 0.004678847877579675,
+    "model_relative_rmse_hartree": 0.015077372073993355,
+    "model_rmse_hartree": null,
+    "model_shape_rmse_hartree": null,
+    "model_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 28.097733402070162
+    },
+    "relative_energy_cases": 5,
+    "structures_evaluated": 6,
+    "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+  },
+  "gradient_method": "stationary energy and implicit CP-SCC mixed observable derivatives; no unrolled iterations",
+  "group_metrics_definition": "Direct labels of this sample group plus relative cases touching its primary structures; shared partner labels excluded. A multigroup reaction may appear in multiple group diagnostics.",
+  "held_out_independent_dipole_improved": true,
+  "held_out_independent_gradient_improved": true,
+  "held_out_independent_relative_energy_improved": true,
+  "held_out_independent_shape_improved": null,
+  "independent_reference": true,
+  "initial_model_canonical_sha256": "8292dd6cda70ad12accc4b69ebc5fda4f37f0a901854f2f479c2c45157de7683",
+  "initial_model_file_sha256": "8292dd6cda70ad12accc4b69ebc5fda4f37f0a901854f2f479c2c45157de7683",
+  "learning_rate": 0.0002,
+  "model_sha256": "5450b55436e10608a22064cfeb03541865d7efd8d9ab4f56d450b36514bbf819",
+  "optimizer": {
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-8,
+    "name": "adamw"
+  },
+  "package_version": "0.5.1",
+  "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+  "reference_method": "PBE0/def2-SVP",
+  "schema": "gfn1-rs-training-report-v2",
+  "serialized_model_bytes": 2869,
+  "status": "complete",
+  "train": {
+    "absolute_energy_cases": 0,
+    "baseline_dipole_rmse_e_bohr": 0.05493242813363084,
+    "baseline_gradient_rmse_hartree_per_bohr": 0.005292727514852971,
+    "baseline_relative_rmse_hartree": 0.0061951013588696004,
+    "baseline_rmse_hartree": null,
+    "baseline_shape_rmse_hartree": null,
+    "baseline_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 23.467392764744087
+    },
+    "dipole_components": 42,
+    "gradient_components": 234,
+    "model_dipole_rmse_e_bohr": 0.0317368466805529,
+    "model_gradient_rmse_hartree_per_bohr": 0.0028083801943374854,
+    "model_relative_rmse_hartree": 0.0005685308082868827,
+    "model_rmse_hartree": null,
+    "model_shape_rmse_hartree": null,
+    "model_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 5.006004005457043
+    },
+    "relative_energy_cases": 14,
+    "structures_evaluated": 15,
+    "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+  },
+  "train_correction": true,
+  "training_loss": [
+    {
+      "dipole": 0.00003017571660656517,
+      "energy": 0.0,
+      "epoch": 1,
+      "gradient": 0.0006723345922702848,
+      "relative_energy": 0.00019189640423333986,
+      "total": 0.0008944067131101898
+    },
+    {
+      "dipole": 0.000031105108945083696,
+      "energy": 0.0,
+      "epoch": 2,
+      "gradient": 0.00043585713124527273,
+      "relative_energy": 0.001305926449568206,
+      "total": 0.0017728886897585626
+    },
+    {
+      "dipole": 0.00003115153218575185,
+      "energy": 0.0,
+      "epoch": 3,
+      "gradient": 0.00041906755449347616,
+      "relative_energy": 0.00020730085366593194,
+      "total": 0.0006575199403451599
+    },
+    {
+      "dipole": 0.0000312183441303634,
+      "energy": 0.0,
+      "epoch": 4,
+      "gradient": 0.0004291549181647786,
+      "relative_energy": 0.00017072976496645238,
+      "total": 0.0006311030272615943
+    },
+    {
+      "dipole": 0.000031391392729505666,
+      "energy": 0.0,
+      "epoch": 5,
+      "gradient": 0.0004121357023751471,
+      "relative_energy": 0.0006319606356428782,
+      "total": 0.001075487730747531
+    },
+    {
+      "dipole": 0.00003166325062350575,
+      "energy": 0.0,
+      "epoch": 6,
+      "gradient": 0.00037210908115362264,
+      "relative_energy": 0.0004375730709971319,
+      "total": 0.0008413454027742603
+    },
+    {
+      "dipole": 0.000031965779871937295,
+      "energy": 0.0,
+      "epoch": 7,
+      "gradient": 0.00032527468889170276,
+      "relative_energy": 0.00006543793800705956,
+      "total": 0.0004226784067706996
+    },
+    {
+      "dipole": 0.00003224646575890895,
+      "energy": 0.0,
+      "epoch": 8,
+      "gradient": 0.00028644956439384707,
+      "relative_energy": 0.000056738175966633345,
+      "total": 0.00037543420611938936
+    },
+    {
+      "dipole": 0.000032451444110874234,
+      "energy": 0.0,
+      "epoch": 9,
+      "gradient": 0.0002674714388237764,
+      "relative_energy": 0.0002873762602353075,
+      "total": 0.0005872991431699582
+    },
+    {
+      "dipole": 0.00003255601615967663,
+      "energy": 0.0,
+      "epoch": 10,
+      "gradient": 0.0002715644908773429,
+      "relative_energy": 0.00033048198170448684,
+      "total": 0.0006346024887415064
+    },
+    {
+      "dipole": 0.00003258179788318895,
+      "energy": 0.0,
+      "epoch": 11,
+      "gradient": 0.0002879615217911977,
+      "relative_energy": 0.0001505718169381281,
+      "total": 0.00047111513661251474
+    },
+    {
+      "dipole": 0.0000325675963219438,
+      "energy": 0.0,
+      "epoch": 12,
+      "gradient": 0.0002977857112896962,
+      "relative_energy": 0.00001049891192163354,
+      "total": 0.00034085221953327355
+    },
+    {
+      "dipole": 0.00003255511864284678,
+      "energy": 0.0,
+      "epoch": 13,
+      "gradient": 0.0002878769765640801,
+      "relative_energy": 0.00005452323646676578,
+      "total": 0.00037495533167369264
+    },
+    {
+      "dipole": 0.00003257890821447935,
+      "energy": 0.0,
+      "epoch": 14,
+      "gradient": 0.00026247127730937773,
+      "relative_energy": 0.00016036295802091398,
+      "total": 0.000455413143544771
+    },
+    {
+      "dipole": 0.00003264555277208749,
+      "energy": 0.0,
+      "epoch": 15,
+      "gradient": 0.00024037904430305405,
+      "relative_energy": 0.00015903712673835546,
+      "total": 0.00043206172381349695
+    },
+    {
+      "dipole": 0.000032729093067525045,
+      "energy": 0.0,
+      "epoch": 16,
+      "gradient": 0.00023758963828227273,
+      "relative_energy": 0.0000663317874675554,
+      "total": 0.00033665051881735314
+    },
+    {
+      "dipole": 0.00003278924769745849,
+      "energy": 0.0,
+      "epoch": 17,
+      "gradient": 0.0002514812153741691,
+      "relative_energy": 0.000012449251262218345,
+      "total": 0.0002967197143338459
+    },
+    {
+      "dipole": 0.00003278992399853355,
+      "energy": 0.0,
+      "epoch": 18,
+      "gradient": 0.0002621668653716754,
+      "relative_energy": 0.00004991904877094758,
+      "total": 0.0003448758381411565
+    },
+    {
+      "dipole": 0.00003270907098898905,
+      "energy": 0.0,
+      "epoch": 19,
+      "gradient": 0.0002540144738430997,
+      "relative_energy": 0.00010132938664593947,
+      "total": 0.00038805293147802823
+    },
+    {
+      "dipole": 0.00003254492279222851,
+      "energy": 0.0,
+      "epoch": 20,
+      "gradient": 0.0002317419128128144,
+      "relative_energy": 0.00008690705043450399,
+      "total": 0.00035119388603954693
+    },
+    {
+      "dipole": 0.000032316913857224696,
+      "energy": 0.0,
+      "epoch": 21,
+      "gradient": 0.00021249677444981773,
+      "relative_energy": 0.000029864375750163417,
+      "total": 0.0002746780640572058
+    },
+    {
+      "dipole": 0.000032059087334869845,
+      "energy": 0.0,
+      "epoch": 22,
+      "gradient": 0.0002087770156813629,
+      "relative_energy": 5.046906287420663e-6,
+      "total": 0.0002458830093036534
+    },
+    {
+      "dipole": 0.00003181004361957783,
+      "energy": 0.0,
+      "epoch": 23,
+      "gradient": 0.00021781356611130518,
+      "relative_energy": 0.00003175075303211622,
+      "total": 0.00028137436276299925
+    },
+    {
+      "dipole": 0.00003160107066579681,
+      "energy": 0.0,
+      "epoch": 24,
+      "gradient": 0.00022528963763018207,
+      "relative_energy": 0.0000571233803470812,
+      "total": 0.0003140140886430601
+    },
+    {
+      "dipole": 0.00003144570394102049,
+      "energy": 0.0,
+      "epoch": 25,
+      "gradient": 0.00022068515203697218,
+      "relative_energy": 0.00004087234862721599,
+      "total": 0.00029300320460520866
+    },
+    {
+      "dipole": 0.000031336608859029925,
+      "energy": 0.0,
+      "epoch": 26,
+      "gradient": 0.00020662878923228102,
+      "relative_energy": 8.982740273214864e-6,
+      "total": 0.0002469481383645258
+    },
+    {
+      "dipole": 0.000031250847614151116,
+      "energy": 0.0,
+      "epoch": 27,
+      "gradient": 0.00019354177749896802,
+      "relative_energy": 6.240720225584411e-6,
+      "total": 0.00023103334533870355
+    },
+    {
+      "dipole": 0.00003116003092618391,
+      "energy": 0.0,
+      "epoch": 28,
+      "gradient": 0.0001888207271813611,
+      "relative_energy": 0.0000302891670942047,
+      "total": 0.0002502699252017497
+    },
+    {
+      "dipole": 0.00003104179296445701,
+      "energy": 0.0,
+      "epoch": 29,
+      "gradient": 0.0001913176351737137,
+      "relative_energy": 0.00004097636198262272,
+      "total": 0.00026333579012079346
+    },
+    {
+      "dipole": 0.000030888014982587084,
+      "energy": 0.0,
+      "epoch": 30,
+      "gradient": 0.00019466296213990056,
+      "relative_energy": 0.000022923743504033538,
+      "total": 0.0002484747206265212
+    },
+    {
+      "dipole": 0.00003070626743494014,
+      "energy": 0.0,
+      "epoch": 31,
+      "gradient": 0.00019424079446141425,
+      "relative_energy": 4.16806127240582e-6,
+      "total": 0.00022911512316876022
+    },
+    {
+      "dipole": 0.00003051516853314098,
+      "energy": 0.0,
+      "epoch": 32,
+      "gradient": 0.00019027671496005914,
+      "relative_energy": 9.89054710089108e-6,
+      "total": 0.00023068243059409118
+    },
+    {
+      "dipole": 0.00003033604345659878,
+      "energy": 0.0,
+      "epoch": 33,
+      "gradient": 0.00018575618717705614,
+      "relative_energy": 0.000026306744933311344,
+      "total": 0.00024239897556696627
+    },
+    {
+      "dipole": 0.000030184195848247397,
+      "energy": 0.0,
+      "epoch": 34,
+      "gradient": 0.00018301821150344428,
+      "relative_energy": 0.000025900574752676258,
+      "total": 0.00023910298210436793
+    },
+    {
+      "dipole": 0.00003006406747719606,
+      "energy": 0.0,
+      "epoch": 35,
+      "gradient": 0.00018231316755170122,
+      "relative_energy": 9.868924500021277e-6,
+      "total": 0.00022224615952891856
+    },
+    {
+      "dipole": 0.000029969676421076138,
+      "energy": 0.0,
+      "epoch": 36,
+      "gradient": 0.00018249577617588655,
+      "relative_energy": 2.4370880244227805e-6,
+      "total": 0.00021490254062138546
+    },
+    {
+      "dipole": 0.000029888709118229975,
+      "energy": 0.0,
+      "epoch": 37,
+      "gradient": 0.00018226634327044288,
+      "relative_energy": 0.000011797820323191454,
+      "total": 0.0002239528727118643
+    },
+    {
+      "dipole": 0.000029808700095416657,
+      "energy": 0.0,
+      "epoch": 38,
+      "gradient": 0.00018094072245489442,
+      "relative_energy": 0.000020048090783102307,
+      "total": 0.00023079751333341338
+    },
+    {
+      "dipole": 0.00002972280269443105,
+      "energy": 0.0,
+      "epoch": 39,
+      "gradient": 0.0001786718859640548,
+      "relative_energy": 0.000013758993506404034,
+      "total": 0.0002221536821648899
+    },
+    {
+      "dipole": 0.00002963181806178194,
+      "energy": 0.0,
+      "epoch": 40,
+      "gradient": 0.00017621467451955239,
+      "relative_energy": 3.5262004215903853e-6,
+      "total": 0.0002093726930029247
+    },
+    {
+      "dipole": 0.0000295416713789467,
+      "energy": 0.0,
+      "epoch": 41,
+      "gradient": 0.0001743799723511965,
+      "relative_energy": 4.212969132755866e-6,
+      "total": 0.00020813461286289906
+    },
+    {
+      "dipole": 0.000029458238518020996,
+      "energy": 0.0,
+      "epoch": 42,
+      "gradient": 0.00017353472947437512,
+      "relative_energy": 0.000011667417513442656,
+      "total": 0.0002146603855058388
+    },
+    {
+      "dipole": 0.000029382370701252587,
+      "energy": 0.0,
+      "epoch": 43,
+      "gradient": 0.0001734408602908403,
+      "relative_energy": 0.000012183269153880033,
+      "total": 0.00021500650014597293
+    },
+    {
+      "dipole": 0.000029307894000631004,
+      "energy": 0.0,
+      "epoch": 44,
+      "gradient": 0.00017343592518259842,
+      "relative_energy": 5.3142826810629534e-6,
+      "total": 0.00020805810186429237
+    },
+    {
+      "dipole": 0.00002922356591475614,
+      "energy": 0.0,
+      "epoch": 45,
+      "gradient": 0.000172861703282578,
+      "relative_energy": 2.219376354442657e-6,
+      "total": 0.0002043046455517768
+    },
+    {
+      "dipole": 0.000029117816124459882,
+      "energy": 0.0,
+      "epoch": 46,
+      "gradient": 0.00017161875301701176,
+      "relative_energy": 6.04999384363044e-6,
+      "total": 0.0002067865629851021
+    },
+    {
+      "dipole": 0.00002898418623480298,
+      "energy": 0.0,
+      "epoch": 47,
+      "gradient": 0.00017039759062524544,
+      "relative_energy": 8.403388255346243e-6,
+      "total": 0.00020778516511539465
+    },
+    {
+      "dipole": 0.000028824764836368688,
+      "energy": 0.0,
+      "epoch": 48,
+      "gradient": 0.00017008214965248341,
+      "relative_energy": 4.919642763245793e-6,
+      "total": 0.0002038265572520979
+    },
+    {
+      "dipole": 0.00002864942340887868,
+      "energy": 0.0,
+      "epoch": 49,
+      "gradient": 0.00017070829335426177,
+      "relative_energy": 1.5913354018795822e-6,
+      "total": 0.00020094905216502004
+    },
+    {
+      "dipole": 0.000028471120754583398,
+      "energy": 0.0,
+      "epoch": 50,
+      "gradient": 0.00017122917492687868,
+      "relative_energy": 3.0438648331039297e-6,
+      "total": 0.00020274416051456603
+    },
+    {
+      "dipole": 0.00002829978031595255,
+      "energy": 0.0,
+      "epoch": 51,
+      "gradient": 0.00017062628569599754,
+      "relative_energy": 5.19772659352605e-6,
+      "total": 0.00020412379260547614
+    },
+    {
+      "dipole": 0.000028137842091127005,
+      "energy": 0.0,
+      "epoch": 52,
+      "gradient": 0.0001691109383449129,
+      "relative_energy": 3.812679952424816e-6,
+      "total": 0.00020106146038846473
+    },
+    {
+      "dipole": 0.000027979643610971956,
+      "energy": 0.0,
+      "epoch": 53,
+      "gradient": 0.00016783676362814022,
+      "relative_energy": 1.7448277613182438e-6,
+      "total": 0.00019756123500043043
+    },
+    {
+      "dipole": 0.000027814764049467153,
+      "energy": 0.0,
+      "epoch": 54,
+      "gradient": 0.000167482823970189,
+      "relative_energy": 2.675373897831524e-6,
+      "total": 0.00019797296191748767
+    },
+    {
+      "dipole": 0.00002763359409683528,
+      "energy": 0.0,
+      "epoch": 55,
+      "gradient": 0.00016756745941970693,
+      "relative_energy": 4.4136697502953785e-6,
+      "total": 0.0001996147232668376
+    },
+    {
+      "dipole": 0.000027432371720630047,
+      "energy": 0.0,
+      "epoch": 56,
+      "gradient": 0.00016727569364933265,
+      "relative_energy": 3.6311531935231843e-6,
+      "total": 0.0001983392185634859
+    },
+    {
+      "dipole": 0.00002721507878127573,
+      "energy": 0.0,
+      "epoch": 57,
+      "gradient": 0.00016652474798539355,
+      "relative_energy": 1.933620654215411e-6,
+      "total": 0.00019567344742088468
+    },
+    {
+      "dipole": 0.000026991329566695507,
+      "energy": 0.0,
+      "epoch": 58,
+      "gradient": 0.0001658852398452944,
+      "relative_energy": 2.218993880563157e-6,
+      "total": 0.00019509556329255307
+    },
+    {
+      "dipole": 0.000026771672545537214,
+      "energy": 0.0,
+      "epoch": 59,
+      "gradient": 0.00016571824688199618,
+      "relative_energy": 3.275285379922225e-6,
+      "total": 0.00019576520480745564
+    },
+    {
+      "dipole": 0.000026562964839635437,
+      "energy": 0.0,
+      "epoch": 60,
+      "gradient": 0.00016578934379701796,
+      "relative_energy": 2.6607116897989716e-6,
+      "total": 0.00019501302032645237
+    },
+    {
+      "dipole": 0.00002636611582084194,
+      "energy": 0.0,
+      "epoch": 61,
+      "gradient": 0.00016568978939170286,
+      "relative_energy": 1.4402508072101586e-6,
+      "total": 0.00019349615601975496
+    },
+    {
+      "dipole": 0.00002617698819305862,
+      "energy": 0.0,
+      "epoch": 62,
+      "gradient": 0.00016531604985803132,
+      "relative_energy": 1.7706522139423604e-6,
+      "total": 0.0001932636902650323
+    },
+    {
+      "dipole": 0.000025989622285508748,
+      "energy": 0.0,
+      "epoch": 63,
+      "gradient": 0.00016485491052548894,
+      "relative_energy": 2.732227151183914e-6,
+      "total": 0.00019357675996218158
+    },
+    {
+      "dipole": 0.000025799875128991004,
+      "energy": 0.0,
+      "epoch": 64,
+      "gradient": 0.00016449757808221227,
+      "relative_energy": 2.4024536517251512e-6,
+      "total": 0.00019269990686292845
+    },
+    {
+      "dipole": 0.000025607409220371335,
+      "energy": 0.0,
+      "epoch": 65,
+      "gradient": 0.00016428208342614663,
+      "relative_energy": 1.525715836486853e-6,
+      "total": 0.00019141520848300482
+    },
+    {
+      "dipole": 0.000025415071545803468,
+      "energy": 0.0,
+      "epoch": 66,
+      "gradient": 0.0001641276473787108,
+      "relative_energy": 1.735401519131899e-6,
+      "total": 0.00019127812044364618
+    },
+    {
+      "dipole": 0.000025226411900305793,
+      "energy": 0.0,
+      "epoch": 67,
+      "gradient": 0.0001639334793723587,
+      "relative_energy": 2.393072015908439e-6,
+      "total": 0.00019155296328857293
+    },
+    {
+      "dipole": 0.00002504313072835116,
+      "energy": 0.0,
+      "epoch": 68,
+      "gradient": 0.00016365822659067885,
+      "relative_energy": 2.1401356196086836e-6,
+      "total": 0.0001908414929386387
+    },
+    {
+      "dipole": 0.000024864044626471817,
+      "energy": 0.0,
+      "epoch": 69,
+      "gradient": 0.00016334202184535823,
+      "relative_energy": 1.5475612703728725e-6,
+      "total": 0.00018975362774220292
+    },
+    {
+      "dipole": 0.000024686045649513097,
+      "energy": 0.0,
+      "epoch": 70,
+      "gradient": 0.00016306358241668608,
+      "relative_energy": 1.7142936178784317e-6,
+      "total": 0.0001894639216840776
+    },
+    {
+      "dipole": 0.000024506300948430322,
+      "energy": 0.0,
+      "epoch": 71,
+      "gradient": 0.00016287574051959415,
+      "relative_energy": 2.1067232953174396e-6,
+      "total": 0.00018948876476334193
+    },
+    {
+      "dipole": 0.0000243242075297153,
+      "energy": 0.0,
+      "epoch": 72,
+      "gradient": 0.0001627656233526346,
+      "relative_energy": 1.8564088259828249e-6,
+      "total": 0.00018894623970833275
+    },
+    {
+      "dipole": 0.00002414176205724606,
+      "energy": 0.0,
+      "epoch": 73,
+      "gradient": 0.00016265768640880726,
+      "relative_energy": 1.4706860641332175e-6,
+      "total": 0.00018827013453018654
+    },
+    {
+      "dipole": 0.000023962089682572968,
+      "energy": 0.0,
+      "epoch": 74,
+      "gradient": 0.00016247479524214356,
+      "relative_energy": 1.6218335368890521e-6,
+      "total": 0.00018805871846160556
+    },
+    {
+      "dipole": 0.000023787159509413484,
+      "energy": 0.0,
+      "epoch": 75,
+      "gradient": 0.00016222501503692646,
+      "relative_energy": 1.8502087681753237e-6,
+      "total": 0.00018786238331451526
+    },
+    {
+      "dipole": 0.00002361621717467123,
+      "energy": 0.0,
+      "epoch": 76,
+      "gradient": 0.00016200233609806337,
+      "relative_energy": 1.6843898142332308e-6,
+      "total": 0.00018730294308696784
+    },
+    {
+      "dipole": 0.00002344592913264716,
+      "energy": 0.0,
+      "epoch": 77,
+      "gradient": 0.00016186811581554546,
+      "relative_energy": 1.5464293009157188e-6,
+      "total": 0.00018686047424910834
+    },
+    {
+      "dipole": 0.00002327214427109899,
+      "energy": 0.0,
+      "epoch": 78,
+      "gradient": 0.00016177265644734345,
+      "relative_energy": 1.7154403967778491e-6,
+      "total": 0.0001867602411152203
+    },
+    {
+      "dipole": 0.00002309221424846474,
+      "energy": 0.0,
+      "epoch": 79,
+      "gradient": 0.00016164324290968583,
+      "relative_energy": 1.7748604967113544e-6,
+      "total": 0.00018651031765486192
+    },
+    {
+      "dipole": 0.000022906463760231617,
+      "energy": 0.0,
+      "epoch": 80,
+      "gradient": 0.0001615004233555964,
+      "relative_energy": 1.571223437292566e-6,
+      "total": 0.00018597811055312056
+    },
+    {
+      "dipole": 0.000022717916225517625,
+      "energy": 0.0,
+      "epoch": 81,
+      "gradient": 0.000161413015435177,
+      "relative_energy": 1.4860119010690685e-6,
+      "total": 0.00018561694356176368
+    },
+    {
+      "dipole": 0.000022530511746444102,
+      "energy": 0.0,
+      "epoch": 82,
+      "gradient": 0.00016137265200323237,
+      "relative_energy": 1.5844102033172855e-6,
+      "total": 0.00018548757395299374
+    },
+    {
+      "dipole": 0.000022346993934023748,
+      "energy": 0.0,
+      "epoch": 83,
+      "gradient": 0.00016129703470571592,
+      "relative_energy": 1.5668214467209568e-6,
+      "total": 0.00018521085008646064
+    },
+    {
+      "dipole": 0.00002216773330032729,
+      "energy": 0.0,
+      "epoch": 84,
+      "gradient": 0.00016114740950184982,
+      "relative_energy": 1.47556032808017e-6,
+      "total": 0.0001847907031302573
+    },
+    {
+      "dipole": 0.000021991056705733903,
+      "energy": 0.0,
+      "epoch": 85,
+      "gradient": 0.00016097145785012263,
+      "relative_energy": 1.5522257143361315e-6,
+      "total": 0.00018451474027019265
+    },
+    {
+      "dipole": 0.000021814711931477693,
+      "energy": 0.0,
+      "epoch": 86,
+      "gradient": 0.0001608281881479424,
+      "relative_energy": 1.6769303340658914e-6,
+      "total": 0.00018431983041348598
+    },
+    {
+      "dipole": 0.000021637459102753162,
+      "energy": 0.0,
+      "epoch": 87,
+      "gradient": 0.00016072597559797897,
+      "relative_energy": 1.647631521810617e-6,
+      "total": 0.00018401106622254273
+    },
+    {
+      "dipole": 0.000021459788257854537,
+      "energy": 0.0,
+      "epoch": 88,
+      "gradient": 0.00016064214608073823,
+      "relative_energy": 1.6001406039526602e-6,
+      "total": 0.00018370207494254544
+    },
+    {
+      "dipole": 0.000021283424155745407,
+      "energy": 0.0,
+      "epoch": 89,
+      "gradient": 0.00016056240235711052,
+      "relative_energy": 1.6626069166652062e-6,
+      "total": 0.00018350843342952115
+    },
+    {
+      "dipole": 0.000021110121714485017,
+      "energy": 0.0,
+      "epoch": 90,
+      "gradient": 0.0001604869326823494,
+      "relative_energy": 1.6864303470085958e-6,
+      "total": 0.00018328348474384303
+    },
+    {
+      "dipole": 0.00002094064989018066,
+      "energy": 0.0,
+      "epoch": 91,
+      "gradient": 0.00016041874169147642,
+      "relative_energy": 1.611147308327022e-6,
+      "total": 0.0001829705388899841
+    },
+    {
+      "dipole": 0.000020774595248712132,
+      "energy": 0.0,
+      "epoch": 92,
+      "gradient": 0.0001603573642397119,
+      "relative_energy": 1.589524948173149e-6,
+      "total": 0.00018272148443659717
+    },
+    {
+      "dipole": 0.000020610981876039968,
+      "energy": 0.0,
+      "epoch": 93,
+      "gradient": 0.00016029851098766398,
+      "relative_energy": 1.6379252603559459e-6,
+      "total": 0.00018254741812405987
+    },
+    {
+      "dipole": 0.00002044915584882967,
+      "energy": 0.0,
+      "epoch": 94,
+      "gradient": 0.0001602364248772989,
+      "relative_energy": 1.6272244401785965e-6,
+      "total": 0.00018231280516630717
+    },
+    {
+      "dipole": 0.00002028925304615451,
+      "energy": 0.0,
+      "epoch": 95,
+      "gradient": 0.00016016729664406187,
+      "relative_energy": 1.581888475463585e-6,
+      "total": 0.00018203843816567996
+    },
+    {
+      "dipole": 0.00002013193691595121,
+      "energy": 0.0,
+      "epoch": 96,
+      "gradient": 0.00016009126056123433,
+      "relative_energy": 1.6034601159535698e-6,
+      "total": 0.0001818266575931391
+    },
+    {
+      "dipole": 0.000019977677571035383,
+      "energy": 0.0,
+      "epoch": 97,
+      "gradient": 0.00016001255082571863,
+      "relative_energy": 1.6449859574080358e-6,
+      "total": 0.00018163521435416203
+    },
+    {
+      "dipole": 0.000019826176773875905,
+      "energy": 0.0,
+      "epoch": 98,
+      "gradient": 0.00015993671309786874,
+      "relative_energy": 1.6389815789372055e-6,
+      "total": 0.00018140187145068186
+    },
+    {
+      "dipole": 0.000019676392613733136,
+      "energy": 0.0,
+      "epoch": 99,
+      "gradient": 0.00015986588835089374,
+      "relative_energy": 1.638076506402081e-6,
+      "total": 0.00018118035747102896
+    },
+    {
+      "dipole": 0.00001952715080259475,
+      "energy": 0.0,
+      "epoch": 100,
+      "gradient": 0.0001598000066308316,
+      "relative_energy": 1.6675936633938088e-6,
+      "total": 0.00018099475109682018
+    },
+    {
+      "dipole": 0.000019377899190494176,
+      "energy": 0.0,
+      "epoch": 101,
+      "gradient": 0.00015974313667775083,
+      "relative_energy": 1.6688918674767504e-6,
+      "total": 0.00018078992773572176
+    },
+    {
+      "dipole": 0.00001922905525215746,
+      "energy": 0.0,
+      "epoch": 102,
+      "gradient": 0.00015970010701269518,
+      "relative_energy": 1.642915225181961e-6,
+      "total": 0.0001805720774900346
+    },
+    {
+      "dipole": 0.000019081691933587107,
+      "energy": 0.0,
+      "epoch": 103,
+      "gradient": 0.00015966438521065686,
+      "relative_energy": 1.6425193828413914e-6,
+      "total": 0.00018038859652708537
+    },
+    {
+      "dipole": 0.000018936793220937562,
+      "energy": 0.0,
+      "epoch": 104,
+      "gradient": 0.00015962043212839155,
+      "relative_energy": 1.6561004049463197e-6,
+      "total": 0.00018021332575427542
+    },
+    {
+      "dipole": 0.00001879460916846666,
+      "energy": 0.0,
+      "epoch": 105,
+      "gradient": 0.00015956258297536926,
+      "relative_energy": 1.6547066183200242e-6,
+      "total": 0.00018001189876215595
+    },
+    {
+      "dipole": 0.000018654538144558522,
+      "energy": 0.0,
+      "epoch": 106,
+      "gradient": 0.00015950157881983371,
+      "relative_energy": 1.6617684720778092e-6,
+      "total": 0.00017981788543647002
+    },
+    {
+      "dipole": 0.00001851557605016343,
+      "energy": 0.0,
+      "epoch": 107,
+      "gradient": 0.00015944931080977105,
+      "relative_energy": 1.6838476407066748e-6,
+      "total": 0.00017964873450064113
+    },
+    {
+      "dipole": 0.000018376990165253278,
+      "energy": 0.0,
+      "epoch": 108,
+      "gradient": 0.00015940708246890882,
+      "relative_energy": 1.6883035354425146e-6,
+      "total": 0.0001794723761696046
+    },
+    {
+      "dipole": 0.00001823875071242981,
+      "energy": 0.0,
+      "epoch": 109,
+      "gradient": 0.00015937104921581724,
+      "relative_energy": 1.6772219883299525e-6,
+      "total": 0.000179287021916577
+    },
+    {
+      "dipole": 0.0000181014602055793,
+      "energy": 0.0,
+      "epoch": 110,
+      "gradient": 0.0001593392628474466,
+      "relative_energy": 1.67588092962819e-6,
+      "total": 0.00017911660398265406
+    },
+    {
+      "dipole": 0.00001796589589818969,
+      "energy": 0.0,
+      "epoch": 111,
+      "gradient": 0.00015930994982602363,
+      "relative_energy": 1.6753243506426792e-6,
+      "total": 0.000178951170074856
+    },
+    {
+      "dipole": 0.000017832531959714147,
+      "energy": 0.0,
+      "epoch": 112,
+      "gradient": 0.00015927948358020243,
+      "relative_energy": 1.6656788477317473e-6,
+      "total": 0.00017877769438764832
+    },
+    {
+      "dipole": 0.000017701364208199615,
+      "energy": 0.0,
+      "epoch": 113,
+      "gradient": 0.0001592451942727334,
+      "relative_energy": 1.6653356153807704e-6,
+      "total": 0.00017861189409631377
+    },
+    {
+      "dipole": 0.000017572096807540795,
+      "energy": 0.0,
+      "epoch": 114,
+      "gradient": 0.00015920756273839367,
+      "relative_energy": 1.6762729579049558e-6,
+      "total": 0.00017845593250383942
+    },
+    {
+      "dipole": 0.000017444484483494133,
+      "energy": 0.0,
+      "epoch": 115,
+      "gradient": 0.00015916887014516356,
+      "relative_energy": 1.6804093129057742e-6,
+      "total": 0.00017829376394156346
+    },
+    {
+      "dipole": 0.000017318542680174834,
+      "energy": 0.0,
+      "epoch": 116,
+      "gradient": 0.00015913104822815646,
+      "relative_energy": 1.6814140712756436e-6,
+      "total": 0.00017813100497960694
+    },
+    {
+      "dipole": 0.00001719448365248058,
+      "energy": 0.0,
+      "epoch": 117,
+      "gradient": 0.00015909485107173834,
+      "relative_energy": 1.6900303357604305e-6,
+      "total": 0.00017797936505997935
+    },
+    {
+      "dipole": 0.000017072476036189453,
+      "energy": 0.0,
+      "epoch": 118,
+      "gradient": 0.00015906034730319752,
+      "relative_energy": 1.696203472555353e-6,
+      "total": 0.00017782902681194232
+    },
+    {
+      "dipole": 0.000016952457201785135,
+      "energy": 0.0,
+      "epoch": 119,
+      "gradient": 0.0001590278176177901,
+      "relative_energy": 1.693953933307021e-6,
+      "total": 0.00017767422875288228
+    },
+    {
+      "dipole": 0.00001683415844459212,
+      "energy": 0.0,
+      "epoch": 120,
+      "gradient": 0.00015899796542898862,
+      "relative_energy": 1.692510661794283e-6,
+      "total": 0.00017752463453537504
+    },
+    {
+      "dipole": 0.000016717312210209653,
+      "energy": 0.0,
+      "epoch": 121,
+      "gradient": 0.0001589712885591582,
+      "relative_energy": 1.6913970296373567e-6,
+      "total": 0.00017737999779900523
+    },
+    {
+      "dipole": 0.00001660185925411887,
+      "energy": 0.0,
+      "epoch": 122,
+      "gradient": 0.00015894707777336443,
+      "relative_energy": 1.6845261186296612e-6,
+      "total": 0.00017723346314611296
+    },
+    {
+      "dipole": 0.00001648797804682189,
+      "energy": 0.0,
+      "epoch": 123,
+      "gradient": 0.00015892278935513338,
+      "relative_energy": 1.6784086109489882e-6,
+      "total": 0.00017708917601290427
+    },
+    {
+      "dipole": 0.00001637591024755065,
+      "energy": 0.0,
+      "epoch": 124,
+      "gradient": 0.0001588953006549015,
+      "relative_energy": 1.6785847510438301e-6,
+      "total": 0.00017694979565349597
+    },
+    {
+      "dipole": 0.000016265725609660103,
+      "energy": 0.0,
+      "epoch": 125,
+      "gradient": 0.00015886376056669437,
+      "relative_energy": 1.6802877077659793e-6,
+      "total": 0.00017680977388412044
+    },
+    {
+      "dipole": 0.00001615721598727488,
+      "energy": 0.0,
+      "epoch": 126,
+      "gradient": 0.00015883044683972594,
+      "relative_energy": 1.6824643704645238e-6,
+      "total": 0.00017667012719746534
+    },
+    {
+      "dipole": 0.000016050001252187567,
+      "energy": 0.0,
+      "epoch": 127,
+      "gradient": 0.00015879823592686778,
+      "relative_energy": 1.6870703580981459e-6,
+      "total": 0.0001765353075371535
+    },
+    {
+      "dipole": 0.0000159437643773718,
+      "energy": 0.0,
+      "epoch": 128,
+      "gradient": 0.0001587683948587881,
+      "relative_energy": 1.6897215556807022e-6,
+      "total": 0.0001764018807918406
+    },
+    {
+      "dipole": 0.000015838438623296494,
+      "energy": 0.0,
+      "epoch": 129,
+      "gradient": 0.0001587409703544515,
+      "relative_energy": 1.688133027234934e-6,
+      "total": 0.00017626754200498294
+    },
+    {
+      "dipole": 0.000015734214722879934,
+      "energy": 0.0,
+      "epoch": 130,
+      "gradient": 0.00015871541175954405,
+      "relative_energy": 1.6864320487666235e-6,
+      "total": 0.0001761360585311906
+    },
+    {
+      "dipole": 0.000015631378821785,
+      "energy": 0.0,
+      "epoch": 131,
+      "gradient": 0.00015869026035478326,
+      "relative_energy": 1.685653188171911e-6,
+      "total": 0.0001760072923647402
+    },
+    {
+      "dipole": 0.000015530114777805406,
+      "energy": 0.0,
+      "epoch": 132,
+      "gradient": 0.00015866376919691658,
+      "relative_energy": 1.6845682691787643e-6,
+      "total": 0.00017587845224390075
+    },
+    {
+      "dipole": 0.000015430413499708384,
+      "energy": 0.0,
+      "epoch": 133,
+      "gradient": 0.0001586354343749133,
+      "relative_energy": 1.6852556738361969e-6,
+      "total": 0.0001757511035484579
+    },
+    {
+      "dipole": 0.00001533213385326825,
+      "energy": 0.0,
+      "epoch": 134,
+      "gradient": 0.0001586062521748546,
+      "relative_energy": 1.6877963456316756e-6,
+      "total": 0.00017562618237375451
+    },
+    {
+      "dipole": 0.000015235142175208514,
+      "energy": 0.0,
+      "epoch": 135,
+      "gradient": 0.0001585775094733067,
+      "relative_energy": 1.6890657178130389e-6,
+      "total": 0.00017550171736632823
+    },
+    {
+      "dipole": 0.000015139411543517977,
+      "energy": 0.0,
+      "epoch": 136,
+      "gradient": 0.00015854979611005642,
+      "relative_energy": 1.6891214754817963e-6,
+      "total": 0.0001753783291290562
+    },
+    {
+      "dipole": 0.000015045014144442967,
+      "energy": 0.0,
+      "epoch": 137,
+      "gradient": 0.00015852295949991387,
+      "relative_energy": 1.6893392092547592e-6,
+      "total": 0.0001752573128536116
+    },
+    {
+      "dipole": 0.000014952036776383956,
+      "energy": 0.0,
+      "epoch": 138,
+      "gradient": 0.00015849654651140023,
+      "relative_energy": 1.6885383915952626e-6,
+      "total": 0.00017513712167937945
+    },
+    {
+      "dipole": 0.000014860506123956546,
+      "energy": 0.0,
+      "epoch": 139,
+      "gradient": 0.00015847020445853983,
+      "relative_energy": 1.6866987589257401e-6,
+      "total": 0.0001750174093414221
+    },
+    {
+      "dipole": 0.000014770386174048706,
+      "energy": 0.0,
+      "epoch": 140,
+      "gradient": 0.00015844374403408033,
+      "relative_energy": 1.685489581343525e-6,
+      "total": 0.00017489961978947257
+    },
+    {
+      "dipole": 0.000014681637014217028,
+      "energy": 0.0,
+      "epoch": 141,
+      "gradient": 0.00015841692605708644,
+      "relative_energy": 1.6846157480567375e-6,
+      "total": 0.0001747831788193602
+    },
+    {
+      "dipole": 0.000014594269968703569,
+      "energy": 0.0,
+      "epoch": 142,
+      "gradient": 0.0001583893212211697,
+      "relative_energy": 1.6836253654955986e-6,
+      "total": 0.00017466721655536887
+    },
+    {
+      "dipole": 0.000014508343052179006,
+      "energy": 0.0,
+      "epoch": 143,
+      "gradient": 0.00015836048355931338,
+      "relative_energy": 1.6837450106856512e-6,
+      "total": 0.00017455257162217802
+    },
+    {
+      "dipole": 0.000014423900112895271,
+      "energy": 0.0,
+      "epoch": 144,
+      "gradient": 0.00015833035581810101,
+      "relative_energy": 1.6850071706947882e-6,
+      "total": 0.00017443926310169107
+    },
+    {
+      "dipole": 0.000014340910459255847,
+      "energy": 0.0,
+      "epoch": 145,
+      "gradient": 0.00015829949400918565,
+      "relative_energy": 1.6861942644458705e-6,
+      "total": 0.00017432659873288736
+    },
+    {
+      "dipole": 0.000014259265674493286,
+      "energy": 0.0,
+      "epoch": 146,
+      "gradient": 0.00015826876641554844,
+      "relative_energy": 1.68700928448891e-6,
+      "total": 0.00017421504137453064
+    },
+    {
+      "dipole": 0.000014178839818126276,
+      "energy": 0.0,
+      "epoch": 147,
+      "gradient": 0.00015823881131551078,
+      "relative_energy": 1.6870941103766342e-6,
+      "total": 0.0001741047452440137
+    },
+    {
+      "dipole": 0.00001409956458914882,
+      "energy": 0.0,
+      "epoch": 148,
+      "gradient": 0.00015820975675305817,
+      "relative_energy": 1.6857673768024882e-6,
+      "total": 0.00017399508871900946
+    },
+    {
+      "dipole": 0.00001402145891683606,
+      "energy": 0.0,
+      "epoch": 149,
+      "gradient": 0.0001581811957204743,
+      "relative_energy": 1.683662353302509e-6,
+      "total": 0.00017388631699061287
+    },
+    {
+      "dipole": 0.00001394459140714676,
+      "energy": 0.0,
+      "epoch": 150,
+      "gradient": 0.0001581523110886758,
+      "relative_energy": 1.6818694332093867e-6,
+      "total": 0.00017377877192903193
+    },
+    {
+      "dipole": 0.000013869009074641828,
+      "energy": 0.0,
+      "epoch": 151,
+      "gradient": 0.00015812232261870596,
+      "relative_energy": 1.6806393705372827e-6,
+      "total": 0.00017367197106388506
+    },
+    {
+      "dipole": 0.000013794689939397547,
+      "energy": 0.0,
+      "epoch": 152,
+      "gradient": 0.0001580910367559432,
+      "relative_energy": 1.6801379231314596e-6,
+      "total": 0.0001735658646184722
+    },
+    {
+      "dipole": 0.000013721552980491292,
+      "energy": 0.0,
+      "epoch": 153,
+      "gradient": 0.00015805889169551166,
+      "relative_energy": 1.6803425549803388e-6,
+      "total": 0.0001734607872309833
+    },
+    {
+      "dipole": 0.00001364951083163916,
+      "energy": 0.0,
+      "epoch": 154,
+      "gradient": 0.00015802648510818536,
+      "relative_energy": 1.6805137698810935e-6,
+      "total": 0.00017335650970970562
+    },
+    {
+      "dipole": 0.000013578519620358093,
+      "energy": 0.0,
+      "epoch": 155,
+      "gradient": 0.00015799415862032936,
+      "relative_energy": 1.680228583622013e-6,
+      "total": 0.00017325290682430948
+    },
+    {
+      "dipole": 0.000013508589382959052,
+      "energy": 0.0,
+      "epoch": 156,
+      "gradient": 0.00015796192214045064,
+      "relative_energy": 1.6796817902475867e-6,
+      "total": 0.00017315019331365727
+    },
+    {
+      "dipole": 0.000013439755282241232,
+      "energy": 0.0,
+      "epoch": 157,
+      "gradient": 0.0001579295829675563,
+      "relative_energy": 1.67888867602062e-6,
+      "total": 0.00017304822692581814
+    },
+    {
+      "dipole": 0.000013372040417329563,
+      "energy": 0.0,
+      "epoch": 158,
+      "gradient": 0.00015789692026219965,
+      "relative_energy": 1.6779217073391797e-6,
+      "total": 0.00017294688238686837
+    },
+    {
+      "dipole": 0.000013305440979720497,
+      "energy": 0.0,
+      "epoch": 159,
+      "gradient": 0.0001578637998184874,
+      "relative_energy": 1.6771057227314807e-6,
+      "total": 0.0001728463465209394
+    },
+    {
+      "dipole": 0.000013239938954492169,
+      "energy": 0.0,
+      "epoch": 160,
+      "gradient": 0.00015783017421555363,
+      "relative_energy": 1.6764330449228788e-6,
+      "total": 0.00017274654621496867
+    },
+    {
+      "dipole": 0.000013175522474152372,
+      "energy": 0.0,
+      "epoch": 161,
+      "gradient": 0.00015779602690118688,
+      "relative_energy": 1.6757711547146968e-6,
+      "total": 0.00017264732053005394
+    },
+    {
+      "dipole": 0.000013112191121018723,
+      "energy": 0.0,
+      "epoch": 162,
+      "gradient": 0.0001577613543727885,
+      "relative_energy": 1.6752457684072722e-6,
+      "total": 0.00017254879126221448
+    },
+    {
+      "dipole": 0.000013049942303377674,
+      "energy": 0.0,
+      "epoch": 163,
+      "gradient": 0.00015772620394313816,
+      "relative_energy": 1.6748140882618493e-6,
+      "total": 0.00017245096033477767
+    },
+    {
+      "dipole": 0.000012988755091001271,
+      "energy": 0.0,
+      "epoch": 164,
+      "gradient": 0.00015769070199399252,
+      "relative_energy": 1.6742369750788793e-6,
+      "total": 0.00017235369406007266
+    },
+    {
+      "dipole": 0.000012928590145102678,
+      "energy": 0.0,
+      "epoch": 165,
+      "gradient": 0.00015765500280691926,
+      "relative_energy": 1.673451282583612e-6,
+      "total": 0.00017225704423460555
+    },
+    {
+      "dipole": 0.0000128694079183,
+      "energy": 0.0,
+      "epoch": 166,
+      "gradient": 0.0001576191774503103,
+      "relative_energy": 1.6724388275175217e-6,
+      "total": 0.00017216102419612782
+    },
+    {
+      "dipole": 0.000012811188983731687,
+      "energy": 0.0,
+      "epoch": 167,
+      "gradient": 0.0001575831318027902,
+      "relative_energy": 1.6712212020669972e-6,
+      "total": 0.00017206554198858888
+    },
+    {
+      "dipole": 0.00001275393760819541,
+      "energy": 0.0,
+      "epoch": 168,
+      "gradient": 0.00015754662136022233,
+      "relative_energy": 1.6700729656782616e-6,
+      "total": 0.000171970631934096
+    },
+    {
+      "dipole": 0.00001269766466259099,
+      "energy": 0.0,
+      "epoch": 169,
+      "gradient": 0.00015750938489759973,
+      "relative_energy": 1.6692563740129916e-6,
+      "total": 0.0001718763059342037
+    },
+    {
+      "dipole": 0.000012642364388741047,
+      "energy": 0.0,
+      "epoch": 170,
+      "gradient": 0.00015747133398265106,
+      "relative_energy": 1.668780598448986e-6,
+      "total": 0.0001717824789698411
+    },
+    {
+      "dipole": 0.000012588004599237283,
+      "energy": 0.0,
+      "epoch": 171,
+      "gradient": 0.00015743263306652804,
+      "relative_energy": 1.6685292424984429e-6,
+      "total": 0.00017168916690826376
+    },
+    {
+      "dipole": 0.000012534537762130637,
+      "energy": 0.0,
+      "epoch": 172,
+      "gradient": 0.0001573935814095715,
+      "relative_energy": 1.6682769602579245e-6,
+      "total": 0.00017159639613196007
+    },
+    {
+      "dipole": 0.000012481922773800142,
+      "energy": 0.0,
+      "epoch": 173,
+      "gradient": 0.00015735441646762749,
+      "relative_energy": 1.6677643453621037e-6,
+      "total": 0.00017150410358678973
+    },
+    {
+      "dipole": 0.000012430139567466552,
+      "energy": 0.0,
+      "epoch": 174,
+      "gradient": 0.0001573152011129,
+      "relative_energy": 1.6669415920702641e-6,
+      "total": 0.0001714122822724368
+    },
+    {
+      "dipole": 0.000012379186583649269,
+      "energy": 0.0,
+      "epoch": 175,
+      "gradient": 0.000157275833578288,
+      "relative_energy": 1.665929325734991e-6,
+      "total": 0.00017132094948767228
+    },
+    {
+      "dipole": 0.000012329066179312261,
+      "energy": 0.0,
+      "epoch": 176,
+      "gradient": 0.00015723613960505047,
+      "relative_energy": 1.6648572235696435e-6,
+      "total": 0.0001712300630079324
+    },
+    {
+      "dipole": 0.00001227977164682385,
+      "energy": 0.0,
+      "epoch": 177,
+      "gradient": 0.00015719598312006106,
+      "relative_energy": 1.6638600975994773e-6,
+      "total": 0.0001711396148644844
+    },
+    {
+      "dipole": 0.000012231285358657416,
+      "energy": 0.0,
+      "epoch": 178,
+      "gradient": 0.0001571553224899783,
+      "relative_energy": 1.663007110914774e-6,
+      "total": 0.00017104961495955048
+    },
+    {
+      "dipole": 0.000012183586295701987,
+      "energy": 0.0,
+      "epoch": 179,
+      "gradient": 0.00015711418932565297,
+      "relative_energy": 1.662252676761493e-6,
+      "total": 0.00017096002829811646
+    },
+    {
+      "dipole": 0.000012136657792691031,
+      "energy": 0.0,
+      "epoch": 180,
+      "gradient": 0.00015707263734209958,
+      "relative_energy": 1.6615514650393793e-6,
+      "total": 0.00017087084659982998
+    },
+    {
+      "dipole": 0.000012090488565908048,
+      "energy": 0.0,
+      "epoch": 181,
+      "gradient": 0.00015703071387341303,
+      "relative_energy": 1.6608765666172596e-6,
+      "total": 0.00017078207900593834
+    },
+    {
+      "dipole": 0.000012045068181801023,
+      "energy": 0.0,
+      "epoch": 182,
+      "gradient": 0.00015698846071659017,
+      "relative_energy": 1.660167324602877e-6,
+      "total": 0.00017069369622299408
+    },
+    {
+      "dipole": 0.000012000383446376901,
+      "energy": 0.0,
+      "epoch": 183,
+      "gradient": 0.00015694591627681524,
+      "relative_energy": 1.659385138748682e-6,
+      "total": 0.00017060568486194084
+    },
+    {
+      "dipole": 0.00001195642002444776,
+      "energy": 0.0,
+      "epoch": 184,
+      "gradient": 0.0001569030980482128,
+      "relative_energy": 1.6585330283779146e-6,
+      "total": 0.00017051805110103848
+    },
+    {
+      "dipole": 0.000011913167124325996,
+      "energy": 0.0,
+      "epoch": 185,
+      "gradient": 0.00015685997903606475,
+      "relative_energy": 1.657629451478092e-6,
+      "total": 0.00017043077561186885
+    },
+    {
+      "dipole": 0.000011870619374972156,
+      "energy": 0.0,
+      "epoch": 186,
+      "gradient": 0.00015681648997250766,
+      "relative_energy": 1.6567370025624908e-6,
+      "total": 0.00017034384635004231
+    },
+    {
+      "dipole": 0.000011828772767344372,
+      "energy": 0.0,
+      "epoch": 187,
+      "gradient": 0.000156772560695818,
+      "relative_energy": 1.6559298015665123e-6,
+      "total": 0.00017025726326472886
+    },
+    {
+      "dipole": 0.000011787617709341249,
+      "energy": 0.0,
+      "epoch": 188,
+      "gradient": 0.00015672817587416226,
+      "relative_energy": 1.6552152506736278e-6,
+      "total": 0.00017017100883417714
+    },
+    {
+      "dipole": 0.000011747135520213969,
+      "energy": 0.0,
+      "epoch": 189,
+      "gradient": 0.00015668339581083638,
+      "relative_energy": 1.6545421516487454e-6,
+      "total": 0.0001700850734826991
+    },
+    {
+      "dipole": 0.000011707301836579986,
+      "energy": 0.0,
+      "epoch": 190,
+      "gradient": 0.00015663831770780528,
+      "relative_energy": 1.6538375670712928e-6,
+      "total": 0.00016999945711145657
+    },
+    {
+      "dipole": 0.000011668094262491946,
+      "energy": 0.0,
+      "epoch": 191,
+      "gradient": 0.00015659300916764904,
+      "relative_energy": 1.6530412990188887e-6,
+      "total": 0.00016991414472915988
+    },
+    {
+      "dipole": 0.000011629497994031883,
+      "energy": 0.0,
+      "epoch": 192,
+      "gradient": 0.00015654746701997908,
+      "relative_energy": 1.6521615272822233e-6,
+      "total": 0.00016982912654129318
+    },
+    {
+      "dipole": 0.000011591505228623543,
+      "energy": 0.0,
+      "epoch": 193,
+      "gradient": 0.0001565016265410877,
+      "relative_energy": 1.651269245057335e-6,
+      "total": 0.00016974440101476856
+    },
+    {
+      "dipole": 0.000011554109672800421,
+      "energy": 0.0,
+      "epoch": 194,
+      "gradient": 0.00015645541015657332,
+      "relative_energy": 1.6504360444057512e-6,
+      "total": 0.0001696599558737795
+    },
+    {
+      "dipole": 0.000011517301235896008,
+      "energy": 0.0,
+      "epoch": 195,
+      "gradient": 0.0001564087803506018,
+      "relative_energy": 1.6497002964130424e-6,
+      "total": 0.00016957578188291084
+    },
+    {
+      "dipole": 0.000011481064978763275,
+      "energy": 0.0,
+      "epoch": 196,
+      "gradient": 0.00015636175870310687,
+      "relative_energy": 1.649052116498486e-6,
+      "total": 0.0001694918757983686
+    },
+    {
+      "dipole": 0.000011445384152840797,
+      "energy": 0.0,
+      "epoch": 197,
+      "gradient": 0.00015631440312468333,
+      "relative_energy": 1.6484402186670043e-6,
+      "total": 0.00016940822749619112
+    },
+    {
+      "dipole": 0.000011410243902189934,
+      "energy": 0.0,
+      "epoch": 198,
+      "gradient": 0.00015626677029669667,
+      "relative_energy": 1.647815335481192e-6,
+      "total": 0.00016932482953436779
+    },
+    {
+      "dipole": 0.000011375632558675694,
+      "energy": 0.0,
+      "epoch": 199,
+      "gradient": 0.0001562188928780956,
+      "relative_energy": 1.6471521068877396e-6,
+      "total": 0.00016924167754365905
+    },
+    {
+      "dipole": 0.00001134154037980969,
+      "energy": 0.0,
+      "epoch": 200,
+      "gradient": 0.00015617077857602471,
+      "relative_energy": 1.6464424757272454e-6,
+      "total": 0.00016915876143156164
+    },
+    {
+      "dipole": 0.000011307957855297273,
+      "energy": 0.0,
+      "epoch": 201,
+      "gradient": 0.00015612241936800516,
+      "relative_energy": 1.6456970706871596e-6,
+      "total": 0.0001690760742939896
+    },
+    {
+      "dipole": 0.0000112748753555763,
+      "energy": 0.0,
+      "epoch": 202,
+      "gradient": 0.00015607379801686283,
+      "relative_energy": 1.6449388955531609e-6,
+      "total": 0.0001689936122679923
+    },
+    {
+      "dipole": 0.000011242283843450832,
+      "energy": 0.0,
+      "epoch": 203,
+      "gradient": 0.00015602489084386802,
+      "relative_energy": 1.6441923069061238e-6,
+      "total": 0.000168911366994225
+    },
+    {
+      "dipole": 0.00001121017507485106,
+      "energy": 0.0,
+      "epoch": 204,
+      "gradient": 0.0001559756743418949,
+      "relative_energy": 1.6434824691283389e-6,
+      "total": 0.00016882933188587428
+    },
+    {
+      "dipole": 0.000011178540473444439,
+      "energy": 0.0,
+      "epoch": 205,
+      "gradient": 0.00015592613843070453,
+      "relative_energy": 1.6428232373588623e-6,
+      "total": 0.00016874750214150783
+    },
+    {
+      "dipole": 0.000011147369633437645,
+      "energy": 0.0,
+      "epoch": 206,
+      "gradient": 0.00015587629762094205,
+      "relative_energy": 1.6422028339614511e-6,
+      "total": 0.00016866587008834114
+    },
+    {
+      "dipole": 0.000011116650126522432,
+      "energy": 0.0,
+      "epoch": 207,
+      "gradient": 0.00015582618752604815,
+      "relative_energy": 1.6415921986511303e-6,
+      "total": 0.0001685844298512217
+    },
+    {
+      "dipole": 0.000011086369138539001,
+      "energy": 0.0,
+      "epoch": 208,
+      "gradient": 0.00015577584517975307,
+      "relative_energy": 1.640962209010331e-6,
+      "total": 0.0001685031765273024
+    },
+    {
+      "dipole": 0.000011056515639859653,
+      "energy": 0.0,
+      "epoch": 209,
+      "gradient": 0.00015572528711878405,
+      "relative_energy": 1.640300410466876e-6,
+      "total": 0.00016842210316911056
+    },
+    {
+      "dipole": 0.000011027081178759334,
+      "energy": 0.0,
+      "epoch": 210,
+      "gradient": 0.0001556745022017127,
+      "relative_energy": 1.6396210871174804e-6,
+      "total": 0.00016834120446758953
+    },
+    {
+      "dipole": 0.000010998058594980576,
+      "energy": 0.0,
+      "epoch": 211,
+      "gradient": 0.00015562346455716845,
+      "relative_energy": 1.638952280541207e-6,
+      "total": 0.00016826047543269025
+    },
+    {
+      "dipole": 0.000010969439784690876,
+      "energy": 0.0,
+      "epoch": 212,
+      "gradient": 0.00015557215665915812,
+      "relative_energy": 1.6383129743275029e-6,
+      "total": 0.0001681799094181765
+    },
+    {
+      "dipole": 0.000010941214376009261,
+      "energy": 0.0,
+      "epoch": 213,
+      "gradient": 0.00015552058451838468,
+      "relative_energy": 1.6377023907583494e-6,
+      "total": 0.00016809950128515228
+    },
+    {
+      "dipole": 0.000010913370233292217,
+      "energy": 0.0,
+      "epoch": 214,
+      "gradient": 0.00015546877389448593,
+      "relative_energy": 1.6371021394192862e-6,
+      "total": 0.00016801924626719744
+    },
+    {
+      "dipole": 0.000010885895119777545,
+      "energy": 0.0,
+      "epoch": 215,
+      "gradient": 0.00015541675314004403,
+      "relative_energy": 1.6364902570555307e-6,
+      "total": 0.0001679391385168771
+    },
+    {
+      "dipole": 0.000010858778084893799,
+      "energy": 0.0,
+      "epoch": 216,
+      "gradient": 0.00015536453785264503,
+      "relative_energy": 1.6358571448963352e-6,
+      "total": 0.00016785917308243518
+    },
+    {
+      "dipole": 0.000010832009708713663,
+      "energy": 0.0,
+      "epoch": 217,
+      "gradient": 0.00015531212733983925,
+      "relative_energy": 1.6352078463540436e-6,
+      "total": 0.00016777934489490697
+    },
+    {
+      "dipole": 0.000010805581461455022,
+      "energy": 0.0,
+      "epoch": 218,
+      "gradient": 0.00015525951156424302,
+      "relative_energy": 1.6345553499561542e-6,
+      "total": 0.0001676996483756542
+    },
+    {
+      "dipole": 0.000010779485008723475,
+      "energy": 0.0,
+      "epoch": 219,
+      "gradient": 0.00015520668047924589,
+      "relative_energy": 1.6339134483400064e-6,
+      "total": 0.00016762007893630936
+    },
+    {
+      "dipole": 0.000010753711964836536,
+      "energy": 0.0,
+      "epoch": 220,
+      "gradient": 0.0001551536292880018,
+      "relative_energy": 1.633290526057635e-6,
+      "total": 0.00016754063177889598
+    },
+    {
+      "dipole": 0.000010728253947734504,
+      "energy": 0.0,
+      "epoch": 221,
+      "gradient": 0.00015510035932884167,
+      "relative_energy": 1.6326884223683187e-6,
+      "total": 0.0001674613016989445
+    },
+    {
+      "dipole": 0.00001070310256056957,
+      "energy": 0.0,
+      "epoch": 222,
+      "gradient": 0.0001550468777389819,
+      "relative_energy": 1.6321038431278578e-6,
+      "total": 0.00016738208414267933
+    },
+    {
+      "dipole": 0.000010678249236020557,
+      "energy": 0.0,
+      "epoch": 223,
+      "gradient": 0.00015499319713024594,
+      "relative_energy": 1.631527902202777e-6,
+      "total": 0.00016730297426846926
+    },
+    {
+      "dipole": 0.000010653685227680633,
+      "energy": 0.0,
+      "epoch": 224,
+      "gradient": 0.0001549393333251265,
+      "relative_energy": 1.6309485173816729e-6,
+      "total": 0.0001672239670701888
+    },
+    {
+      "dipole": 0.00001062940195025279,
+      "energy": 0.0,
+      "epoch": 225,
+      "gradient": 0.000154885299704229,
+      "relative_energy": 1.6303564399528163e-6,
+      "total": 0.00016714505809443462
+    },
+    {
+      "dipole": 0.00001060539145266432,
+      "energy": 0.0,
+      "epoch": 226,
+      "gradient": 0.0001548311008022082,
+      "relative_energy": 1.629750438377208e-6,
+      "total": 0.00016706624269324975
+    },
+    {
+      "dipole": 0.00001058164655945944,
+      "energy": 0.0,
+      "epoch": 227,
+      "gradient": 0.00015477673042967537,
+      "relative_energy": 1.6291392010920094e-6,
+      "total": 0.00016698751619022683
+    },
+    {
+      "dipole": 0.000010558160454195498,
+      "energy": 0.0,
+      "epoch": 228,
+      "gradient": 0.00015472217704385314,
+      "relative_energy": 1.6285366690978618e-6,
+      "total": 0.0001669088741671465
+    },
+    {
+      "dipole": 0.000010534925985397365,
+      "energy": 0.0,
+      "epoch": 229,
+      "gradient": 0.0001546674332300618,
+      "relative_energy": 1.627952715702384e-6,
+      "total": 0.00016683031193116156
+    },
+    {
+      "dipole": 0.000010511935243026544,
+      "energy": 0.0,
+      "epoch": 230,
+      "gradient": 0.00015461250226257115,
+      "relative_energy": 1.6273874062498554e-6,
+      "total": 0.00016675182491184755
+    },
+    {
+      "dipole": 0.000010489179723448604,
+      "energy": 0.0,
+      "epoch": 231,
+      "gradient": 0.00015455739677392523,
+      "relative_energy": 1.6268323018503535e-6,
+      "total": 0.0001666734087992242
+    },
+    {
+      "dipole": 0.000010466650910207645,
+      "energy": 0.0,
+      "epoch": 232,
+      "gradient": 0.0001545021311592783,
+      "relative_energy": 1.6262770028786792e-6,
+      "total": 0.00016659505907236463
+    },
+    {
+      "dipole": 0.000010444340804542331,
+      "energy": 0.0,
+      "epoch": 233,
+      "gradient": 0.00015444671410642021,
+      "relative_energy": 1.6257163440152366e-6,
+      "total": 0.0001665167712549778
+    },
+    {
+      "dipole": 0.000010422242063828911,
+      "energy": 0.0,
+      "epoch": 234,
+      "gradient": 0.00015439114656090852,
+      "relative_energy": 1.6251523482599987e-6,
+      "total": 0.00016643854097299744
+    },
+    {
+      "dipole": 0.000010400347765424197,
+      "energy": 0.0,
+      "epoch": 235,
+      "gradient": 0.0001543354251890335,
+      "relative_energy": 1.6245907574915566e-6,
+      "total": 0.00016636036371194923
+    },
+    {
+      "dipole": 0.000010378651059509574,
+      "energy": 0.0,
+      "epoch": 236,
+      "gradient": 0.00015427954754585821,
+      "relative_energy": 1.6240364946813805e-6,
+      "total": 0.00016628223510004917
+    },
+    {
+      "dipole": 0.000010357144949905092,
+      "energy": 0.0,
+      "epoch": 237,
+      "gradient": 0.00015422351494547346,
+      "relative_energy": 1.6234909156260132e-6,
+      "total": 0.00016620415081100456
+    },
+    {
+      "dipole": 0.000010335822264057199,
+      "energy": 0.0,
+      "epoch": 238,
+      "gradient": 0.00015416733207563845,
+      "relative_energy": 1.622952070883133e-6,
+      "total": 0.00016612610641057878
+    },
+    {
+      "dipole": 0.000010314675747565251,
+      "energy": 0.0,
+      "epoch": 239,
+      "gradient": 0.00015411100507312336,
+      "relative_energy": 1.6224167214135949e-6,
+      "total": 0.0001660480975421022
+    },
+    {
+      "dipole": 0.000010293698212851698,
+      "energy": 0.0,
+      "epoch": 240,
+      "gradient": 0.00015405453986842943,
+      "relative_energy": 1.621881720763649e-6,
+      "total": 0.00016597011980204476
+    },
+    {
+      "dipole": 0.00001027288270390114,
+      "energy": 0.0,
+      "epoch": 241,
+      "gradient": 0.00015399794110379256,
+      "relative_energy": 1.6213449205344678e-6,
+      "total": 0.00016589216872822817
+    },
+    {
+      "dipole": 0.000010252222628151866,
+      "energy": 0.0,
+      "epoch": 242,
+      "gradient": 0.00015394121114738587,
+      "relative_energy": 1.6208061935775805e-6,
+      "total": 0.00016581423996911532
+    },
+    {
+      "dipole": 0.000010231711778954643,
+      "energy": 0.0,
+      "epoch": 243,
+      "gradient": 0.00015388434943644223,
+      "relative_energy": 1.6202679309653839e-6,
+      "total": 0.00016573632914636228
+    },
+    {
+      "dipole": 0.000010211344206281346,
+      "energy": 0.0,
+      "epoch": 244,
+      "gradient": 0.0001538273531944249,
+      "relative_energy": 1.6197344329989586e-6,
+      "total": 0.00016565843183370522
+    },
+    {
+      "dipole": 0.00001019111399515701,
+      "energy": 0.0,
+      "epoch": 245,
+      "gradient": 0.00015377021992605665,
+      "relative_energy": 1.6192096999691406e-6,
+      "total": 0.00016558054362118282
+    },
+    {
+      "dipole": 0.00001017101509044501,
+      "energy": 0.0,
+      "epoch": 246,
+      "gradient": 0.00015371295034047441,
+      "relative_energy": 1.6186945991970968e-6,
+      "total": 0.00016550266003011651
+    },
+    {
+      "dipole": 0.000010151041277165686,
+      "energy": 0.0,
+      "epoch": 247,
+      "gradient": 0.00015365554939138202,
+      "relative_energy": 1.6181859125794471e-6,
+      "total": 0.00016542477658112713
+    },
+    {
+      "dipole": 0.000010131186307306933,
+      "energy": 0.0,
+      "epoch": 248,
+      "gradient": 0.00015359802430619924,
+      "relative_energy": 1.6176782067991166e-6,
+      "total": 0.00016534688882030528
+    },
+    {
+      "dipole": 0.000010111444063982473,
+      "energy": 0.0,
+      "epoch": 249,
+      "gradient": 0.00015354038095214344,
+      "relative_energy": 1.617167212752744e-6,
+      "total": 0.00016526899222887867
+    },
+    {
+      "dipole": 0.000010091808651147221,
+      "energy": 0.0,
+      "epoch": 250,
+      "gradient": 0.0001534826212817417,
+      "relative_energy": 1.6166523362712342e-6,
+      "total": 0.00016519108226916015
+    }
+  ],
+  "validation": {
+    "absolute_energy_cases": 0,
+    "baseline_dipole_rmse_e_bohr": 0.05062714661037455,
+    "baseline_gradient_rmse_hartree_per_bohr": 0.005305552535432859,
+    "baseline_relative_rmse_hartree": 0.013786752360955105,
+    "baseline_rmse_hartree": null,
+    "baseline_shape_rmse_hartree": null,
+    "baseline_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 25.16167914009028
+    },
+    "dipole_components": 24,
+    "gradient_components": 180,
+    "model_dipole_rmse_e_bohr": 0.029570054534279633,
+    "model_gradient_rmse_hartree_per_bohr": 0.00297584091859197,
+    "model_relative_rmse_hartree": 0.007579775754772219,
+    "model_rmse_hartree": null,
+    "model_shape_rmse_hartree": null,
+    "model_wtmad2_kcal_mol": {
+      "status": "measured",
+      "value": 7.278085785861333
+    },
+    "relative_energy_cases": 8,
+    "structures_evaluated": 9,
+    "wtmad2_scale_source": "provided reference subset means, otherwise reference means of this evaluated split; no held-out statistics enter fitting"
+  },
+  "weight_decay": 0.00001,
+  "weighting": {
+    "component_averaging": "gradients averaged over 3N; dipoles over 3; each target family normalized by active group-ratio sum",
+    "derivative_method": "stationary energy gradient and implicit CP-SCC mixed response; no SCF unrolling",
+    "dipole_definition": "Mulliken monopoles at the configured field origin",
+    "dipole_units": "e*bohr",
+    "dipole_weight": 0.02,
+    "energy_loss": "Squared",
+    "energy_weight": 0.0,
+    "energy_weighting": "Uniform",
+    "gradient_units": "hartree/bohr",
+    "gradient_weight": 50.0,
+    "groups": {
+      "distortion": {
+        "ratio": 1.0,
+        "relative_cases": 6,
+        "relative_energy_scale": null,
+        "scale_source": "uniform"
+      },
+      "interaction": {
+        "ratio": 1.0,
+        "relative_cases": 8,
+        "relative_energy_scale": null,
+        "scale_source": "uniform"
+      },
+      "water-1": {
+        "ratio": 1.0,
+        "relative_cases": 0,
+        "relative_energy_scale": null,
+        "scale_source": "uniform"
+      },
+      "water-2": {
+        "ratio": 1.0,
+        "relative_cases": 0,
+        "relative_energy_scale": null,
+        "scale_source": "uniform"
+      },
+      "water-3": {
+        "ratio": 1.0,
+        "relative_cases": 0,
+        "relative_energy_scale": null,
+        "scale_source": "uniform"
+      }
+    },
+    "normalizers": {
+      "absolute_energy": -0.0,
+      "dipole": 14.0,
+      "gradient": 14.0,
+      "relative_energy": 14.0
+    },
+    "relative_energy_weight": 10.0,
+    "wtmad2_reference_kcal_mol": 56.84
+  }
+}

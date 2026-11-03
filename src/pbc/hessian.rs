@@ -242,6 +242,9 @@ pub fn gamma_skeleton_derivatives(
         }
     }
 
+    crate::pbc::ml::add_level_skeleton(system, params, scf, [0.; 3], |y, mu, nu, re, _im| {
+        fock[y][(mu, nu)] += re;
+    })?;
     Ok(GammaSkeletonDerivatives {
         overlap,
         fock,
@@ -434,6 +437,9 @@ pub fn kpoint_skeleton_derivatives(
         }
     }
 
+    crate::pbc::ml::add_level_skeleton(system, params, scf, fractional, |y, mu, nu, re, im| {
+        fock[y].accumulate(mu, nu, re, im);
+    })?;
     Ok(KpointSkeleton {
         overlap,
         fock,
@@ -483,13 +489,35 @@ pub(crate) fn shell_potential_derivatives(
     scf: &PbcSccResult,
     pbc: &PbcOptions,
 ) -> Result<Vec<Vec<f64>>> {
+    shell_potential_derivatives_for_charges(
+        system,
+        lattice,
+        scf,
+        pbc,
+        &scf.shell_charges,
+        &scf.atomic_charges,
+    )
+}
+
+/// Charge-slot version; reuses geometry without cloning Bloch matrices.
+pub(crate) fn shell_potential_derivatives_for_charges(
+    system: &PeriodicSystem,
+    lattice: &Lattice,
+    scf: &PbcSccResult,
+    pbc: &PbcOptions,
+    q: &[f64],
+    q_atom: &[f64],
+) -> Result<Vec<Vec<f64>>> {
     let basis = &scf.basis;
     let model = &scf.shell_model;
-    let q = &scf.shell_charges;
-    let q_atom = &scf.atomic_charges;
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     let nsh = basis.shells.len();
+    if q.len() != nsh || q_atom.len() != nat {
+        return Err(Gfn1Error::InvalidInput(
+            "charge-slot derivative dimension mismatch".into(),
+        ));
+    }
     let mut out = vec![vec![0.0_f64; nsh]; ndof];
 
     // Ewald 1/R part: dV_i^ew/dR_c depends only on the atoms. Build the atomic
@@ -655,7 +683,7 @@ fn ewald_atom_potential_derivatives(
     out
 }
 
-fn shell_polynomial_log_derivative(
+pub(crate) fn shell_polynomial_log_derivative(
     si: &crate::basis::BasisShell,
     sj: &crate::basis::BasisShell,
     rvec: Vec3,
@@ -697,7 +725,8 @@ pub struct GammaMos {
 }
 
 /// Solve the Gamma-point real generalized eigenproblem of the converged Fock to
-/// obtain MOs, orbital energies, and integer occupations (gapped systems).
+/// obtain MOs, orbital energies, and canonical Fermi occupations at the SCC temperature.
+/// Gapped zero-temperature systems reduce to integer occupations.
 pub fn gamma_mos(scf: &PbcSccResult, nelec: f64) -> Result<GammaMos> {
     let (h0, s) = scf.bloch.h_s_gamma_real();
     let n = scf.basis.len();
@@ -760,7 +789,11 @@ fn fermi_fill_occupations(energies: &[f64], nelec: f64, kt: f64) -> Vec<f64> {
     // `electronic::fermi_occupations`). The 200 cap stays as the safety bound.
     for _ in 0..200 {
         let mu = 0.5 * (lo + hi);
-        let (next_lo, next_hi) = if count(mu) < nelec { (mu, hi) } else { (lo, mu) };
+        let (next_lo, next_hi) = if count(mu) < nelec {
+            (mu, hi)
+        } else {
+            (lo, mu)
+        };
         if next_lo == lo && next_hi == hi {
             break;
         }
@@ -790,7 +823,7 @@ pub struct KpointMos {
     pub fock: CMatrix,
 }
 
-pub fn kpoint_mos(scf: &PbcSccResult, ik: usize) -> Result<KpointMos> {
+fn kpoint_fock_overlap(scf: &PbcSccResult, ik: usize) -> (CMatrix, CMatrix) {
     let n = scf.basis.len();
     let (h0, s) = &scf.hs_k[ik];
     let mut vao = vec![0.0; n];
@@ -807,7 +840,13 @@ pub fn kpoint_mos(scf: &PbcSccResult, ik: usize) -> Result<KpointMos> {
             fock.im[(i, j)] -= scale * s.im[(i, j)];
         }
     }
-    let eig = crate::pbc::complex::hermitian_generalized_eigen(&fock, s, 1.0e-12)?;
+    (fock, s.clone())
+}
+
+pub fn kpoint_mos(scf: &PbcSccResult, ik: usize) -> Result<KpointMos> {
+    let n = scf.basis.len();
+    let (fock, overlap) = kpoint_fock_overlap(scf, ik);
+    let eig = crate::pbc::complex::hermitian_generalized_eigen(&fock, &overlap, 1.0e-12)?;
     let nfill = scf.nelec.round() as usize;
     let mut occupations = vec![0.0; 2 * n];
     for occ in occupations.iter_mut().take(nfill) {
@@ -816,18 +855,16 @@ pub fn kpoint_mos(scf: &PbcSccResult, ik: usize) -> Result<KpointMos> {
     Ok(KpointMos {
         eig,
         occupations,
-        overlap: s.clone(),
+        overlap,
         fock,
     })
 }
 
-/// Physical complex MOs at a k-point: `n` bands extracted from the `2n`
-/// real-embedding eigensolution. Each physical band is a degenerate embedded
-/// pair `(2p, 2p+1)`; the 2-D real eigenspace is a 1-D complex ray, so *any*
-/// representative `phi = [u; v]` yields a valid `S(k)`-normalised MO
-/// `c = u + i v` (unique up to a global phase that drops out of the density).
-/// Taking the lower index `2p` of each pair gives the band coefficients,
-/// energies, and integer (doubly-occupied) band occupations.
+/// Physical complex MOs from the native n-dimensional Hermitian pencil.
+/// Selecting alternating columns of a real embedding loses complex linear
+/// independence when several physical bands are degenerate. Native complex
+/// eigenvectors remain orthonormal in those blocks. Occupations preserve the
+/// converged mesh-wide filling and chemical potential.
 pub struct KpointComplexMos {
     /// `n x n` complex MO coefficients `C(k)`; column `p` is band `p`.
     pub coeff: CMatrix,
@@ -842,37 +879,45 @@ pub struct KpointComplexMos {
 }
 
 pub fn kpoint_complex_mos(scf: &PbcSccResult, ik: usize) -> Result<KpointComplexMos> {
-    let km = kpoint_mos(scf, ik)?;
     let n = scf.basis.len();
-    let nelec = scf.nelec.round() as usize;
+    let (fock, overlap) = kpoint_fock_overlap(scf, ik);
+    let eig = crate::pbc::complex::native_generalized_eigen(&fock, &overlap, 1e-12)?;
     // Finite-temperature band occupations use the single global Fermi level the
     // SCC already solved over the whole Brillouin zone: occ = 2 f(eps, mu, kt).
     // For kt = 0 (or a gapped band, where exp underflows) this is the integer fill.
     let kt = scf.electronic_temperature.max(0.0) * BOLTZMANN_HARTREE_PER_K;
-    let mut coeff = CMatrix::zeros(n);
-    let mut energies = vec![0.0; n];
     let mut occupations = vec![0.0; n];
+    let occupied_metric = if kt <= 0.0 {
+        let metric_density = overlap.matmul(&scf.density_k[ik])?.matmul(&overlap)?;
+        Some(
+            eig.vectors
+                .adjoint()
+                .matmul(&metric_density)?
+                .matmul(&eig.vectors)?,
+        )
+    } else {
+        None
+    };
     for p in 0..n {
-        let col = 2 * p; // representative of the degenerate embedded pair
-        for mu in 0..n {
-            coeff.re[(mu, p)] = km.eig.vectors[(mu, col)]; // u
-            coeff.im[(mu, p)] = km.eig.vectors[(n + mu, col)]; // v
-        }
-        energies[p] = km.eig.values[col];
         occupations[p] = if kt > 0.0 {
-            fermi_occ2(energies[p], scf.fermi_level, kt)
-        } else if col < nelec {
-            2.0
+            fermi_occ2(eig.values[p], scf.fermi_level, kt)
         } else {
-            0.0
+            let value = occupied_metric.as_ref().unwrap().re[(p, p)];
+            if value.abs() < 1e-10 {
+                0.0
+            } else if (value - 2.0).abs() < 1e-10 {
+                2.0
+            } else {
+                value
+            }
         };
     }
     Ok(KpointComplexMos {
-        coeff,
-        energies,
+        coeff: eig.vectors,
+        energies: eig.values,
         occupations,
-        overlap: km.overlap,
-        fock: km.fock,
+        overlap,
+        fock,
     })
 }
 
@@ -1150,8 +1195,9 @@ fn solve_kpoint_cpxtb_pcg(
     let rhs_norm = kcpxtb_dot(kdata, rhs_re, rhs_im, rhs_re, rhs_im)
         .sqrt()
         .max(1.0);
-    let tol = 1.0e-10 * rhs_norm;
-    let max_iter = (4 * total).clamp(50, 2000);
+    let cp = crate::resources::current_cp();
+    let tol = cp.residual_target(0., 1e-10, rhs_norm);
+    let max_iter = cp.iterations((4 * total).clamp(50, 2000));
     let (mut ap_re, mut ap_im) = kcpxtb_zeros(kdata);
     for _ in 0..max_iter {
         let rnorm = kcpxtb_dot(kdata, &r_re, &r_im, &r_re, &r_im).sqrt();
@@ -1189,6 +1235,19 @@ fn solve_kpoint_cpxtb_pcg(
         }
         rz = rz_new;
     }
+    kpoint_cpxtb_matvec(kdata, kernel, nsh, u_re, u_im, &mut ap_re, &mut ap_im)?;
+    for ik in 0..nk {
+        for row in 0..kdata[ik].pairs.len() {
+            ap_re[ik][row] -= rhs_re[ik][row];
+            ap_im[ik][row] -= rhs_im[ik][row];
+        }
+    }
+    let residual = kcpxtb_dot(kdata, &ap_re, &ap_im, &ap_re, &ap_im).sqrt();
+    if !residual.is_finite() || residual > tol {
+        return Err(Gfn1Error::LinearAlgebra(format!(
+            "k-mesh CP residual {residual:e} exceeds {tol:e} after at most {max_iter} iterations"
+        )));
+    }
     Ok(())
 }
 
@@ -1201,14 +1260,6 @@ pub fn kpoint_cpxtb_density_responses(
     couple: bool,
 ) -> Result<(Vec<Vec<CMatrix>>, Vec<Vec<CMatrix>>, Vec<Vec<f64>>)> {
     let nk = scf.kpoints.len();
-    let nat = system.atoms.len();
-    let ndof = 3 * nat;
-    let n = scf.basis.len();
-    let nsh = scf.basis.shells.len();
-
-    let kdata: Vec<KCpxtbData> = (0..nk)
-        .map(|ik| build_kcpxtb_data(scf, ik))
-        .collect::<Result<_>>()?;
     let skeletons: Vec<KpointSkeleton> = (0..nk)
         .map(|ik| {
             kpoint_skeleton_derivatives(
@@ -1220,6 +1271,35 @@ pub fn kpoint_cpxtb_density_responses(
                 scf.kpoints[ik].fractional,
             )
         })
+        .collect::<Result<_>>()?;
+    kpoint_cpxtb_from_skeletons(scf, &skeletons, couple)
+}
+
+/// Canonical CP response for any analytic operator perturbations. Coordinates
+/// may be nuclear displacements, homogeneous strain, or a physical field.
+pub(crate) fn kpoint_cpxtb_from_skeletons(
+    scf: &PbcSccResult,
+    skeletons: &[KpointSkeleton],
+    couple: bool,
+) -> Result<(Vec<Vec<CMatrix>>, Vec<Vec<CMatrix>>, Vec<Vec<f64>>)> {
+    let nk = scf.kpoints.len();
+    let ndof = skeletons.first().map_or(0, |s| s.overlap.len());
+    let n = scf.basis.len();
+    let nsh = scf.basis.shells.len();
+    if nk == 0
+        || skeletons.len() != nk
+        || skeletons.iter().any(|s| {
+            s.overlap.len() != ndof
+                || s.fock.len() != ndof
+                || s.overlap.iter().chain(&s.fock).any(|m| m.n != n)
+        })
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "periodic CP skeleton dimension mismatch".into(),
+        ));
+    }
+    let kdata: Vec<KCpxtbData> = (0..nk)
+        .map(|ik| build_kcpxtb_data(scf, ik))
         .collect::<Result<_>>()?;
     let kernel = periodic_response_kernel(scf);
 
@@ -1257,7 +1337,7 @@ pub fn kpoint_cpxtb_density_responses(
             let (dp_k, dw_k, dq_total) = kpoint_finite_temperature_response_dof(
                 scf,
                 &kdata,
-                &skeletons,
+                skeletons,
                 &kernel,
                 dielectric.as_ref(),
                 y,
@@ -1730,7 +1810,7 @@ impl PeriodicChargeDielectric {
             }
             residual = residual.max(row.abs());
         }
-        let tolerance = 1.0e-9 * scale;
+        let tolerance = crate::resources::current_cp().residual_target(0., 1e-9, scale);
         if residual > tolerance {
             return Err(Gfn1Error::LinearAlgebra(format!(
                 "periodic finite-temperature dielectric solve did not satisfy its own \
@@ -1964,22 +2044,12 @@ fn kpoint_finite_temperature_response_dof(
 /// Periodic SCC response kernel `K_ij = dV_i/dq_j = Gamma_ij + on-site third
 /// order`, used as the CPXTB coupling matrix.
 pub fn periodic_response_kernel(scf: &PbcSccResult) -> Matrix {
-    let model = &scf.shell_model;
-    let mut kernel = scf.gamma.clone();
-    for (atom, &qat) in scf.atomic_charges.iter().enumerate() {
-        let count = model.atom_shell_counts[atom];
-        if count == 0 {
-            continue;
-        }
-        let offset = model.atom_offsets[atom];
-        let add = 2.0 * qat * model.hubbard_derivs[offset];
-        for li in 0..count {
-            for lj in 0..count {
-                kernel[(offset + li, offset + lj)] += add;
-            }
-        }
-    }
-    kernel
+    crate::electronic::scc_response_kernel(
+        &scf.gamma,
+        &scf.shell_model,
+        &scf.basis,
+        &scf.shell_charges,
+    )
 }
 
 /// Occupied-virtual pair list for the CPXTB (gapped systems: occ in {0,2}).
@@ -2145,7 +2215,7 @@ pub fn gamma_cpxtb_density_responses(
             rhs[row] -= 0.5 * add;
         }
 
-        let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-9, 200);
+        let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-9, 200)?;
 
         // AO density response: occ-virt part + metric part.
         let mut density = Matrix::zeros(n, n);
@@ -2238,7 +2308,7 @@ pub(crate) fn gamma_cpxtb_response_directional(
         rhs[row] -= 0.5 * add;
     }
 
-    let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-9, 200);
+    let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-9, 200)?;
 
     let mut density = Matrix::zeros(n, n);
     for (row, &(i, a)) in pairs.iter().enumerate() {
@@ -2257,7 +2327,14 @@ pub(crate) fn gamma_cpxtb_response_directional(
     add_in_place(&mut density, &metric_density);
 
     let weighted = weighted_density_response(
-        mos, fock1, overlap1, &u, &pairs, &kernel, &transition, basis,
+        mos,
+        fock1,
+        overlap1,
+        &u,
+        &pairs,
+        &kernel,
+        &transition,
+        basis,
     );
     let shell = density_shell_charges(basis, mos, &density, overlap1);
     Ok((density, weighted, shell))
@@ -2322,6 +2399,11 @@ pub fn pbc_kpoint_tda_excitation_gradient(
     labels: &[(usize, usize)],
     coupling: f64,
 ) -> Result<Vec<Vec3>> {
+    if scf.ml_parameters.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "periodic ML TDA excited-state gradients are not implemented".into(),
+        ));
+    }
     let basis = &scf.basis;
     let n = basis.len();
     let nat = system.atoms.len();
@@ -2406,7 +2488,14 @@ pub fn pbc_kpoint_tda_excitation_gradient(
     // kernel; metric occ-occ density from S^1).
     let skeletons: Vec<KpointSkeleton> = (0..nk)
         .map(|ik| {
-            kpoint_skeleton_derivatives(system, params, scf, options, pbc, scf.kpoints[ik].fractional)
+            kpoint_skeleton_derivatives(
+                system,
+                params,
+                scf,
+                options,
+                pbc,
+                scf.kpoints[ik].fractional,
+            )
         })
         .collect::<Result<_>>()?;
 
@@ -2562,8 +2651,9 @@ pub fn pbc_kpoint_tda_excitation_gradient(
     // ---- (2) Kernel-derivative term c d(P^T gamma P)/dR (computed once). ----
     let mut out = vec![Vec3::zero(); nat];
     if coupling != 0.0 {
-        let kern_grad =
-            crate::pbc::gradient::transition_kernel_gamma_gradient(system, scf, pbc, &lattice, &p_shell);
+        let kern_grad = crate::pbc::gradient::transition_kernel_gamma_gradient(
+            system, scf, pbc, &lattice, &p_shell,
+        );
         for atom in 0..nat {
             out[atom] += kern_grad[atom] * (2.0 * coupling);
         }
@@ -2605,7 +2695,8 @@ pub fn pbc_kpoint_tda_excitation_gradient(
                     let (fii, _) = cmo_pair(&kd.mos.coeff, &fc, i, i);
                     let (saa, _) = cmo_pair(&kd.mos.coeff, &sc1, a, a);
                     let (sii, _) = cmo_pair(&kd.mos.coeff, &sc1, i, i);
-                    value += x * x
+                    value += x
+                        * x
                         * ((faa - kd.mos.energies[a] * saa) - (fii - kd.mos.energies[i] * sii));
                 }
 
@@ -2780,7 +2871,9 @@ fn solve_ktda_cpxtb_pcg(
         (v.clone(), v)
     };
     let (mut mu_re, mut mu_im) = zeros();
-    ktda_cpxtb_matvec(kdata, &couple, kernel, nsh, u_re, u_im, &mut mu_re, &mut mu_im)?;
+    ktda_cpxtb_matvec(
+        kdata, &couple, kernel, nsh, u_re, u_im, &mut mu_re, &mut mu_im,
+    )?;
     let (mut r_re, mut r_im) = zeros();
     for ik in 0..nk {
         for row in 0..kdata[ik].pairs.len() {
@@ -2802,16 +2895,21 @@ fn solve_ktda_cpxtb_pcg(
     apply_precond(&r_re, &r_im, &mut z_re, &mut z_im);
     let (mut p_re, mut p_im) = (z_re.clone(), z_im.clone());
     let mut rz = ktda_dot(kdata, &r_re, &r_im, &z_re, &z_im);
-    let rhs_norm = ktda_dot(kdata, rhs_re, rhs_im, rhs_re, rhs_im).sqrt().max(1.0);
-    let tol = 1.0e-11 * rhs_norm;
-    let max_iter = (4 * total).clamp(50, 4000);
+    let rhs_norm = ktda_dot(kdata, rhs_re, rhs_im, rhs_re, rhs_im)
+        .sqrt()
+        .max(1.0);
+    let cp = crate::resources::current_cp();
+    let tol = cp.residual_target(0., 1e-11, rhs_norm);
+    let max_iter = cp.iterations((4 * total).clamp(50, 4000));
     let (mut ap_re, mut ap_im) = zeros();
     for _ in 0..max_iter {
         let rnorm = ktda_dot(kdata, &r_re, &r_im, &r_re, &r_im).sqrt();
         if !rnorm.is_finite() || rnorm <= tol {
             break;
         }
-        ktda_cpxtb_matvec(kdata, &couple, kernel, nsh, &p_re, &p_im, &mut ap_re, &mut ap_im)?;
+        ktda_cpxtb_matvec(
+            kdata, &couple, kernel, nsh, &p_re, &p_im, &mut ap_re, &mut ap_im,
+        )?;
         let pap = ktda_dot(kdata, &p_re, &p_im, &ap_re, &ap_im);
         if !(pap.is_finite() && pap.abs() > 1.0e-30) {
             break;
@@ -2838,6 +2936,19 @@ fn solve_ktda_cpxtb_pcg(
             }
         }
         rz = rz_new;
+    }
+    ktda_cpxtb_matvec(
+        kdata, &couple, kernel, nsh, u_re, u_im, &mut ap_re, &mut ap_im,
+    )?;
+    for ik in 0..nk {
+        for row in 0..kdata[ik].pairs.len() {
+            ap_re[ik][row] -= rhs_re[ik][row];
+            ap_im[ik][row] -= rhs_im[ik][row];
+        }
+    }
+    let residual = ktda_dot(kdata, &ap_re, &ap_im, &ap_re, &ap_im).sqrt();
+    if !residual.is_finite() || residual > tol {
+        return Err(Gfn1Error::LinearAlgebra(format!("k-mesh TDA CP residual {residual:e} exceeds {tol:e} after at most {max_iter} iterations")));
     }
     Ok(())
 }
@@ -2974,6 +3085,11 @@ pub fn pbc_gamma_tda_excitation_gradient(
     amplitudes: &[f64],
     coupling: f64,
 ) -> Result<Vec<Vec3>> {
+    if scf.ml_parameters.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "periodic ML TDA excited-state gradients are not implemented".into(),
+        ));
+    }
     let basis = &scf.basis;
     let n = basis.len();
     let nat = system.atoms.len();
@@ -3055,7 +3171,7 @@ pub fn pbc_gamma_tda_excitation_gradient(
             let add: f64 = qia.iter().zip(&metric_pot).map(|(&q, &v)| q * v).sum();
             rhs[row] -= 0.5 * add;
         }
-        let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-10, 400);
+        let u = solve_pcg(&matvec, &rhs, &gaps, 1.0e-10, 400)?;
 
         let mut density = Matrix::zeros(n, n);
         for (row, &(i, a)) in pairs.iter().enumerate() {
@@ -3111,9 +3227,8 @@ pub fn pbc_gamma_tda_excitation_gradient(
     // built once per DOF and shared between the two terms. The C^T M C MO matrices
     // are formed by two matmuls (O(n^3)) rather than element-wise (O(n^4)).
     let nmo = mos.coeff.cols();
-    let occ_set: std::collections::HashSet<usize> = (0..nmo)
-        .filter(|&p| mos.occupations[p] > 1.0e-8)
-        .collect();
+    let occ_set: std::collections::HashSet<usize> =
+        (0..nmo).filter(|&p| mos.occupations[p] > 1.0e-8).collect();
     let sc = mos.overlap.matmul(&mos.coeff)?;
     let ct = mos.coeff.transpose();
     let per_dof: Vec<Vec3> = (0..ndof)
@@ -3615,20 +3730,28 @@ fn add_in_place(dst: &mut Matrix, src: &Matrix) {
     }
 }
 
-fn solve_pcg<F>(matvec: &F, rhs: &[f64], precond: &[f64], tol: f64, max_iter: usize) -> Vec<f64>
+fn solve_pcg<F>(
+    matvec: &F,
+    rhs: &[f64],
+    precond: &[f64],
+    tol: f64,
+    max_iter: usize,
+) -> Result<Vec<f64>>
 where
     F: Fn(&[f64]) -> Vec<f64>,
 {
     let n = rhs.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let inv: Vec<f64> = precond
         .iter()
         .map(|&d| if d.abs() > 1.0e-6 { 1.0 / d } else { 1.0e6 })
         .collect();
     let rhs_norm = rhs.iter().map(|v| v * v).sum::<f64>().sqrt().max(1.0);
-    let target = tol * rhs_norm;
+    let cp = crate::resources::current_cp();
+    let target = cp.residual_target(0., tol, rhs_norm);
+    let max_iter = cp.iterations(max_iter);
     let mut x = vec![0.0; n];
     let mut r = rhs.to_vec();
     let mut z: Vec<f64> = r.iter().zip(&inv).map(|(&ri, &mi)| ri * mi).collect();
@@ -3659,7 +3782,45 @@ where
         }
         rz = rz_next;
     }
-    x
+    let actual = matvec(&x);
+    let residual = actual
+        .iter()
+        .zip(rhs)
+        .map(|(a, b)| (a - b).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    if !residual.is_finite() || residual > target {
+        return Err(Gfn1Error::LinearAlgebra(format!("periodic CP residual {residual:e} exceeds {target:e} after at most {max_iter} iterations")));
+    }
+    Ok(x)
+}
+
+#[cfg(test)]
+mod cp_control_tests {
+    use super::*;
+    #[test]
+    fn configured_iteration_budget_is_enforced_on_the_cp_equation() {
+        let apply = |x: &[f64]| vec![4. * x[0] + x[1], x[0] + 3. * x[1]];
+        let solve = || solve_pcg(&apply, &[1., 2.], &[4., 3.], 1e-12, 100);
+        let result = solve().unwrap();
+        assert!((result[0] - 1. / 11.).abs() < 1e-14 && (result[1] - 7. / 11.).abs() < 1e-14);
+        let error = crate::resources::CpSettings {
+            max_iterations: Some(1),
+            ..Default::default()
+        }
+        .run(solve)
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("after at most 1 iterations"), "{error}");
+        let result = crate::resources::CpSettings {
+            max_iterations: Some(8),
+            absolute_tolerance: Some(1e-13),
+            relative_tolerance: Some(1e-13),
+        }
+        .run(solve)
+        .unwrap();
+        assert!((result[0] - 1. / 11.).abs() < 1e-14 && (result[1] - 7. / 11.).abs() < 1e-14);
+    }
 }
 
 /// Convenience: run the periodic SCC and build the skeleton derivatives.
@@ -3677,6 +3838,8 @@ pub fn gamma_skeleton_from_scratch(
 /// Result of a Gamma-point analytic Hessian calculation.
 #[derive(Clone, Debug)]
 pub struct PbcHessianResult {
+    /// Largest |H_xy-H_yx| before numerical symmetrization (Eh/bohr^2).
+    pub raw_max_asymmetry: f64,
     pub scf: PbcSccResult,
     pub hessian: Matrix,
 }
@@ -4842,6 +5005,50 @@ pub fn pbc_gamma_hessian(
     options: &ElectronicOptions,
     pbc: &PbcOptions,
 ) -> Result<PbcHessianResult> {
+    crate::resources::preflight_response(system, params, options, 1, false)?;
+    let span = options
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "periodic_gamma_dfpt_hessian",
+                serde_json::json!({"atoms":system.atoms.len(),"kmesh":pbc.kmesh.size}),
+            )
+        })
+        .transpose()?;
+    crate::logging::finish(
+        span,
+        pbc_gamma_hessian_impl(system, params, options, pbc),
+        |h| serde_json::json!({"degrees_of_freedom":h.hessian.rows(),"converged":h.scf.converged}),
+    )
+}
+fn pbc_gamma_hessian_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+) -> Result<PbcHessianResult> {
+    if options.spin_multiplicity.is_some_and(|m| m != 1) {
+        return pbc_gamma_hessian_legacy(system, params, options, pbc);
+    }
+    let scf = run_pbc_scc(system, params, options, pbc)?;
+    let response =
+        crate::pbc::soc_response::scalar_nuclear_responses(system, params, options, pbc, &scf)?;
+    hessian_from_responses(
+        system,
+        params,
+        options,
+        pbc,
+        scf,
+        (response.density, response.weighted, response.charges),
+    )
+}
+fn pbc_gamma_hessian_legacy(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+) -> Result<PbcHessianResult> {
     let _profile = crate::profile::scope("pbc.hessian.total");
     let scf = run_pbc_scc(system, params, options, pbc)?;
     let skeleton = {
@@ -4933,6 +5140,10 @@ pub fn pbc_gamma_hessian(
     // reused across all DOFs.
     let _p_resp = crate::profile::scope("pbc.hessian.response_columns");
     let band_pairs = build_response_band_pairs(system, params, &scf, &ground.p, pbc)?;
+    let ml_response = crate::pbc::ml::NuclearResponse::build(system, params, &scf, pbc)?;
+    if let Some(response) = &ml_response {
+        response.add_frozen(&mut hessian);
+    }
     for y in 0..ndof {
         let dq = density_shell_charges(basis, &mos, &dp[y], &skeleton.overlap[y]);
         // Gamma: dP(T)=dP(Gamma) for all images, so reuse the single matrix
@@ -4954,8 +5165,21 @@ pub fn pbc_gamma_hessian(
             hessian[(3 * atom + 1, y)] += col[atom].y;
             hessian[(3 * atom + 2, y)] += col[atom].z;
         }
+        if let Some(response) = &ml_response {
+            let mut density = CMatrix::zeros(basis.len());
+            density.re = dp[y].clone();
+            let sensitivity =
+                crate::pbc::ml::sensitivities_with_density(system, params, &scf, &[density])?;
+            response.response_column(y, &sensitivity, &mut hessian);
+        }
     }
 
+    let mut raw_max_asymmetry = 0_f64;
+    for i in 0..ndof {
+        for j in 0..i {
+            raw_max_asymmetry = raw_max_asymmetry.max((hessian[(i, j)] - hessian[(j, i)]).abs());
+        }
+    }
     // Symmetrize.
     for i in 0..ndof {
         for j in 0..i {
@@ -4965,7 +5189,11 @@ pub fn pbc_gamma_hessian(
         }
     }
 
-    Ok(PbcHessianResult { scf, hessian })
+    Ok(PbcHessianResult {
+        scf,
+        hessian,
+        raw_max_asymmetry,
+    })
 }
 
 /// Full k-point analytic Hessian. Identical in structure to [`pbc_gamma_hessian`]
@@ -4987,8 +5215,59 @@ pub fn pbc_kpoint_hessian(
     options: &ElectronicOptions,
     pbc: &PbcOptions,
 ) -> Result<PbcHessianResult> {
-    let _profile = crate::profile::scope("pbc.kpoint_hessian.total");
+    crate::resources::preflight_response(
+        system,
+        params,
+        options,
+        pbc.kmesh.size.into_iter().product(),
+        false,
+    )?;
+    let span = options
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "periodic_kpoint_dfpt_hessian",
+                serde_json::json!({"atoms":system.atoms.len(),"kmesh":pbc.kmesh.size}),
+            )
+        })
+        .transpose()?;
+    crate::logging::finish(
+        span,
+        pbc_kpoint_hessian_impl(system, params, options, pbc),
+        |h| serde_json::json!({"degrees_of_freedom":h.hessian.rows(),"converged":h.scf.converged}),
+    )
+}
+fn pbc_kpoint_hessian_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+) -> Result<PbcHessianResult> {
     let scf = run_pbc_scc(system, params, options, pbc)?;
+    let response = if options.spin_multiplicity.is_some_and(|m| m != 1) {
+        kpoint_cpxtb_density_responses(system, params, &scf, options, pbc, true)?
+    } else {
+        let r =
+            crate::pbc::soc_response::scalar_nuclear_responses(system, params, options, pbc, &scf)?;
+        (r.density, r.weighted, r.charges)
+    };
+    hessian_from_responses(system, params, options, pbc, scf, response)
+}
+
+/// Shared periodic energy Hessian assembly. A physical spinor backend can
+/// supply spin-traced dP and SOC-corrected dW without being misinterpreted by
+/// the scalar real-embedding CP solver. The frozen geometry/classical terms
+/// and force-adjoint contractions remain shared with the scalar path.
+pub(crate) fn hessian_from_responses(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+    scf: PbcSccResult,
+    response: (Vec<Vec<CMatrix>>, Vec<Vec<CMatrix>>, Vec<Vec<f64>>),
+) -> Result<PbcHessianResult> {
+    let _profile = crate::profile::scope("pbc.kpoint_hessian.total");
     let skeleton = gamma_skeleton_derivatives(system, params, &scf, options, pbc)?;
     let lattice = system.lattice.as_ref().copied().unwrap();
     let nat = system.atoms.len();
@@ -5068,13 +5347,14 @@ pub fn pbc_kpoint_hessian(
 
     // Coupled k-point CPXTB: dP(k)/dW(k) per DOF and the shell-charge response dq.
     let kernel = periodic_response_kernel(&scf);
-    let (dp_k, dw_k, dq) = {
-        let _p = crate::profile::scope("pbc.kpoint_hessian.cphf");
-        kpoint_cpxtb_density_responses(system, params, &scf, options, pbc, true)?
-    };
+    let (dp_k, dw_k, dq) = response;
 
     // Response columns: back-transform dP(k)/dW(k) to real space and contract.
     // The band/Pulay geometry is precomputed once and reused across all DOFs.
+    let ml_response = crate::pbc::ml::NuclearResponse::build(system, params, &scf, pbc)?;
+    if let Some(response) = &ml_response {
+        response.add_frozen(&mut hessian);
+    }
     {
         let _p = crate::profile::scope("pbc.kpoint_hessian.response_columns");
         let band_pairs = build_response_band_pairs(system, params, &scf, &ground.p, pbc)?;
@@ -5098,9 +5378,20 @@ pub fn pbc_kpoint_hessian(
                 hessian[(3 * atom + 1, y)] += col[atom].y;
                 hessian[(3 * atom + 2, y)] += col[atom].z;
             }
+            if let Some(response) = &ml_response {
+                let sensitivity =
+                    crate::pbc::ml::sensitivities_with_density(system, params, &scf, &dp_k[y])?;
+                response.response_column(y, &sensitivity, &mut hessian);
+            }
         }
     }
 
+    let mut raw_max_asymmetry = 0_f64;
+    for i in 0..ndof {
+        for j in 0..i {
+            raw_max_asymmetry = raw_max_asymmetry.max((hessian[(i, j)] - hessian[(j, i)]).abs());
+        }
+    }
     // Symmetrize.
     for i in 0..ndof {
         for j in 0..i {
@@ -5110,12 +5401,64 @@ pub fn pbc_kpoint_hessian(
         }
     }
 
-    Ok(PbcHessianResult { scf, hessian })
+    Ok(PbcHessianResult {
+        scf,
+        hessian,
+        raw_max_asymmetry,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_charge_space_matches_independent_legacy_gamma_density_and_hessian() {
+        let params = Gfn1Parameters::builtin().unwrap();
+        let system=PeriodicSystem::from_xyz_str("3\nLattice=\"9 0 0 0 9 0 0 0 9\" pbc=\"T T T\"\nO .1 .2 0\nH .95 .73 .03\nH -.64 .86 -.04\n",0.,false).unwrap();
+        let pbc = PbcOptions {
+            ao_cutoff: 20.,
+            ..Default::default()
+        };
+        for temperature in [0., 50000.] {
+            let options = ElectronicOptions {
+                electronic_temperature: temperature,
+                energy_tolerance: 1e-12,
+                charge_tolerance: 1e-10,
+                ..Default::default()
+            };
+            let scf = run_pbc_scc(&system, &params, &options, &pbc).unwrap();
+            let skeleton =
+                gamma_skeleton_derivatives(&system, &params, &scf, &options, &pbc).unwrap();
+            let mos = gamma_mos(&scf, scf.nelec).unwrap();
+            let (dp, dw) = gamma_cpxtb_density_responses(&scf, &skeleton, &mos).unwrap();
+            let direct = crate::pbc::soc_response::scalar_nuclear_responses(
+                &system, &params, &options, &pbc, &scf,
+            )
+            .unwrap();
+            for y in 0..9 {
+                for i in 0..scf.basis.len() {
+                    for j in 0..scf.basis.len() {
+                        assert!((dp[y][(i, j)] - direct.density[y][0].re[(i, j)]).abs() < 2e-7);
+                        assert!((dw[y][(i, j)] - direct.weighted[y][0].re[(i, j)]).abs() < 2e-7);
+                    }
+                }
+            }
+            let legacy = pbc_gamma_hessian_legacy(&system, &params, &options, &pbc).unwrap();
+            let native = pbc_gamma_hessian(&system, &params, &options, &pbc).unwrap();
+            let error = legacy
+                .hessian
+                .as_slice()
+                .iter()
+                .zip(native.hessian.as_slice())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0., f64::max);
+            assert!(
+                error < 2e-7,
+                "native/legacy periodic Hessian difference {error:e}, T={temperature}"
+            );
+        }
+    }
 
     fn load_params() -> Option<Gfn1Parameters> {
         Some(Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed"))
@@ -7081,6 +7424,9 @@ mod tests {
             }
             worst = worst.max((q[s] - fixed_point).abs());
         }
-        assert!(worst < 1.0e-15, "dielectric fixed-point residual {worst:.3e}");
+        assert!(
+            worst < 1.0e-15,
+            "dielectric fixed-point residual {worst:.3e}"
+        );
     }
 }

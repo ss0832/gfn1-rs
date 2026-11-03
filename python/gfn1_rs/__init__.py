@@ -33,6 +33,7 @@ from .native import (  # noqa: F401
     default_param_path,
     roundtrip_param_file,
 )
+from .training import create_ml_model, train_ml_model
 
 
 try:
@@ -55,4 +56,6 @@ __all__ = [
     "GFN1RSCalculator",
     "roundtrip_param_file",
     "default_param_path",
+    "create_ml_model",
+    "train_ml_model",
 ]

@@ -1,0 +1,81 @@
+{
+  "schema": "gfn1-rs-independent-water-reproduction-v1",
+  "status": "pass",
+  "python_distribution_version": "0.6.0.dev1",
+  "reference_method": "PBE0/def2-SVP",
+  "generator_versions": {
+    "numpy": "2.5.4",
+    "pyscf": "2.14.0",
+    "python": "3.12.15",
+    "scipy": "1.18.1"
+  },
+  "reference_structures": 28,
+  "maximum_label_differences": {
+    "total_energy_hartree": 6.821210263296962e-13,
+    "gradient_hartree_per_bohr": 3.823608096809039e-13,
+    "dipole_e_bohr": 3.6486369481281145e-12,
+    "relative_energy_hartree": 7.105427357601002e-13
+  },
+  "splits": {
+    "train": {
+      "baseline": {
+        "relative_energy_cases": 14,
+        "relative_energy_rmse_hartree": 0.006195101358872092,
+        "gradient_components": 234,
+        "gradient_rmse_hartree_per_bohr": 0.005292727514850932,
+        "dipole_components": 42,
+        "dipole_rmse_e_bohr": 0.05493242813356665
+      },
+      "model": {
+        "relative_energy_cases": 14,
+        "relative_energy_rmse_hartree": 0.0005685308081851923,
+        "gradient_components": 234,
+        "gradient_rmse_hartree_per_bohr": 0.0028083801943370153,
+        "dipole_components": 42,
+        "dipole_rmse_e_bohr": 0.031736846680481
+      }
+    },
+    "validation": {
+      "baseline": {
+        "relative_energy_cases": 8,
+        "relative_energy_rmse_hartree": 0.013786752361198517,
+        "gradient_components": 180,
+        "gradient_rmse_hartree_per_bohr": 0.005305552535430065,
+        "dipole_components": 24,
+        "dipole_rmse_e_bohr": 0.050627146610385795
+      },
+      "model": {
+        "relative_energy_cases": 8,
+        "relative_energy_rmse_hartree": 0.007579775754641857,
+        "gradient_components": 180,
+        "gradient_rmse_hartree_per_bohr": 0.0029758409185898583,
+        "dipole_components": 24,
+        "dipole_rmse_e_bohr": 0.029570054534280483
+      }
+    },
+    "extrapolation": {
+      "baseline": {
+        "relative_energy_cases": 5,
+        "relative_energy_rmse_hartree": 0.015442971335847652,
+        "gradient_components": 126,
+        "gradient_rmse_hartree_per_bohr": 0.005136722690305976,
+        "dipole_components": 15,
+        "dipole_rmse_e_bohr": 0.04058544892963101
+      },
+      "model": {
+        "relative_energy_cases": 5,
+        "relative_energy_rmse_hartree": 0.015077372074058945,
+        "gradient_components": 126,
+        "gradient_rmse_hartree_per_bohr": 0.004678847877577858,
+        "dipole_components": 15,
+        "dipole_rmse_e_bohr": 0.022438694369129958
+      }
+    }
+  },
+  "original_dataset_sha256": "071e215e35a7dc48a63e708558d10ad780db5cb227203187f173f2dafe15e2ca",
+  "regenerated_dataset_sha256": "bfde0267431d3ad8bfc0a1b7eb5ae3d4e4576b5c0b2a40bb9a61af09f2183f68",
+  "model_sha256": "5450b55436e10608a22064cfeb03541865d7efd8d9ab4f56d450b36514bbf819",
+  "serialized_model_bytes": 2869,
+  "generator_sha256": "75216482f56f94f62398cfb4c1bf685d648a0fbd32aba464115f81677fbd9c3d",
+  "scope": "Fresh independent PBE0/def2-SVP labels including analytic grid-response gradients and total dipoles; inherited embedded weights reevaluated without fitting; every tetramer remains held out"
+}

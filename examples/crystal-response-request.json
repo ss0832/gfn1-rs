@@ -1,0 +1,39 @@
+{
+  "schema": "gfn1-rs-crystal-properties-v1",
+  "geometry": {
+    "numbers": [11, 17],
+    "positions": [[0, 0, 0], [2.82, 0, 0]],
+    "cell": [[0, 2.82, 2.82], [2.82, 0, 2.82], [2.82, 2.82, 0]],
+    "coordinate_units": "angstrom",
+    "charge": 0
+  },
+  "electronic": {
+    "temperature_kelvin": 300,
+    "energy_tolerance_hartree": 1e-13,
+    "charge_tolerance": 1e-11,
+    "max_scc": 1000,
+    "scc_accelerator": "auto"
+  },
+  "periodic": {
+    "kmesh": [2, 2, 2],
+    "gamma_centered": true,
+    "fold_time_reversal": false,
+    "ao_cutoff_bohr": 30
+  },
+  "tasks": [
+    {"id": "response", "operation": "electromechanical_response", "arguments": {"masses_amu": [22.989769, 35.45]}},
+    {
+      "id": "lo100",
+      "operation": "lo_to_modes",
+      "arguments": {
+        "hessian_hartree_per_bohr2": {"$ref": "response#/elastic/nuclear_hessian_hartree_per_bohr2"},
+        "born_effective_charges": {"$ref": "response#/berry/born_effective_charges"},
+        "electronic_relative_dielectric": {"$ref": "response#/electronic/electronic_relative_dielectric"},
+        "volume_bohr3": {"$ref": "response#/berry/volume_bohr3"},
+        "masses_amu": [22.989769, 35.45],
+        "direction": [1, 0, 0]
+      }
+    },
+    {"id": "bands", "operation": "band_structure", "arguments": {"kpoints_fractional": [[0, 0, 0], [0.5, 0, 0], [0.5, 0.5, 0.5]]}}
+  ]
+}

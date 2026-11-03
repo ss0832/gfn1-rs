@@ -1,0 +1,1877 @@
+{
+  "cases": [
+    {
+      "charge": 0,
+      "electronic_temperature_kelvin": 300,
+      "name": "water",
+      "numbers": [
+        8,
+        1,
+        1
+      ],
+      "positions_angstrom": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.757,
+          0.586,
+          0
+        ],
+        [
+          -0.757,
+          0.586,
+          0
+        ]
+      ],
+      "spin": "singlet",
+      "stda_basis_size": 18,
+      "stda_decomposition": [
+        {
+          "energy_ev": 7.513430887699379,
+          "gap_expectation_ev": 14.347342162046147,
+          "response_selection_expectation_ev": -6.833911274346767,
+          "unshifted_gap_expectation_ev": 11.247342162046147,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.957503377306537,
+          "gap_expectation_ev": 15.756121091985245,
+          "response_selection_expectation_ev": -6.7986177146787075,
+          "unshifted_gap_expectation_ev": 12.656121091985245,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 9.60603353091983,
+          "gap_expectation_ev": 16.662792239087743,
+          "response_selection_expectation_ev": -7.056758708167912,
+          "unshifted_gap_expectation_ev": 13.562792239087743,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.014359485287464,
+          "gap_expectation_ev": 16.839183497355215,
+          "response_selection_expectation_ev": -6.824824012067751,
+          "unshifted_gap_expectation_ev": 13.739183497355215,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.791272381248607,
+          "gap_expectation_ev": 17.485476554403085,
+          "response_selection_expectation_ev": -6.694204173154478,
+          "unshifted_gap_expectation_ev": 14.385476554403086,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.250841694682652,
+          "gap_expectation_ev": 18.89497471198345,
+          "response_selection_expectation_ev": -6.644133017300799,
+          "unshifted_gap_expectation_ev": 15.794974711983452,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.958385326874158,
+          "gap_expectation_ev": 19.68016322293324,
+          "response_selection_expectation_ev": -6.721777896059081,
+          "unshifted_gap_expectation_ev": 16.580163222933237,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.14115830951893,
+          "gap_expectation_ev": 19.998131994293466,
+          "response_selection_expectation_ev": -6.856973684774536,
+          "unshifted_gap_expectation_ev": 16.898131994293465,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.350946493350158,
+          "gap_expectation_ev": 20.947231384391113,
+          "response_selection_expectation_ev": -6.5962848910409555,
+          "unshifted_gap_expectation_ev": 17.84723138439111,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.49822917860083,
+          "gap_expectation_ev": 21.385777757662606,
+          "response_selection_expectation_ev": -6.887548579061775,
+          "unshifted_gap_expectation_ev": 18.285777757662604,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.709122205315644,
+          "gap_expectation_ev": 22.384574224743197,
+          "response_selection_expectation_ev": -6.675452019427553,
+          "unshifted_gap_expectation_ev": 19.284574224743196,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.531103721054514,
+          "gap_expectation_ev": 23.13505928412853,
+          "response_selection_expectation_ev": -6.603955563074017,
+          "unshifted_gap_expectation_ev": 20.03505928412853,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.851794106667253,
+          "gap_expectation_ev": 23.44190164713125,
+          "response_selection_expectation_ev": -6.590107540463997,
+          "unshifted_gap_expectation_ev": 20.341901647131248,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.96045517994685,
+          "gap_expectation_ev": 23.71977651198675,
+          "response_selection_expectation_ev": -6.7593213320398995,
+          "unshifted_gap_expectation_ev": 20.61977651198675,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.80524990785827,
+          "gap_expectation_ev": 24.647993805850206,
+          "response_selection_expectation_ev": -6.842743897991937,
+          "unshifted_gap_expectation_ev": 21.547993805850204,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.983008094135617,
+          "gap_expectation_ev": 27.02755200192337,
+          "response_selection_expectation_ev": -7.044543907787755,
+          "unshifted_gap_expectation_ev": 23.92755200192337,
+          "virtual_shift_ev": 3.1
+        }
+      ],
+      "stda_max_0_to_300K_excitation_change_ev": 4.0323300254385686e-13,
+      "stda_maximum_occupation_deviation": 8.881784197001252e-16,
+      "stda_xtb": [
+        {
+          "excitation_ev": 7.513430887699379,
+          "oscillator_strength": 0.04209892816975536,
+          "root": 1
+        },
+        {
+          "excitation_ev": 8.957503377306537,
+          "oscillator_strength": 5.378211320599819e-29,
+          "root": 2
+        },
+        {
+          "excitation_ev": 9.60603353091983,
+          "oscillator_strength": 0.0034476717295667246,
+          "root": 3
+        },
+        {
+          "excitation_ev": 10.014359485287464,
+          "oscillator_strength": 0.006348916371882407,
+          "root": 4
+        },
+        {
+          "excitation_ev": 10.791272381248607,
+          "oscillator_strength": 0.10803436355431255,
+          "root": 5
+        },
+        {
+          "excitation_ev": 12.250841694682652,
+          "oscillator_strength": 0.134189553653653,
+          "root": 6
+        },
+        {
+          "excitation_ev": 12.958385326874158,
+          "oscillator_strength": 0.0009748860480519408,
+          "root": 7
+        },
+        {
+          "excitation_ev": 13.14115830951893,
+          "oscillator_strength": 4.702285451658777e-05,
+          "root": 8
+        },
+        {
+          "excitation_ev": 14.350946493350158,
+          "oscillator_strength": 0.06895340601576785,
+          "root": 9
+        },
+        {
+          "excitation_ev": 14.49822917860083,
+          "oscillator_strength": 0.022783678510106337,
+          "root": 10
+        },
+        {
+          "excitation_ev": 15.709122205315644,
+          "oscillator_strength": 0.015204377208345863,
+          "root": 11
+        },
+        {
+          "excitation_ev": 16.531103721054514,
+          "oscillator_strength": 1.4828743281042966e-27,
+          "root": 12
+        },
+        {
+          "excitation_ev": 16.851794106667253,
+          "oscillator_strength": 0.01547606788262735,
+          "root": 13
+        },
+        {
+          "excitation_ev": 16.96045517994685,
+          "oscillator_strength": 3.187562632816628e-29,
+          "root": 14
+        },
+        {
+          "excitation_ev": 17.80524990785827,
+          "oscillator_strength": 0.025757962132657877,
+          "root": 15
+        },
+        {
+          "excitation_ev": 19.983008094135617,
+          "oscillator_strength": 0.06761092732903914,
+          "root": 16
+        }
+      ],
+      "tda": [
+        {
+          "excitation_ev": 9.330131801281999,
+          "oscillator_strength": 2.057705552573165e-32,
+          "root": 1
+        },
+        {
+          "excitation_ev": 10.684754784598022,
+          "oscillator_strength": 0.0004096601846789893,
+          "root": 2
+        },
+        {
+          "excitation_ev": 12.265106690803783,
+          "oscillator_strength": 1.2795021443690198e-30,
+          "root": 3
+        },
+        {
+          "excitation_ev": 12.50558282160394,
+          "oscillator_strength": 0.018471800676084494,
+          "root": 4
+        },
+        {
+          "excitation_ev": 13.58432449867699,
+          "oscillator_strength": 0.0003311139402125557,
+          "root": 5
+        },
+        {
+          "excitation_ev": 15.313459906071056,
+          "oscillator_strength": 0.0003849626185811521,
+          "root": 6
+        },
+        {
+          "excitation_ev": 17.013048752609592,
+          "oscillator_strength": 0.017019206454927858,
+          "root": 7
+        },
+        {
+          "excitation_ev": 19.65780707657798,
+          "oscillator_strength": 0.04771871359664762,
+          "root": 8
+        },
+        {
+          "excitation_ev": 22.817910988464618,
+          "oscillator_strength": 2.3040482087072167e-30,
+          "root": 9
+        },
+        {
+          "excitation_ev": 24.736341139911392,
+          "oscillator_strength": 0.07219786817265025,
+          "root": 10
+        }
+      ],
+      "tda_ao_length": [
+        {
+          "excitation_ev": 9.330131801281999,
+          "oscillator_strength": 0.000635941281119512,
+          "root": 1
+        },
+        {
+          "excitation_ev": 10.684754784598022,
+          "oscillator_strength": 0.012812162240924015,
+          "root": 2
+        },
+        {
+          "excitation_ev": 12.265106690803783,
+          "oscillator_strength": 3.254496707738441e-30,
+          "root": 3
+        },
+        {
+          "excitation_ev": 12.50558282160394,
+          "oscillator_strength": 0.05792790105188538,
+          "root": 4
+        },
+        {
+          "excitation_ev": 13.58432449867699,
+          "oscillator_strength": 0.004670718442550824,
+          "root": 5
+        },
+        {
+          "excitation_ev": 15.313459906071056,
+          "oscillator_strength": 0.005759698796577508,
+          "root": 6
+        },
+        {
+          "excitation_ev": 17.013048752609592,
+          "oscillator_strength": 0.0006558973285621485,
+          "root": 7
+        },
+        {
+          "excitation_ev": 19.65780707657798,
+          "oscillator_strength": 0.003749890527374189,
+          "root": 8
+        },
+        {
+          "excitation_ev": 22.817910988464618,
+          "oscillator_strength": 3.625667843809819e-30,
+          "root": 9
+        },
+        {
+          "excitation_ev": 24.736341139911392,
+          "oscillator_strength": 0.17129329967495796,
+          "root": 10
+        }
+      ],
+      "tda_basis_size": 8,
+      "tda_decomposition": [
+        {
+          "energy_ev": 9.330131801281999,
+          "gap_expectation_ev": 9.330131801281999,
+          "response_expectation_ev": -1.510535377113209e-15
+        },
+        {
+          "energy_ev": 10.684754784598022,
+          "gap_expectation_ev": 10.673607405112353,
+          "response_expectation_ev": 0.011147379485667783
+        },
+        {
+          "energy_ev": 12.265106690803783,
+          "gap_expectation_ev": 12.265106690803782,
+          "response_expectation_ev": 1.510535377113209e-15
+        },
+        {
+          "energy_ev": 12.50558282160394,
+          "gap_expectation_ev": 12.429578517438006,
+          "response_expectation_ev": 0.07600430416593434
+        },
+        {
+          "energy_ev": 13.58432449867699,
+          "gap_expectation_ev": 13.583070282758497,
+          "response_expectation_ev": 0.0012542159184924595
+        },
+        {
+          "energy_ev": 15.313459906071056,
+          "gap_expectation_ev": 15.307255903342158,
+          "response_expectation_ev": 0.006204002728898204
+        },
+        {
+          "energy_ev": 17.013048752609592,
+          "gap_expectation_ev": 16.85492556872578,
+          "response_expectation_ev": 0.15812318388381183
+        },
+        {
+          "energy_ev": 19.65780707657798,
+          "gap_expectation_ev": 19.5329001422266,
+          "response_expectation_ev": 0.12490693435137894
+        },
+        {
+          "energy_ev": 22.817910988464618,
+          "gap_expectation_ev": 22.817910988464615,
+          "response_expectation_ev": 3.021070754226418e-15
+        },
+        {
+          "energy_ev": 24.736341139911392,
+          "gap_expectation_ev": 24.58615778456252,
+          "response_expectation_ev": 0.1501833553488715
+        }
+      ],
+      "tda_max_0_to_300K_excitation_change_ev": 7.552676885566046e-14,
+      "tda_maximum_occupation_deviation": 4.440892098500626e-16
+    },
+    {
+      "charge": 0,
+      "electronic_temperature_kelvin": 300,
+      "name": "ethylene",
+      "numbers": [
+        6,
+        6,
+        1,
+        1,
+        1,
+        1
+      ],
+      "positions_angstrom": [
+        [
+          -0.6695,
+          0,
+          0
+        ],
+        [
+          0.6695,
+          0,
+          0
+        ],
+        [
+          -1.232,
+          -0.928,
+          0
+        ],
+        [
+          -1.232,
+          0.928,
+          0
+        ],
+        [
+          1.232,
+          -0.928,
+          0
+        ],
+        [
+          1.232,
+          0.928,
+          0
+        ]
+      ],
+      "spin": "singlet",
+      "stda_basis_size": 36,
+      "stda_decomposition": [
+        {
+          "energy_ev": 7.031338653257308,
+          "gap_expectation_ev": 12.217478708431184,
+          "response_selection_expectation_ev": -5.186140055173876,
+          "unshifted_gap_expectation_ev": 9.117478708431184,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.004215067477652,
+          "gap_expectation_ev": 13.19035582801778,
+          "response_selection_expectation_ev": -5.186140760540129,
+          "unshifted_gap_expectation_ev": 10.090355828017781,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.05557125289198,
+          "gap_expectation_ev": 11.61465509432627,
+          "response_selection_expectation_ev": -3.5590838414342905,
+          "unshifted_gap_expectation_ev": 8.51465509432627,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.186527774764862,
+          "gap_expectation_ev": 13.360530635616188,
+          "response_selection_expectation_ev": -5.174002860851326,
+          "unshifted_gap_expectation_ev": 10.260530635616188,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.193730014755934,
+          "gap_expectation_ev": 13.379864272631911,
+          "response_selection_expectation_ev": -5.1861342578759775,
+          "unshifted_gap_expectation_ev": 10.279864272631912,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.62794314470505,
+          "gap_expectation_ev": 13.790394709602447,
+          "response_selection_expectation_ev": -5.162451564897397,
+          "unshifted_gap_expectation_ev": 10.690394709602447,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 9.43425941073827,
+          "gap_expectation_ev": 14.565952233205122,
+          "response_selection_expectation_ev": -5.131692822466853,
+          "unshifted_gap_expectation_ev": 11.465952233205122,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 9.89504907347518,
+          "gap_expectation_ev": 15.081164963161516,
+          "response_selection_expectation_ev": -5.186115889686336,
+          "unshifted_gap_expectation_ev": 11.981164963161516,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.135481135946687,
+          "gap_expectation_ev": 15.315379171653708,
+          "response_selection_expectation_ev": -5.179898035707021,
+          "unshifted_gap_expectation_ev": 12.215379171653709,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.447884246656512,
+          "gap_expectation_ev": 15.536375889515035,
+          "response_selection_expectation_ev": -5.088491642858523,
+          "unshifted_gap_expectation_ev": 12.436375889515036,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.570126783481657,
+          "gap_expectation_ev": 15.750963473039896,
+          "response_selection_expectation_ev": -5.180836689558239,
+          "unshifted_gap_expectation_ev": 12.650963473039896,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.852155771659884,
+          "gap_expectation_ev": 16.03828367334064,
+          "response_selection_expectation_ev": -5.186127901680756,
+          "unshifted_gap_expectation_ev": 12.93828367334064,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.94677112989807,
+          "gap_expectation_ev": 16.1431726024473,
+          "response_selection_expectation_ev": -5.196401472549232,
+          "unshifted_gap_expectation_ev": 13.043172602447301,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 11.355917808112029,
+          "gap_expectation_ev": 16.490402031653456,
+          "response_selection_expectation_ev": -5.134484223541428,
+          "unshifted_gap_expectation_ev": 13.390402031653457,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 11.359476472651503,
+          "gap_expectation_ev": 16.51553688395001,
+          "response_selection_expectation_ev": -5.1560604112985065,
+          "unshifted_gap_expectation_ev": 13.41553688395001,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.251872177239052,
+          "gap_expectation_ev": 17.409806325906054,
+          "response_selection_expectation_ev": -5.157934148667001,
+          "unshifted_gap_expectation_ev": 14.309806325906054,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.31230140824708,
+          "gap_expectation_ev": 17.473108973375208,
+          "response_selection_expectation_ev": -5.1608075651281275,
+          "unshifted_gap_expectation_ev": 14.373108973375208,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.318333664041711,
+          "gap_expectation_ev": 17.49275001815228,
+          "response_selection_expectation_ev": -5.174416354110567,
+          "unshifted_gap_expectation_ev": 14.39275001815228,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.550413964796265,
+          "gap_expectation_ev": 17.668050056531023,
+          "response_selection_expectation_ev": -5.117636091734758,
+          "unshifted_gap_expectation_ev": 14.568050056531023,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.582620273178119,
+          "gap_expectation_ev": 17.681157526521705,
+          "response_selection_expectation_ev": -5.098537253343586,
+          "unshifted_gap_expectation_ev": 14.581157526521705,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.89469834917127,
+          "gap_expectation_ev": 18.07516178987651,
+          "response_selection_expectation_ev": -5.180463440705241,
+          "unshifted_gap_expectation_ev": 14.97516178987651,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.143076445235812,
+          "gap_expectation_ev": 18.475618415499966,
+          "response_selection_expectation_ev": -5.332541970264154,
+          "unshifted_gap_expectation_ev": 15.375618415499966,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.675800471846257,
+          "gap_expectation_ev": 18.624369139158386,
+          "response_selection_expectation_ev": -4.948568667312129,
+          "unshifted_gap_expectation_ev": 15.524369139158386,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.77540333075881,
+          "gap_expectation_ev": 18.814611949381423,
+          "response_selection_expectation_ev": -5.039208618622613,
+          "unshifted_gap_expectation_ev": 15.714611949381423,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.936718569043954,
+          "gap_expectation_ev": 19.351468581110513,
+          "response_selection_expectation_ev": -5.414750012066559,
+          "unshifted_gap_expectation_ev": 16.25146858111051,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.007469353649658,
+          "gap_expectation_ev": 19.174441291803316,
+          "response_selection_expectation_ev": -5.166971938153658,
+          "unshifted_gap_expectation_ev": 16.074441291803314,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.235242148355095,
+          "gap_expectation_ev": 19.3924616273788,
+          "response_selection_expectation_ev": -5.157219479023706,
+          "unshifted_gap_expectation_ev": 16.2924616273788,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.320912561130182,
+          "gap_expectation_ev": 19.507031369593175,
+          "response_selection_expectation_ev": -5.186118808462993,
+          "unshifted_gap_expectation_ev": 16.407031369593174,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.353345286273608,
+          "gap_expectation_ev": 19.539465756535616,
+          "response_selection_expectation_ev": -5.186120470262008,
+          "unshifted_gap_expectation_ev": 16.439465756535615,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.525241761577337,
+          "gap_expectation_ev": 19.71136467555461,
+          "response_selection_expectation_ev": -5.186122913977272,
+          "unshifted_gap_expectation_ev": 16.611364675554608,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.801237802323095,
+          "gap_expectation_ev": 19.633677713928044,
+          "response_selection_expectation_ev": -4.832439911604949,
+          "unshifted_gap_expectation_ev": 16.533677713928043,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.136469304936755,
+          "gap_expectation_ev": 20.355268770911366,
+          "response_selection_expectation_ev": -5.218799465974611,
+          "unshifted_gap_expectation_ev": 17.255268770911364,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.140913202582075,
+          "gap_expectation_ev": 20.38104342556926,
+          "response_selection_expectation_ev": -5.240130222987185,
+          "unshifted_gap_expectation_ev": 17.28104342556926,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.404891411454404,
+          "gap_expectation_ev": 20.7236463320459,
+          "response_selection_expectation_ev": -5.318754920591495,
+          "unshifted_gap_expectation_ev": 17.623646332045897,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.562926642284538,
+          "gap_expectation_ev": 20.719631218671466,
+          "response_selection_expectation_ev": -5.156704576386929,
+          "unshifted_gap_expectation_ev": 17.619631218671465,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.250838100035793,
+          "gap_expectation_ev": 21.302972708579006,
+          "response_selection_expectation_ev": -5.052134608543213,
+          "unshifted_gap_expectation_ev": 18.202972708579004,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.362254400308686,
+          "gap_expectation_ev": 21.758761007252755,
+          "response_selection_expectation_ev": -5.396506606944069,
+          "unshifted_gap_expectation_ev": 18.658761007252753,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.43755527478899,
+          "gap_expectation_ev": 21.524770907397546,
+          "response_selection_expectation_ev": -5.0872156326085545,
+          "unshifted_gap_expectation_ev": 18.424770907397544,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.450235760990644,
+          "gap_expectation_ev": 21.523788242521633,
+          "response_selection_expectation_ev": -5.073552481530989,
+          "unshifted_gap_expectation_ev": 18.42378824252163,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.952105300792333,
+          "gap_expectation_ev": 21.863003149457512,
+          "response_selection_expectation_ev": -4.910897848665179,
+          "unshifted_gap_expectation_ev": 18.76300314945751,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 16.966960446839597,
+          "gap_expectation_ev": 22.015223738226133,
+          "response_selection_expectation_ev": -5.048263291386537,
+          "unshifted_gap_expectation_ev": 18.915223738226132,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.1274147543127,
+          "gap_expectation_ev": 22.244920833978945,
+          "response_selection_expectation_ev": -5.117506079666246,
+          "unshifted_gap_expectation_ev": 19.144920833978944,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.33639627978825,
+          "gap_expectation_ev": 22.17370585392087,
+          "response_selection_expectation_ev": -4.837309574132618,
+          "unshifted_gap_expectation_ev": 19.073705853920867,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.75975045234406,
+          "gap_expectation_ev": 22.862640137995204,
+          "response_selection_expectation_ev": -5.102889685651142,
+          "unshifted_gap_expectation_ev": 19.762640137995202,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.974937444100153,
+          "gap_expectation_ev": 23.32578435447695,
+          "response_selection_expectation_ev": -5.350846910376799,
+          "unshifted_gap_expectation_ev": 20.22578435447695,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.09139048352099,
+          "gap_expectation_ev": 23.149502389156435,
+          "response_selection_expectation_ev": -5.058111905635446,
+          "unshifted_gap_expectation_ev": 20.049502389156434,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.6593058793222,
+          "gap_expectation_ev": 24.11136554775706,
+          "response_selection_expectation_ev": -5.45205966843486,
+          "unshifted_gap_expectation_ev": 21.01136554775706,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.774404914442936,
+          "gap_expectation_ev": 23.86006888587342,
+          "response_selection_expectation_ev": -5.085663971430485,
+          "unshifted_gap_expectation_ev": 20.76006888587342,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.85806865424367,
+          "gap_expectation_ev": 23.606598592508544,
+          "response_selection_expectation_ev": -4.748529938264873,
+          "unshifted_gap_expectation_ev": 20.506598592508542,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.06624282058139,
+          "gap_expectation_ev": 24.199594942299594,
+          "response_selection_expectation_ev": -5.133352121718204,
+          "unshifted_gap_expectation_ev": 21.099594942299593,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.463265188583886,
+          "gap_expectation_ev": 24.640511141878175,
+          "response_selection_expectation_ev": -5.177245953294289,
+          "unshifted_gap_expectation_ev": 21.540511141878174,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.842658563937785,
+          "gap_expectation_ev": 25.11570748997464,
+          "response_selection_expectation_ev": -5.273048926036854,
+          "unshifted_gap_expectation_ev": 22.015707489974638,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.93452249243592,
+          "gap_expectation_ev": 25.078578636905505,
+          "response_selection_expectation_ev": -5.144056144469584,
+          "unshifted_gap_expectation_ev": 21.978578636905503,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.97846541953045,
+          "gap_expectation_ev": 25.108236300659993,
+          "response_selection_expectation_ev": -5.1297708811295415,
+          "unshifted_gap_expectation_ev": 22.00823630065999,
+          "virtual_shift_ev": 3.1
+        }
+      ],
+      "stda_max_0_to_300K_excitation_change_ev": 2.4638069362481474e-12,
+      "stda_maximum_occupation_deviation": 1.3322676295501878e-15,
+      "stda_xtb": [
+        {
+          "excitation_ev": 7.031338653257308,
+          "oscillator_strength": 5.138604838566109e-05,
+          "root": 1
+        },
+        {
+          "excitation_ev": 8.004215067477652,
+          "oscillator_strength": 1.2641887056659281e-24,
+          "root": 2
+        },
+        {
+          "excitation_ev": 8.05557125289198,
+          "oscillator_strength": 0.5250194182393706,
+          "root": 3
+        },
+        {
+          "excitation_ev": 8.186527774764862,
+          "oscillator_strength": 7.773668745595288e-26,
+          "root": 4
+        },
+        {
+          "excitation_ev": 8.193730014755934,
+          "oscillator_strength": 4.68342407678126e-26,
+          "root": 5
+        },
+        {
+          "excitation_ev": 8.62794314470505,
+          "oscillator_strength": 7.192966069018615e-29,
+          "root": 6
+        },
+        {
+          "excitation_ev": 9.43425941073827,
+          "oscillator_strength": 6.950023192924342e-27,
+          "root": 7
+        },
+        {
+          "excitation_ev": 9.89504907347518,
+          "oscillator_strength": 0.0009900316406249365,
+          "root": 8
+        },
+        {
+          "excitation_ev": 10.135481135946687,
+          "oscillator_strength": 2.5574311627779824e-27,
+          "root": 9
+        },
+        {
+          "excitation_ev": 10.447884246656512,
+          "oscillator_strength": 0.09477904078980441,
+          "root": 10
+        },
+        {
+          "excitation_ev": 10.570126783481657,
+          "oscillator_strength": 0.09321512564960212,
+          "root": 11
+        },
+        {
+          "excitation_ev": 10.852155771659884,
+          "oscillator_strength": 4.77920989130216e-28,
+          "root": 12
+        },
+        {
+          "excitation_ev": 10.94677112989807,
+          "oscillator_strength": 2.2007247810202492e-27,
+          "root": 13
+        },
+        {
+          "excitation_ev": 11.355917808112029,
+          "oscillator_strength": 1.2540836091355142e-27,
+          "root": 14
+        },
+        {
+          "excitation_ev": 11.359476472651503,
+          "oscillator_strength": 1.3768922019644318e-27,
+          "root": 15
+        },
+        {
+          "excitation_ev": 12.251872177239052,
+          "oscillator_strength": 0.08054814608369436,
+          "root": 16
+        },
+        {
+          "excitation_ev": 12.31230140824708,
+          "oscillator_strength": 1.2919353679461195e-24,
+          "root": 17
+        },
+        {
+          "excitation_ev": 12.318333664041711,
+          "oscillator_strength": 0.23610838775900084,
+          "root": 18
+        },
+        {
+          "excitation_ev": 12.550413964796265,
+          "oscillator_strength": 0.04961611654154394,
+          "root": 19
+        },
+        {
+          "excitation_ev": 12.582620273178119,
+          "oscillator_strength": 0.010445307897262899,
+          "root": 20
+        },
+        {
+          "excitation_ev": 12.89469834917127,
+          "oscillator_strength": 0.01706212690479036,
+          "root": 21
+        },
+        {
+          "excitation_ev": 13.143076445235812,
+          "oscillator_strength": 8.137023556000498e-28,
+          "root": 22
+        },
+        {
+          "excitation_ev": 13.675800471846257,
+          "oscillator_strength": 1.885572223338097e-28,
+          "root": 23
+        },
+        {
+          "excitation_ev": 13.77540333075881,
+          "oscillator_strength": 2.5834944948167834e-28,
+          "root": 24
+        },
+        {
+          "excitation_ev": 13.936718569043954,
+          "oscillator_strength": 3.8537598239520714e-27,
+          "root": 25
+        },
+        {
+          "excitation_ev": 14.007469353649658,
+          "oscillator_strength": 0.2774535524486123,
+          "root": 26
+        },
+        {
+          "excitation_ev": 14.235242148355095,
+          "oscillator_strength": 8.8218412673944e-27,
+          "root": 27
+        },
+        {
+          "excitation_ev": 14.320912561130182,
+          "oscillator_strength": 2.3205603566605328e-26,
+          "root": 28
+        },
+        {
+          "excitation_ev": 14.353345286273608,
+          "oscillator_strength": 6.3145851791166215e-27,
+          "root": 29
+        },
+        {
+          "excitation_ev": 14.525241761577337,
+          "oscillator_strength": 0.22166244841071397,
+          "root": 30
+        },
+        {
+          "excitation_ev": 14.801237802323095,
+          "oscillator_strength": 3.2948896394588717e-28,
+          "root": 31
+        },
+        {
+          "excitation_ev": 15.136469304936755,
+          "oscillator_strength": 0.0008887350069890026,
+          "root": 32
+        },
+        {
+          "excitation_ev": 15.140913202582075,
+          "oscillator_strength": 2.2097021471516945e-27,
+          "root": 33
+        },
+        {
+          "excitation_ev": 15.404891411454404,
+          "oscillator_strength": 0.00433590564909817,
+          "root": 34
+        },
+        {
+          "excitation_ev": 15.562926642284538,
+          "oscillator_strength": 0.0018979756106352991,
+          "root": 35
+        },
+        {
+          "excitation_ev": 16.250838100035793,
+          "oscillator_strength": 8.616175320934297e-27,
+          "root": 36
+        },
+        {
+          "excitation_ev": 16.362254400308686,
+          "oscillator_strength": 5.829699832378685e-28,
+          "root": 37
+        },
+        {
+          "excitation_ev": 16.43755527478899,
+          "oscillator_strength": 5.292122197374543e-27,
+          "root": 38
+        },
+        {
+          "excitation_ev": 16.450235760990644,
+          "oscillator_strength": 0.011835010343710652,
+          "root": 39
+        },
+        {
+          "excitation_ev": 16.952105300792333,
+          "oscillator_strength": 5.422967327232535e-27,
+          "root": 40
+        },
+        {
+          "excitation_ev": 16.966960446839597,
+          "oscillator_strength": 0.7856413412910649,
+          "root": 41
+        },
+        {
+          "excitation_ev": 17.1274147543127,
+          "oscillator_strength": 0.22889024369094838,
+          "root": 42
+        },
+        {
+          "excitation_ev": 17.33639627978825,
+          "oscillator_strength": 1.1075367085987016e-26,
+          "root": 43
+        },
+        {
+          "excitation_ev": 17.75975045234406,
+          "oscillator_strength": 1.2228219885973325e-29,
+          "root": 44
+        },
+        {
+          "excitation_ev": 17.974937444100153,
+          "oscillator_strength": 7.892454296507799e-05,
+          "root": 45
+        },
+        {
+          "excitation_ev": 18.09139048352099,
+          "oscillator_strength": 7.344584906365192e-28,
+          "root": 46
+        },
+        {
+          "excitation_ev": 18.6593058793222,
+          "oscillator_strength": 4.7901607449705365e-26,
+          "root": 47
+        },
+        {
+          "excitation_ev": 18.774404914442936,
+          "oscillator_strength": 0.44197730562470017,
+          "root": 48
+        },
+        {
+          "excitation_ev": 18.85806865424367,
+          "oscillator_strength": 0.27585412210452215,
+          "root": 49
+        },
+        {
+          "excitation_ev": 19.06624282058139,
+          "oscillator_strength": 0.10248233622530491,
+          "root": 50
+        },
+        {
+          "excitation_ev": 19.463265188583886,
+          "oscillator_strength": 1.6233606663781542e-26,
+          "root": 51
+        },
+        {
+          "excitation_ev": 19.842658563937785,
+          "oscillator_strength": 2.9786947606439993e-27,
+          "root": 52
+        },
+        {
+          "excitation_ev": 19.93452249243592,
+          "oscillator_strength": 7.627263485548369e-28,
+          "root": 53
+        },
+        {
+          "excitation_ev": 19.97846541953045,
+          "oscillator_strength": 1.8723963155570894e-28,
+          "root": 54
+        }
+      ],
+      "tda": [
+        {
+          "excitation_ev": 6.386288115076038,
+          "oscillator_strength": 6.27104040478916e-31,
+          "root": 1
+        },
+        {
+          "excitation_ev": 7.275667462260038,
+          "oscillator_strength": 4.33986171923797e-31,
+          "root": 2
+        },
+        {
+          "excitation_ev": 8.447745340439594,
+          "oscillator_strength": 1.2090189873855367e-30,
+          "root": 3
+        },
+        {
+          "excitation_ev": 9.19893218869777,
+          "oscillator_strength": 1.3966270979530996e-30,
+          "root": 4
+        },
+        {
+          "excitation_ev": 9.235380473293842,
+          "oscillator_strength": 3.4957019837296035e-32,
+          "root": 5
+        },
+        {
+          "excitation_ev": 9.441574572058745,
+          "oscillator_strength": 4.343458157038761e-31,
+          "root": 6
+        },
+        {
+          "excitation_ev": 9.951170479875564,
+          "oscillator_strength": 6.783114194440157e-32,
+          "root": 7
+        },
+        {
+          "excitation_ev": 10.197417731062268,
+          "oscillator_strength": 0.0019324314355642453,
+          "root": 8
+        },
+        {
+          "excitation_ev": 10.219619753578275,
+          "oscillator_strength": 5.72106861331548e-29,
+          "root": 9
+        },
+        {
+          "excitation_ev": 10.434737888923234,
+          "oscillator_strength": 0.18110993943759857,
+          "root": 10
+        }
+      ],
+      "tda_ao_length": [
+        {
+          "excitation_ev": 6.386288115076038,
+          "oscillator_strength": 4.330575318648694e-31,
+          "root": 1
+        },
+        {
+          "excitation_ev": 7.275667462260038,
+          "oscillator_strength": 1.803067207243913e-30,
+          "root": 2
+        },
+        {
+          "excitation_ev": 8.447745340439594,
+          "oscillator_strength": 6.963467475014621e-30,
+          "root": 3
+        },
+        {
+          "excitation_ev": 9.19893218869777,
+          "oscillator_strength": 2.6718232128469073e-28,
+          "root": 4
+        },
+        {
+          "excitation_ev": 9.235380473293842,
+          "oscillator_strength": 0.006089225480093418,
+          "root": 5
+        },
+        {
+          "excitation_ev": 9.441574572058745,
+          "oscillator_strength": 0.1690743798154427,
+          "root": 6
+        },
+        {
+          "excitation_ev": 9.951170479875564,
+          "oscillator_strength": 3.316219648390178e-30,
+          "root": 7
+        },
+        {
+          "excitation_ev": 10.197417731062268,
+          "oscillator_strength": 0.017530918840463663,
+          "root": 8
+        },
+        {
+          "excitation_ev": 10.219619753578275,
+          "oscillator_strength": 5.227882107420695e-28,
+          "root": 9
+        },
+        {
+          "excitation_ev": 10.434737888923234,
+          "oscillator_strength": 0.18559915587406595,
+          "root": 10
+        }
+      ],
+      "tda_basis_size": 16,
+      "tda_decomposition": [
+        {
+          "energy_ev": 6.386288115076038,
+          "gap_expectation_ev": 6.386288115076033,
+          "response_expectation_ev": 5.286873819896232e-15
+        },
+        {
+          "energy_ev": 7.275667462260038,
+          "gap_expectation_ev": 7.275667462260014,
+          "response_expectation_ev": 2.4168566033811344e-14
+        },
+        {
+          "energy_ev": 8.447745340439594,
+          "gap_expectation_ev": 8.447745340439571,
+          "response_expectation_ev": 2.4168566033811344e-14
+        },
+        {
+          "energy_ev": 9.19893218869777,
+          "gap_expectation_ev": 9.198932188697778,
+          "response_expectation_ev": -9.063212262679254e-15
+        },
+        {
+          "energy_ev": 9.235380473293842,
+          "gap_expectation_ev": 9.235380473293851,
+          "response_expectation_ev": -9.063212262679254e-15
+        },
+        {
+          "energy_ev": 9.441574572058745,
+          "gap_expectation_ev": 9.441574572058743,
+          "response_expectation_ev": 1.510535377113209e-15
+        },
+        {
+          "energy_ev": 9.951170479875564,
+          "gap_expectation_ev": 9.951170479875561,
+          "response_expectation_ev": 4.531606131339627e-15
+        },
+        {
+          "energy_ev": 10.197417731062268,
+          "gap_expectation_ev": 10.192960374777732,
+          "response_expectation_ev": 0.004457356284536539
+        },
+        {
+          "energy_ev": 10.219619753578275,
+          "gap_expectation_ev": 10.219225148266593,
+          "response_expectation_ev": 0.000394605311682462
+        },
+        {
+          "energy_ev": 10.434737888923234,
+          "gap_expectation_ev": 9.697536899834148,
+          "response_expectation_ev": 0.7372009890890866
+        }
+      ],
+      "tda_max_0_to_300K_excitation_change_ev": 4.229499055916985e-14,
+      "tda_maximum_occupation_deviation": 1.3322676295501878e-15
+    },
+    {
+      "charge": 0,
+      "electronic_temperature_kelvin": 300,
+      "name": "formaldehyde",
+      "numbers": [
+        6,
+        8,
+        1,
+        1
+      ],
+      "positions_angstrom": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          1.208,
+          0,
+          0
+        ],
+        [
+          -0.587,
+          0.939,
+          0
+        ],
+        [
+          -0.587,
+          -0.939,
+          0
+        ]
+      ],
+      "spin": "singlet",
+      "stda_basis_size": 26,
+      "stda_decomposition": [
+        {
+          "energy_ev": 4.292654056437407,
+          "gap_expectation_ev": 10.348364077165666,
+          "response_selection_expectation_ev": -6.055710020728259,
+          "unshifted_gap_expectation_ev": 7.248364077165666,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 6.481243314224918,
+          "gap_expectation_ev": 12.22274703801935,
+          "response_selection_expectation_ev": -5.741503723794431,
+          "unshifted_gap_expectation_ev": 9.12274703801935,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 7.750876216748705,
+          "gap_expectation_ev": 13.48412997301972,
+          "response_selection_expectation_ev": -5.733253756271014,
+          "unshifted_gap_expectation_ev": 10.38412997301972,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.127299896165223,
+          "gap_expectation_ev": 13.901876234271151,
+          "response_selection_expectation_ev": -5.774576338105929,
+          "unshifted_gap_expectation_ev": 10.801876234271152,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 8.417355267641017,
+          "gap_expectation_ev": 14.344900724498448,
+          "response_selection_expectation_ev": -5.92754545685743,
+          "unshifted_gap_expectation_ev": 11.244900724498448,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 10.473883119721153,
+          "gap_expectation_ev": 16.473732541888726,
+          "response_selection_expectation_ev": -5.999849422167573,
+          "unshifted_gap_expectation_ev": 13.373732541888726,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 11.576185596854426,
+          "gap_expectation_ev": 17.462227275533063,
+          "response_selection_expectation_ev": -5.886041678678637,
+          "unshifted_gap_expectation_ev": 14.362227275533064,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 11.809766390248775,
+          "gap_expectation_ev": 17.747374071984417,
+          "response_selection_expectation_ev": -5.937607681735642,
+          "unshifted_gap_expectation_ev": 14.647374071984418,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.39214876189136,
+          "gap_expectation_ev": 18.30023878267586,
+          "response_selection_expectation_ev": -5.908090020784499,
+          "unshifted_gap_expectation_ev": 15.200238782675859,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.500364351422522,
+          "gap_expectation_ev": 18.323407431843048,
+          "response_selection_expectation_ev": -5.8230430804205255,
+          "unshifted_gap_expectation_ev": 15.223407431843048,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 12.6639141185779,
+          "gap_expectation_ev": 18.372463926915028,
+          "response_selection_expectation_ev": -5.708549808337128,
+          "unshifted_gap_expectation_ev": 15.272463926915028,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.454106536731937,
+          "gap_expectation_ev": 19.00264266331089,
+          "response_selection_expectation_ev": -5.548536126578954,
+          "unshifted_gap_expectation_ev": 15.90264266331089,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.726880598593812,
+          "gap_expectation_ev": 19.560884112146706,
+          "response_selection_expectation_ev": -5.834003513552894,
+          "unshifted_gap_expectation_ev": 16.460884112146704,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.887108374418668,
+          "gap_expectation_ev": 19.58452561277168,
+          "response_selection_expectation_ev": -5.6974172383530135,
+          "unshifted_gap_expectation_ev": 16.48452561277168,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 13.983760659209823,
+          "gap_expectation_ev": 19.666459230301154,
+          "response_selection_expectation_ev": -5.682698571091331,
+          "unshifted_gap_expectation_ev": 16.566459230301152,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.162323703655824,
+          "gap_expectation_ev": 20.00698158984388,
+          "response_selection_expectation_ev": -5.844657886188054,
+          "unshifted_gap_expectation_ev": 16.906981589843877,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.295292042454614,
+          "gap_expectation_ev": 20.40572259960683,
+          "response_selection_expectation_ev": -6.110430557152215,
+          "unshifted_gap_expectation_ev": 17.305722599606828,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.29611475069932,
+          "gap_expectation_ev": 20.024332801640483,
+          "response_selection_expectation_ev": -5.728218050941162,
+          "unshifted_gap_expectation_ev": 16.92433280164048,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.615292274297529,
+          "gap_expectation_ev": 20.381088115875425,
+          "response_selection_expectation_ev": -5.765795841577896,
+          "unshifted_gap_expectation_ev": 17.281088115875423,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 14.837702266251231,
+          "gap_expectation_ev": 20.818206146182188,
+          "response_selection_expectation_ev": -5.980503879930957,
+          "unshifted_gap_expectation_ev": 17.718206146182187,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.095162104439073,
+          "gap_expectation_ev": 21.025063077741454,
+          "response_selection_expectation_ev": -5.929900973302381,
+          "unshifted_gap_expectation_ev": 17.925063077741452,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.29244698838395,
+          "gap_expectation_ev": 20.883664586028903,
+          "response_selection_expectation_ev": -5.5912175976449525,
+          "unshifted_gap_expectation_ev": 17.7836645860289,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.596015443082798,
+          "gap_expectation_ev": 21.386973491058683,
+          "response_selection_expectation_ev": -5.790958047975884,
+          "unshifted_gap_expectation_ev": 18.28697349105868,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 15.87305024139194,
+          "gap_expectation_ev": 21.73539897808497,
+          "response_selection_expectation_ev": -5.862348736693029,
+          "unshifted_gap_expectation_ev": 18.635398978084968,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.102690292937517,
+          "gap_expectation_ev": 22.74543570790486,
+          "response_selection_expectation_ev": -5.642745414967344,
+          "unshifted_gap_expectation_ev": 19.64543570790486,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 17.237405748536254,
+          "gap_expectation_ev": 23.5560779369175,
+          "response_selection_expectation_ev": -6.318672188381246,
+          "unshifted_gap_expectation_ev": 20.4560779369175,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.243278038815767,
+          "gap_expectation_ev": 24.014621401417525,
+          "response_selection_expectation_ev": -5.771343362601758,
+          "unshifted_gap_expectation_ev": 20.914621401417524,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.267675118077193,
+          "gap_expectation_ev": 24.006216599579773,
+          "response_selection_expectation_ev": -5.73854148150258,
+          "unshifted_gap_expectation_ev": 20.90621659957977,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.374904564142472,
+          "gap_expectation_ev": 24.030006592147746,
+          "response_selection_expectation_ev": -5.655102028005274,
+          "unshifted_gap_expectation_ev": 20.930006592147745,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.6549834027993,
+          "gap_expectation_ev": 24.43355864734022,
+          "response_selection_expectation_ev": -5.778575244540921,
+          "unshifted_gap_expectation_ev": 21.33355864734022,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.688319679620275,
+          "gap_expectation_ev": 25.08056108025802,
+          "response_selection_expectation_ev": -6.392241400637744,
+          "unshifted_gap_expectation_ev": 21.980561080258017,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.7501731973864,
+          "gap_expectation_ev": 24.89899029758416,
+          "response_selection_expectation_ev": -6.1488171001977605,
+          "unshifted_gap_expectation_ev": 21.798990297584158,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 18.91278476210385,
+          "gap_expectation_ev": 24.45854582583607,
+          "response_selection_expectation_ev": -5.545761063732218,
+          "unshifted_gap_expectation_ev": 21.358545825836067,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.019596163322326,
+          "gap_expectation_ev": 25.117607050068166,
+          "response_selection_expectation_ev": -6.09801088674584,
+          "unshifted_gap_expectation_ev": 22.017607050068165,
+          "virtual_shift_ev": 3.1
+        },
+        {
+          "energy_ev": 19.721706137312044,
+          "gap_expectation_ev": 25.394996665332002,
+          "response_selection_expectation_ev": -5.673290528019958,
+          "unshifted_gap_expectation_ev": 22.294996665332,
+          "virtual_shift_ev": 3.1
+        }
+      ],
+      "stda_max_0_to_300K_excitation_change_ev": 1.0977885267493548e-12,
+      "stda_maximum_occupation_deviation": 1.3322676295501878e-15,
+      "stda_xtb": [
+        {
+          "excitation_ev": 4.292654056437407,
+          "oscillator_strength": 1.8973862721130436e-29,
+          "root": 1
+        },
+        {
+          "excitation_ev": 6.481243314224918,
+          "oscillator_strength": 0.03155481314922557,
+          "root": 2
+        },
+        {
+          "excitation_ev": 7.750876216748705,
+          "oscillator_strength": 0.0683076872799329,
+          "root": 3
+        },
+        {
+          "excitation_ev": 8.127299896165223,
+          "oscillator_strength": 5.919029539410844e-28,
+          "root": 4
+        },
+        {
+          "excitation_ev": 8.417355267641017,
+          "oscillator_strength": 0.029571477619279692,
+          "root": 5
+        },
+        {
+          "excitation_ev": 10.473883119721153,
+          "oscillator_strength": 0.006304783330774107,
+          "root": 6
+        },
+        {
+          "excitation_ev": 11.576185596854426,
+          "oscillator_strength": 0.1557798272946423,
+          "root": 7
+        },
+        {
+          "excitation_ev": 11.809766390248775,
+          "oscillator_strength": 1.5409074190803539e-27,
+          "root": 8
+        },
+        {
+          "excitation_ev": 12.39214876189136,
+          "oscillator_strength": 0.22069594810185866,
+          "root": 9
+        },
+        {
+          "excitation_ev": 12.500364351422522,
+          "oscillator_strength": 0.00027281300190387604,
+          "root": 10
+        },
+        {
+          "excitation_ev": 12.6639141185779,
+          "oscillator_strength": 0.006421510188052441,
+          "root": 11
+        },
+        {
+          "excitation_ev": 13.454106536731937,
+          "oscillator_strength": 0.4490351169910618,
+          "root": 12
+        },
+        {
+          "excitation_ev": 13.726880598593812,
+          "oscillator_strength": 3.799678876703724e-27,
+          "root": 13
+        },
+        {
+          "excitation_ev": 13.887108374418668,
+          "oscillator_strength": 0.16492502908121848,
+          "root": 14
+        },
+        {
+          "excitation_ev": 13.983760659209823,
+          "oscillator_strength": 0.013953940077630726,
+          "root": 15
+        },
+        {
+          "excitation_ev": 14.162323703655824,
+          "oscillator_strength": 0.02205896754591419,
+          "root": 16
+        },
+        {
+          "excitation_ev": 14.295292042454614,
+          "oscillator_strength": 0.052671032143273594,
+          "root": 17
+        },
+        {
+          "excitation_ev": 14.29611475069932,
+          "oscillator_strength": 0.08836151491867265,
+          "root": 18
+        },
+        {
+          "excitation_ev": 14.615292274297529,
+          "oscillator_strength": 0.06741384498311458,
+          "root": 19
+        },
+        {
+          "excitation_ev": 14.837702266251231,
+          "oscillator_strength": 0.22639744874606843,
+          "root": 20
+        },
+        {
+          "excitation_ev": 15.095162104439073,
+          "oscillator_strength": 0.07330520726134737,
+          "root": 21
+        },
+        {
+          "excitation_ev": 15.29244698838395,
+          "oscillator_strength": 0.0009675171313433724,
+          "root": 22
+        },
+        {
+          "excitation_ev": 15.596015443082798,
+          "oscillator_strength": 7.169143168324872e-29,
+          "root": 23
+        },
+        {
+          "excitation_ev": 15.87305024139194,
+          "oscillator_strength": 0.006810519809577872,
+          "root": 24
+        },
+        {
+          "excitation_ev": 17.102690292937517,
+          "oscillator_strength": 0.0002468903419362029,
+          "root": 25
+        },
+        {
+          "excitation_ev": 17.237405748536254,
+          "oscillator_strength": 4.947580139379121e-30,
+          "root": 26
+        },
+        {
+          "excitation_ev": 18.243278038815767,
+          "oscillator_strength": 0.08775673372653721,
+          "root": 27
+        },
+        {
+          "excitation_ev": 18.267675118077193,
+          "oscillator_strength": 0.03111531286244326,
+          "root": 28
+        },
+        {
+          "excitation_ev": 18.374904564142472,
+          "oscillator_strength": 0.005301490578835061,
+          "root": 29
+        },
+        {
+          "excitation_ev": 18.6549834027993,
+          "oscillator_strength": 0.0009323431933579084,
+          "root": 30
+        },
+        {
+          "excitation_ev": 18.688319679620275,
+          "oscillator_strength": 2.4000685078858717e-28,
+          "root": 31
+        },
+        {
+          "excitation_ev": 18.7501731973864,
+          "oscillator_strength": 0.010848526936769718,
+          "root": 32
+        },
+        {
+          "excitation_ev": 18.91278476210385,
+          "oscillator_strength": 0.07224824666217511,
+          "root": 33
+        },
+        {
+          "excitation_ev": 19.019596163322326,
+          "oscillator_strength": 0.002149992765761259,
+          "root": 34
+        },
+        {
+          "excitation_ev": 19.721706137312044,
+          "oscillator_strength": 0.13664013004539105,
+          "root": 35
+        }
+      ],
+      "tda": [
+        {
+          "excitation_ev": 4.10430626213721,
+          "oscillator_strength": 4.4195858876515443e-32,
+          "root": 1
+        },
+        {
+          "excitation_ev": 7.231005587614841,
+          "oscillator_strength": 9.151473417060623e-32,
+          "root": 2
+        },
+        {
+          "excitation_ev": 8.53479202838676,
+          "oscillator_strength": 1.013110250317065e-30,
+          "root": 3
+        },
+        {
+          "excitation_ev": 8.599018341787229,
+          "oscillator_strength": 0.0005400880643612374,
+          "root": 4
+        },
+        {
+          "excitation_ev": 9.663097757021701,
+          "oscillator_strength": 7.991298684098108e-31,
+          "root": 5
+        },
+        {
+          "excitation_ev": 9.757509044631503,
+          "oscillator_strength": 0.0004724539751723155,
+          "root": 6
+        },
+        {
+          "excitation_ev": 11.854438912854489,
+          "oscillator_strength": 0.0003076100711151996,
+          "root": 7
+        },
+        {
+          "excitation_ev": 12.092004619109856,
+          "oscillator_strength": 2.4368507752383427e-32,
+          "root": 8
+        },
+        {
+          "excitation_ev": 12.97738207540122,
+          "oscillator_strength": 0.0015961906545133822,
+          "root": 9
+        },
+        {
+          "excitation_ev": 13.196654936730123,
+          "oscillator_strength": 0.020521162585866174,
+          "root": 10
+        }
+      ],
+      "tda_ao_length": [
+        {
+          "excitation_ev": 4.10430626213721,
+          "oscillator_strength": 4.6438335574264887e-32,
+          "root": 1
+        },
+        {
+          "excitation_ev": 7.231005587614841,
+          "oscillator_strength": 0.0003224282539379071,
+          "root": 2
+        },
+        {
+          "excitation_ev": 8.53479202838676,
+          "oscillator_strength": 1.2352631220508709e-29,
+          "root": 3
+        },
+        {
+          "excitation_ev": 8.599018341787229,
+          "oscillator_strength": 0.007863774905450824,
+          "root": 4
+        },
+        {
+          "excitation_ev": 9.663097757021701,
+          "oscillator_strength": 0.17195929438998617,
+          "root": 5
+        },
+        {
+          "excitation_ev": 9.757509044631503,
+          "oscillator_strength": 0.004372218888714413,
+          "root": 6
+        },
+        {
+          "excitation_ev": 11.854438912854489,
+          "oscillator_strength": 0.0008966085463115405,
+          "root": 7
+        },
+        {
+          "excitation_ev": 12.092004619109856,
+          "oscillator_strength": 0.0027599626018654792,
+          "root": 8
+        },
+        {
+          "excitation_ev": 12.97738207540122,
+          "oscillator_strength": 0.00803801108425888,
+          "root": 9
+        },
+        {
+          "excitation_ev": 13.196654936730123,
+          "oscillator_strength": 0.02162968120243503,
+          "root": 10
+        }
+      ],
+      "tda_basis_size": 12,
+      "tda_decomposition": [
+        {
+          "energy_ev": 4.10430626213721,
+          "gap_expectation_ev": 4.104306262137208,
+          "response_expectation_ev": 1.510535377113209e-15
+        },
+        {
+          "energy_ev": 7.231005587614841,
+          "gap_expectation_ev": 7.231005587614845,
+          "response_expectation_ev": -4.531606131339627e-15
+        },
+        {
+          "energy_ev": 8.53479202838676,
+          "gap_expectation_ev": 8.534792028386759,
+          "response_expectation_ev": 1.510535377113209e-15
+        },
+        {
+          "energy_ev": 8.599018341787229,
+          "gap_expectation_ev": 8.596488050311512,
+          "response_expectation_ev": 0.0025302914757163427
+        },
+        {
+          "energy_ev": 9.663097757021701,
+          "gap_expectation_ev": 9.6630977570217,
+          "response_expectation_ev": 1.510535377113209e-15
+        },
+        {
+          "energy_ev": 9.757509044631503,
+          "gap_expectation_ev": 9.755147572967697,
+          "response_expectation_ev": 0.0023614716638059308
+        },
+        {
+          "energy_ev": 11.854438912854489,
+          "gap_expectation_ev": 11.779343043078152,
+          "response_expectation_ev": 0.07509586977633655
+        },
+        {
+          "energy_ev": 12.092004619109856,
+          "gap_expectation_ev": 12.092004619109881,
+          "response_expectation_ev": -2.4168566033811344e-14
+        },
+        {
+          "energy_ev": 12.97738207540122,
+          "gap_expectation_ev": 12.972426974293892,
+          "response_expectation_ev": 0.004955101107327756
+        },
+        {
+          "energy_ev": 13.196654936730123,
+          "gap_expectation_ev": 13.134008994132305,
+          "response_expectation_ev": 0.06264594259781905
+        }
+      ],
+      "tda_max_0_to_300K_excitation_change_ev": 6.948462734720761e-14,
+      "tda_maximum_occupation_deviation": 8.881784197001252e-16
+    }
+  ],
+  "package_version": "0.7.0",
+  "parameter_sha256": [
+    "51932398d21887a846b5e3d8c7b0039594db0f2ee0bf9846313a3440fe0856e3",
+    "070c732715329a961780e6e3f14bc316db8a25b9579bf2605d47efa8917b8323"
+  ],
+  "schema": "gfn1-rs-tda-stda-decomposition-v1",
+  "temperature_kelvin": 300
+}

@@ -15,8 +15,8 @@
 //! the secondary contraction's primitives, so the correction stays an `n x n`
 //! matrix in the primary AO space.
 //!
-//! The data is *not* bundled: like `param_gfn1-xtb.txt` it is loaded from a path /
-//! string the caller supplies. The numerical exponents/coefficients are cc-pVDZ
+//! Named node-selected secondary sets are bundled; a caller can also supply a
+//! path/string. The numerical exponents/coefficients are cc-pVDZ
 //! (freely redistributable, e.g. from the Basis Set Exchange) plus the GFN1 H AO,
 //! sign-matched to the GFN1 phase, so a license-clean copy can be regenerated from
 //! cc-pVDZ rather than copied from the SI.

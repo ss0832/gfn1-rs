@@ -49,6 +49,8 @@ pub struct PbcStressResult {
     pub halogen_stress: Matrix,
     /// Periodic multipole correction stress (0 unless `options.multipole`).
     pub multipole_stress: Matrix,
+    /// Structural ML level and correction chain at stationary k-point density.
+    pub ml_stress: Matrix,
     /// Explicit strain derivative of the reference-cell external electric-field
     /// energy, `−(1/V) E_a Σ_A q_A R_A,b` (0 when no field is applied). Generally
     /// asymmetric; see `pbc_stress_from_scc` for the model caveat.
@@ -56,6 +58,28 @@ pub struct PbcStressResult {
 }
 
 pub fn pbc_stress(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+) -> Result<PbcStressResult> {
+    let span = options
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "periodic_analytic_stress",
+                serde_json::json!({"atoms":system.atoms.len(),"kmesh":pbc.kmesh.size}),
+            )
+        })
+        .transpose()?;
+    crate::logging::finish(
+        span,
+        pbc_stress_impl(system, params, options, pbc),
+        |s| serde_json::json!({"total_free_hartree":s.total_energy,"stress_hartree_per_bohr3":s.stress.as_slice()}),
+    )
+}
+fn pbc_stress_impl(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     options: &ElectronicOptions,
@@ -135,6 +159,11 @@ pub fn pbc_stress_from_scc(
         Matrix::zeros(3, 3)
     };
 
+    let ml_stress = if let Some(view) = &scf.ml_parameters {
+        view.stress(&crate::pbc::ml::level_sensitivities(system, params, &scf)?)?
+    } else {
+        Matrix::zeros(3, 3)
+    };
     let mut stress = Matrix::zeros(3, 3);
     add_matrix_in_place(&mut stress, &electronic_stress);
     add_matrix_in_place(&mut stress, &electrostatic_stress);
@@ -143,6 +172,7 @@ pub fn pbc_stress_from_scc(
     add_matrix_in_place(&mut stress, &halogen_stress);
     add_matrix_in_place(&mut stress, &multipole_stress);
     add_matrix_in_place(&mut stress, &external_field_stress);
+    add_matrix_in_place(&mut stress, &ml_stress);
 
     Ok(PbcStressResult {
         total_energy: scf.total_free,
@@ -154,6 +184,7 @@ pub fn pbc_stress_from_scc(
         dispersion_stress,
         halogen_stress,
         multipole_stress,
+        ml_stress,
         external_field_stress,
     })
 }
@@ -578,12 +609,30 @@ fn electrostatic_stress(
     pbc: &PbcOptions,
     lattice: &Lattice,
 ) -> Matrix {
-    let alpha = resolve_alpha(system, &pbc.ewald);
-    let mut deriv = ewald_stress_derivative(system, lattice, alpha, &scf.atomic_charges);
+    electrostatic_stress_for_charges(
+        system,
+        &scf.basis,
+        &scf.shell_model,
+        &scf.atomic_charges,
+        &scf.shell_charges,
+        pbc,
+        lattice,
+    )
+}
 
-    let basis = &scf.basis;
-    let model = &scf.shell_model;
-    let q = &scf.shell_charges;
+/// Analytic quadratic Coulomb strain form, with explicit charge slots.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn electrostatic_stress_for_charges(
+    system: &PeriodicSystem,
+    basis: &crate::BasisSet,
+    model: &crate::coulomb::ShellChargeModel,
+    q_atom: &[f64],
+    q: &[f64],
+    pbc: &PbcOptions,
+    lattice: &Lattice,
+) -> Matrix {
+    let alpha = resolve_alpha(system, &pbc.ewald);
+    let mut deriv = ewald_stress_derivative(system, lattice, alpha, q_atom);
     qcore_r3_reciprocal_stress_derivative(system, lattice, alpha, basis, model, q, &mut deriv);
     qcore_r3_k0_stress_derivative(lattice, alpha, model, q, &mut deriv);
 

@@ -234,7 +234,11 @@ fn skeleton_second_double_loop(
     )?;
     let kvec = |u: &[f64]| -> Vec<f64> {
         (0..nshell)
-            .map(|s| (0..nshell).map(|t| shell_kernel[(s, t)] * u[t]).sum::<f64>())
+            .map(|s| {
+                (0..nshell)
+                    .map(|t| shell_kernel[(s, t)] * u[t])
+                    .sum::<f64>()
+            })
             .collect()
     };
     let q_v: Vec<f64> = (0..nshell)
@@ -553,8 +557,7 @@ pub fn directional_response_third(
     // `Σ_c v_c (∂V[u]/∂R_c)` — the directional geometric derivative of the scalar potential of an
     // arbitrary (already b-contracted) shell-charge vector `u`.
     let dvdr_dir = |u: &[f64]| -> Result<Vec<f64>> {
-        let d =
-            crate::hessian::shell_scalar_potential_first_derivatives(system, basis, u, params)?;
+        let d = crate::hessian::shell_scalar_potential_first_derivatives(system, basis, u, params)?;
         Ok((0..nshell)
             .map(|s| (0..ndof).map(|c| v[c] * d[(s, c)]).sum::<f64>())
             .collect())
@@ -734,105 +737,100 @@ pub fn directional_response_third(
     // Directional bundle-gradient: `Σ_ac v_a v_c { (D_c G_a)[bundle] + G_a[D_c bundle] }`. The
     // bundle arguments are already `b`-contracted, the derivative-bundle arguments already
     // `(b, c)`-contracted; the remaining `a` and `c` legs are folded in here.
-    let bundle_grad_dir = |dp: &M,
-                           dw: &M,
-                           dq: &[f64],
-                           d_dp: &M,
-                           d_dw: &M,
-                           d_dq: &[f64]|
-     -> Result<f64> {
-        let mut acc = 0.0;
-        let sp_resp = kvec(dq);
-        let dk_dq_v = dvdr_dir(dq)?;
-        let chain_dq = dk_chain_v(dq);
-        // Group A: H0+CN reuse + scc_kernel reuse (both legs pre-contracted).
-        {
-            let mut band = 0.0;
-            for mu in 0..n {
-                for nu in 0..n {
-                    band += dp[(mu, nu)] * m_vv[(mu, nu)];
-                }
-            }
-            let mut kern = 0.0;
-            for s in 0..nshell {
-                kern += dq[s] * dv_kern_vv[s];
-            }
-            acc += band + kern;
-        }
-        // Group A: pulay + scc_overlap (ao-pair loop). The `c` leg enters only through the
-        // overlap second derivative (via atom_c/axis_c) and through V^(c)/P^(c)/q^(c) in `dcf`;
-        // both are contracted below.
-        for mu in 0..n {
-            let atom_mu = basis.aos[mu].atom_index;
-            let shell_mu = basis.aos[mu].shell_index;
-            let rmu = system.atoms[atom_mu].position;
-            for nu in 0..mu {
-                let atom_nu = basis.aos[nu].atom_index;
-                if atom_mu == atom_nu {
-                    continue;
-                }
-                let shell_nu = basis.aos[nu].shell_index;
-                let rnu = system.atoms[atom_nu].position;
-                if (rmu - rnu).norm2() <= 1.0e-18 {
-                    continue;
-                }
-                let pair = crate::integrals::contracted_pair_with_second_derivatives(
-                    &basis.aos[mu],
-                    &basis.aos[nu],
-                    rmu,
-                    rnu,
-                );
-                let dw_val = dw[(mu, nu)];
-                let scalar_shift = v_ref[shell_mu] + v_ref[shell_nu];
-                let scalar_response = sp_resp[shell_mu] + sp_resp[shell_nu];
-                let dp_val = dp[(mu, nu)];
-                let p0_val = p_mat[(mu, nu)];
-                let f_scc = -(dp_val * scalar_shift + p0_val * scalar_response);
-                let dcf = -(dp_val * (pot_v[shell_mu] + pot_v[shell_nu])
-                    + p_v[(mu, nu)] * scalar_response
-                    + p0_val
-                        * (dk_dq_v[shell_mu]
-                            + dk_dq_v[shell_nu]
-                            + chain_dq[shell_mu]
-                            + chain_dq[shell_nu]));
-                let dbra0 = pair.d_bra[0].to_array();
-                let dket0 = pair.d_ket[0].to_array();
-                for alpha in 0..3 {
-                    // db_v/dk_v = Σ_c v_c (the reference's db/dk). Only DOFs on the two pair
-                    // centres contribute, so the sum over `c` reduces to the two 3-vectors below.
-                    let mut db = 0.0;
-                    let mut dk = 0.0;
-                    for beta in 0..3 {
-                        let v_mu = v[3 * atom_mu + beta];
-                        let v_nu = v[3 * atom_nu + beta];
-                        db += v_mu * pair.h_bra_bra[0][alpha][beta]
-                            + v_nu * pair.h_bra_ket[0][alpha][beta];
-                        dk += v_mu * pair.h_bra_ket[0][beta][alpha]
-                            + v_nu * pair.h_ket_ket[0][alpha][beta];
+    let bundle_grad_dir =
+        |dp: &M, dw: &M, dq: &[f64], d_dp: &M, d_dw: &M, d_dq: &[f64]| -> Result<f64> {
+            let mut acc = 0.0;
+            let sp_resp = kvec(dq);
+            let dk_dq_v = dvdr_dir(dq)?;
+            let chain_dq = dk_chain_v(dq);
+            // Group A: H0+CN reuse + scc_kernel reuse (both legs pre-contracted).
+            {
+                let mut band = 0.0;
+                for mu in 0..n {
+                    for nu in 0..n {
+                        band += dp[(mu, nu)] * m_vv[(mu, nu)];
                     }
-                    acc += v[3 * atom_mu + alpha]
-                        * (db * (-2.0 * dw_val) + db * f_scc + dbra0[alpha] * dcf);
-                    acc += v[3 * atom_nu + alpha]
-                        * (dk * (-2.0 * dw_val) + dk * f_scc + dket0[alpha] * dcf);
+                }
+                let mut kern = 0.0;
+                for s in 0..nshell {
+                    kern += dq[s] * dv_kern_vv[s];
+                }
+                acc += band + kern;
+            }
+            // Group A: pulay + scc_overlap (ao-pair loop). The `c` leg enters only through the
+            // overlap second derivative (via atom_c/axis_c) and through V^(c)/P^(c)/q^(c) in `dcf`;
+            // both are contracted below.
+            for mu in 0..n {
+                let atom_mu = basis.aos[mu].atom_index;
+                let shell_mu = basis.aos[mu].shell_index;
+                let rmu = system.atoms[atom_mu].position;
+                for nu in 0..mu {
+                    let atom_nu = basis.aos[nu].atom_index;
+                    if atom_mu == atom_nu {
+                        continue;
+                    }
+                    let shell_nu = basis.aos[nu].shell_index;
+                    let rnu = system.atoms[atom_nu].position;
+                    if (rmu - rnu).norm2() <= 1.0e-18 {
+                        continue;
+                    }
+                    let pair = crate::integrals::contracted_pair_with_second_derivatives(
+                        &basis.aos[mu],
+                        &basis.aos[nu],
+                        rmu,
+                        rnu,
+                    );
+                    let dw_val = dw[(mu, nu)];
+                    let scalar_shift = v_ref[shell_mu] + v_ref[shell_nu];
+                    let scalar_response = sp_resp[shell_mu] + sp_resp[shell_nu];
+                    let dp_val = dp[(mu, nu)];
+                    let p0_val = p_mat[(mu, nu)];
+                    let f_scc = -(dp_val * scalar_shift + p0_val * scalar_response);
+                    let dcf = -(dp_val * (pot_v[shell_mu] + pot_v[shell_nu])
+                        + p_v[(mu, nu)] * scalar_response
+                        + p0_val
+                            * (dk_dq_v[shell_mu]
+                                + dk_dq_v[shell_nu]
+                                + chain_dq[shell_mu]
+                                + chain_dq[shell_nu]));
+                    let dbra0 = pair.d_bra[0].to_array();
+                    let dket0 = pair.d_ket[0].to_array();
+                    for alpha in 0..3 {
+                        // db_v/dk_v = Σ_c v_c (the reference's db/dk). Only DOFs on the two pair
+                        // centres contribute, so the sum over `c` reduces to the two 3-vectors below.
+                        let mut db = 0.0;
+                        let mut dk = 0.0;
+                        for beta in 0..3 {
+                            let v_mu = v[3 * atom_mu + beta];
+                            let v_nu = v[3 * atom_nu + beta];
+                            db += v_mu * pair.h_bra_bra[0][alpha][beta]
+                                + v_nu * pair.h_bra_ket[0][alpha][beta];
+                            dk += v_mu * pair.h_bra_ket[0][beta][alpha]
+                                + v_nu * pair.h_ket_ket[0][alpha][beta];
+                        }
+                        acc += v[3 * atom_mu + alpha]
+                            * (db * (-2.0 * dw_val) + db * f_scc + dbra0[alpha] * dcf);
+                        acc += v[3 * atom_nu + alpha]
+                            * (dk * (-2.0 * dw_val) + dk * f_scc + dket0[alpha] * dcf);
+                    }
                 }
             }
-        }
-        // Group B: G_a[D_c bundle] — linear in the bundle, so one call on the vv-bundle suffices.
-        let gb = crate::cphf::response_electronic_gradient(
-            system,
-            electronic,
-            &shell_kernel,
-            &ref_ctx,
-            d_dp,
-            d_dp,
-            d_dw,
-            d_dq,
-        )?;
-        for at in 0..nat {
-            acc += v[3 * at] * gb[at].x + v[3 * at + 1] * gb[at].y + v[3 * at + 2] * gb[at].z;
-        }
-        Ok(acc)
-    };
+            // Group B: G_a[D_c bundle] — linear in the bundle, so one call on the vv-bundle suffices.
+            let gb = crate::cphf::response_electronic_gradient(
+                system,
+                electronic,
+                &shell_kernel,
+                &ref_ctx,
+                d_dp,
+                d_dp,
+                d_dw,
+                d_dq,
+            )?;
+            for at in 0..nat {
+                acc += v[3 * at] * gb[at].x + v[3 * at + 1] * gb[at].y + v[3 * at + 2] * gb[at].z;
+            }
+            Ok(acc)
+        };
 
     // ===== the (collapsed) `b` body =====
     let s_tilde_b = motrans(&s_v, &mos);
@@ -893,9 +891,7 @@ pub fn directional_response_third(
         let dk_dqo = dvdr_dir(&dq_o)?;
         let kdq = kvec(&d_dq_o);
         let chain = dk_chain_v(&dq_o);
-        (0..nshell)
-            .map(|s| dk_dqo[s] + kdq[s] + chain[s])
-            .collect()
+        (0..nshell).map(|s| dk_dqo[s] + kdq[s] + chain[s]).collect()
     };
     let d_rf_o = {
         let t1 = crate::cphf::scalar_response_fock_matrix(basis, s_mat, &d_sp_o)?;
@@ -963,8 +959,7 @@ pub fn directional_response_third(
         }
     }
     let dp_s = crate::cphf::mo_coefficient_matrix_to_ao(&mos, &bmat)?;
-    let dq_s =
-        crate::cphf::response_shell_charges_from_density(basis, s_mat, p_mat, &dp_s, &s_v)?;
+    let dq_s = crate::cphf::response_shell_charges_from_density(basis, s_mat, p_mat, &dp_s, &s_v)?;
     let sp_s = kvec(&dq_s);
     let rf_s = crate::cphf::scalar_response_fock_matrix(basis, s_mat, &sp_s)?;
     let rf_mo_s = motrans(&rf_s, &mos);
@@ -1023,9 +1018,7 @@ pub fn directional_response_third(
         let dk_dqs = dvdr_dir(&dq_s)?;
         let kdq = kvec(&d_dq_s);
         let chain = dk_chain_v(&dq_s);
-        (0..nshell)
-            .map(|s| dk_dqs[s] + kdq[s] + chain[s])
-            .collect()
+        (0..nshell).map(|s| dk_dqs[s] + kdq[s] + chain[s]).collect()
     };
     let d_rf_s = {
         let t1 = crate::cphf::scalar_response_fock_matrix(basis, s_mat, &d_sp_s)?;
@@ -1476,8 +1469,7 @@ pub fn directional_response_fourth(
             .collect()
     };
     let dvdr_dir = |u: &[f64]| -> Result<Vec<f64>> {
-        let d =
-            crate::hessian::shell_scalar_potential_first_derivatives(system, basis, u, params)?;
+        let d = crate::hessian::shell_scalar_potential_first_derivatives(system, basis, u, params)?;
         Ok((0..nshell)
             .map(|s| (0..ndof).map(|c| v[c] * d[(s, c)]).sum::<f64>())
             .collect())
@@ -1711,7 +1703,8 @@ pub fn directional_response_fourth(
     let _pskel3 = crate::profile::scope("fc4.stage5.skeleton_third");
     let s_vvv = crate::hessian::directional_overlap_third_matrix(system, basis, v)?;
     let m_vvv = {
-        let mut m = crate::hessian::directional_h0_bare_third_matrix(system, params, electronic, v)?;
+        let mut m =
+            crate::hessian::directional_h0_bare_third_matrix(system, params, electronic, v)?;
         let cn3 = crate::hessian::directional_h0_cn_block_third_matrix(
             system, params, electronic, cutoff, v,
         )?;
@@ -1742,9 +1735,8 @@ pub fn directional_response_fourth(
         )?;
         let d2qv =
             crate::hessian::shell_scalar_potential_second_derivatives(system, basis, &q_v, params)?;
-        let d1qvv = crate::hessian::shell_scalar_potential_first_derivatives(
-            system, basis, &q_vv, params,
-        )?;
+        let d1qvv =
+            crate::hessian::shell_scalar_potential_first_derivatives(system, basis, &q_vv, params)?;
         (0..nshell)
             .map(|s| {
                 let mut acc = 0.0;
@@ -1835,9 +1827,8 @@ pub fn directional_response_fourth(
                 if gap.abs() < 1.0e-6 {
                     m[(p, q)] = -0.5 * d_s_tilde[(p, q)];
                 } else {
-                    let num = h_dot[(p, q)]
-                        - eps_v[q] * s_tilde_v[(p, q)]
-                        - eps[q] * d_s_tilde[(p, q)];
+                    let num =
+                        h_dot[(p, q)] - eps_v[q] * s_tilde_v[(p, q)] - eps[q] * d_s_tilde[(p, q)];
                     m[(p, q)] = num / gap - u_v[(p, q)] * (eps_v[q] - eps_v[p]) / gap;
                 }
             }
@@ -2003,16 +1994,8 @@ pub fn directional_response_fourth(
                     + p0_val * (sp_ddot[shell_mu] + sp_ddot[shell_nu]));
                 let dbra0 = pair.d_bra[0].to_array();
                 let dket0 = pair.d_ket[0].to_array();
-                let vmu = [
-                    v[3 * atom_mu],
-                    v[3 * atom_mu + 1],
-                    v[3 * atom_mu + 2],
-                ];
-                let vnu = [
-                    v[3 * atom_nu],
-                    v[3 * atom_nu + 1],
-                    v[3 * atom_nu + 2],
-                ];
+                let vmu = [v[3 * atom_mu], v[3 * atom_mu + 1], v[3 * atom_mu + 2]];
+                let vnu = [v[3 * atom_nu], v[3 * atom_nu + 1], v[3 * atom_nu + 2]];
                 for alpha in 0..3 {
                     let mut s2b = 0.0;
                     let mut s2k = 0.0;
@@ -2095,9 +2078,7 @@ pub fn directional_response_fourth(
         let a = kddot(&dq_s)?;
         let b2 = kdot(&d_dq_s)?;
         let c2 = kvec(&d2_dq_s);
-        (0..nshell)
-            .map(|s| a[s] + 2.0 * b2[s] + c2[s])
-            .collect()
+        (0..nshell).map(|s| a[s] + 2.0 * b2[s] + c2[s]).collect()
     };
     let rf_s = crate::cphf::scalar_response_fock_matrix(basis, s_mat, &sp_s)?;
     let d_rf_s = {
@@ -2155,10 +2136,8 @@ pub fn directional_response_fourth(
             let de = eps[i] + eps[j];
             cwa[(i, j)] = w * (f_tilde_b[(i, j)] - de * s_tilde_b[(i, j)]);
             cwb[(i, j)] = w * rf_mo_s[(i, j)];
-            dcwa[(i, j)] = w
-                * (d_f_tilde[(i, j)]
-                    - lam_s(&lam_v, &s_tilde_b, i, j)
-                    - de * d_s_tilde[(i, j)]);
+            dcwa[(i, j)] =
+                w * (d_f_tilde[(i, j)] - lam_s(&lam_v, &s_tilde_b, i, j) - de * d_s_tilde[(i, j)]);
             dcwb[(i, j)] = w * d_rf_mo_s[(i, j)];
             d2cwa[(i, j)] = w
                 * (d2_f_tilde[(i, j)]
@@ -2249,9 +2228,7 @@ pub fn directional_response_fourth(
             let a = population(&p2, s_mat);
             let b2 = population(&p1, &s_v);
             let c2 = population(&p0, &s_vv);
-            (0..nshell)
-                .map(|s| a[s] + 2.0 * b2[s] + c2[s])
-                .collect()
+            (0..nshell).map(|s| a[s] + 2.0 * b2[s] + c2[s]).collect()
         };
         let sp0 = kvec(&q0);
         let sp1: Vec<f64> = {
@@ -2263,9 +2240,7 @@ pub fn directional_response_fourth(
             let a = kddot(&q0)?;
             let b2 = kdot(&q1)?;
             let c2 = kvec(&q2);
-            (0..nshell)
-                .map(|s| a[s] + 2.0 * b2[s] + c2[s])
-                .collect()
+            (0..nshell).map(|s| a[s] + 2.0 * b2[s] + c2[s]).collect()
         };
         let rf0 = crate::cphf::scalar_response_fock_matrix(basis, s_mat, &sp0)?;
         let rf1 = {
@@ -2458,9 +2433,7 @@ pub fn directional_response_fourth(
             let a = kddot(&g)?;
             let b2 = kdot(&dg)?;
             let c2 = kvec(&d2g);
-            (0..nshell)
-                .map(|s| a[s] + 2.0 * b2[s] + c2[s])
-                .collect()
+            (0..nshell).map(|s| a[s] + 2.0 * b2[s] + c2[s]).collect()
         };
         let mut out = vec![0.0_f64; npair];
         for (p, &(i, a)) in space.pairs.iter().enumerate() {
@@ -2478,9 +2451,7 @@ pub fn directional_response_fourth(
                 }
             }
             for s in 0..nshell {
-                val += d2qt[p][s] * pot[s]
-                    + 2.0 * dqt[p][s] * dpot[s]
-                    + q_trans[p][s] * d2pot[s];
+                val += d2qt[p][s] * pot[s] + 2.0 * dqt[p][s] * dpot[s] + q_trans[p][s] * d2pot[s];
             }
             out[p] = val;
         }
@@ -2500,11 +2471,8 @@ pub fn directional_response_fourth(
             e1d += lam_v[(i, i2)] * d_s_tilde[(i2, a)];
         }
         d_rhs[idx] = -d_f_tilde[(i, a)] + e1 + eps[i] * d_s_tilde[(i, a)] - d_rf_mo_s[(i, a)];
-        d2_rhs[idx] = -d2_f_tilde[(i, a)]
-            + e2
-            + 2.0 * e1d
-            + eps[i] * d2_s_tilde[(i, a)]
-            - d2_rf_mo_s[(i, a)];
+        d2_rhs[idx] =
+            -d2_f_tilde[(i, a)] + e2 + 2.0 * e1d + eps[i] * d2_s_tilde[(i, a)] - d2_rf_mo_s[(i, a)];
     }
     let d_axb = axb_first(&x_v)?;
     let d2_axb = axb_second(&x_v)?;
@@ -2794,16 +2762,9 @@ mod tests {
             })
             .collect();
 
-        let want = skeleton_second_double_loop(
-            &system,
-            &params,
-            &electronic,
-            &cphf,
-            cutoff,
-            &v,
-            &cn_v,
-        )
-        .unwrap();
+        let want =
+            skeleton_second_double_loop(&system, &params, &electronic, &cphf, cutoff, &v, &cn_v)
+                .unwrap();
         let got = skeleton_second_one_pass(
             &system,
             &params,
@@ -2896,16 +2857,9 @@ mod tests {
         let cutoff = options.hamiltonian.coordination_cutoff;
 
         let (electronic, cphf, ao_opts) = rebuild_at(&system, &params, &options);
-        let analytic = directional_response_fourth(
-            &system,
-            &params,
-            &electronic,
-            &cphf,
-            ao_opts,
-            cutoff,
-            &v,
-        )
-        .unwrap();
+        let analytic =
+            directional_response_fourth(&system, &params, &electronic, &cphf, ao_opts, cutoff, &v)
+                .unwrap();
 
         let third_at = |sys: &PeriodicSystem| -> f64 {
             let (el, cp, ao) = rebuild_at(sys, &params, &options);

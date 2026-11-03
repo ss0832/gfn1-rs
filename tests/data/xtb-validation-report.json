@@ -1,0 +1,1446 @@
+{
+  "schema": "gfn1-rs-oracle-review-v1",
+  "package_version": "0.6.0-dev.1",
+  "status": "direct_gradient_parity_failed_reference_energy_audit_passed",
+  "reference_binary": {
+    "schema": "gfn1-rs-oracle-download-v1",
+    "release": "v6.7.1",
+    "release_commit": "26b28010e805f7d1aeeef39813feb473e69cc4be",
+    "url": "https://github.com/grimme-lab/xtb/releases/download/v6.7.1/xtb-6.7.1-linux-x86_64.tar.xz",
+    "sha256_url": "https://github.com/grimme-lab/xtb/releases/download/v6.7.1/xtb-6.7.1-linux-x86_64.tar.xz.sha256",
+    "archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+    "checksum_verified": true,
+    "binary_sha256": "debf27a9e0fa4bfb5ca75aafe4b90d8211f08ec2f4a482f375a4987212eaa12a",
+    "version_check": "pass",
+    "binary_build_revision": "edcfbbe",
+    "binary_build_commit": "edcfbbe39d411edc225e27315fbda3a204ddb023"
+  },
+  "direct_parity_counts": {
+    "executed": 43,
+    "passed": 33,
+    "failed": 10
+  },
+  "interpretation": "Do not relabel direct gradient mismatches as parity passes. At the audited transverse zero-overlap coordinates the native analytic gradient matches the official reference's energy finite differences, and the omitted H0*dS term predicts the analytic-reference discrepancy. Spin cases use 300 K; no energy offset is subtracted.",
+  "reference_energy_audit_scope": "One largest-discrepancy nuclear coordinate per molecule/solvent, at 4e-4 and 2e-4 bohr; ten cases. Not a full finite-difference gradient for every component.",
+  "source_fingerprints": {
+    "tests/xtb_parity.rs": "1c91825734dd1fb628b822a02e13232f7120708d82206e21c60bdeaa28864f80",
+    "tests/xtb_gradient_audit.rs": "27987906c770b08ce0963f73bba9dd8c075e15ad4657214bf02cdb78b601a320",
+    "src/spin.rs": "1f6aa527df75cf63ce5261bb08e4b7042e3ef7fe0aa62bc7b19f40584a9c05b7",
+    "src/gradient.rs": "64a0d1b454b5b078ee95a4e9afa4e09008272b43969a981e257a811b0ddf7c37",
+    "src/solvation.rs": "b12f5936a21040cf82ddf41f201b717bfcb65851ead6ebcb99053faf2cccfb86"
+  },
+  "direct_parity": {
+    "cases": [
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.109750648799263e-10,
+        "input_sha256": "f8c59380f6c969ac85bee65170a26f0361aa26dbb9b534ff9ed13969e473b073",
+        "max_charge_error_e": 1.6825462464259422e-15,
+        "max_gradient_error_hartree_per_bohr": 8.133003034926922e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "h2-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.110805360672657e-10,
+        "input_sha256": "f8c59380f6c969ac85bee65170a26f0361aa26dbb9b534ff9ed13969e473b073",
+        "max_charge_error_e": 2.3495203178847124e-15,
+        "max_gradient_error_hartree_per_bohr": 8.132694857831968e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "h2-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.110199178901212e-10,
+        "input_sha256": "f8c59380f6c969ac85bee65170a26f0361aa26dbb9b534ff9ed13969e473b073",
+        "max_charge_error_e": 1.6829799272949364e-15,
+        "max_gradient_error_hartree_per_bohr": 8.132843509756071e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "h2-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.110390137261447e-10,
+        "input_sha256": "f8c59380f6c969ac85bee65170a26f0361aa26dbb9b534ff9ed13969e473b073",
+        "max_charge_error_e": 1.013403770622201e-15,
+        "max_gradient_error_hartree_per_bohr": 8.132175030595157e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "h2-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.105416338111127e-10,
+        "input_sha256": "f8c59380f6c969ac85bee65170a26f0361aa26dbb9b534ff9ed13969e473b073",
+        "max_charge_error_e": 1.680350737026659e-15,
+        "max_gradient_error_hartree_per_bohr": 8.132836872704052e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "h2-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.268070341595376e-09,
+        "input_sha256": "d7eb374b116013d297eb3243500907f933c5ae15ba3e2d96d8ad079cf8db8c22",
+        "max_charge_error_e": 6.5873643206870724e-09,
+        "max_gradient_error_hartree_per_bohr": 1.844595021432277e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.09804812306902e-09,
+        "input_sha256": "d7eb374b116013d297eb3243500907f933c5ae15ba3e2d96d8ad079cf8db8c22",
+        "max_charge_error_e": 6.255955808942559e-09,
+        "max_gradient_error_hartree_per_bohr": 1.6592595734887805e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.139092624200202e-09,
+        "input_sha256": "d7eb374b116013d297eb3243500907f933c5ae15ba3e2d96d8ad079cf8db8c22",
+        "max_charge_error_e": 8.559410513697685e-09,
+        "max_gradient_error_hartree_per_bohr": 1.7645689592664382e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.227802996581431e-09,
+        "input_sha256": "d7eb374b116013d297eb3243500907f933c5ae15ba3e2d96d8ad079cf8db8c22",
+        "max_charge_error_e": 4.198368208641057e-09,
+        "max_gradient_error_hartree_per_bohr": 1.8453195486413387e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.1615253465465685e-09,
+        "input_sha256": "d7eb374b116013d297eb3243500907f933c5ae15ba3e2d96d8ad079cf8db8c22",
+        "max_charge_error_e": 5.464838581659137e-09,
+        "max_gradient_error_hartree_per_bohr": 1.8095867087772333e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.529016273124853e-09,
+        "input_sha256": "d9fc7ad0d703724341b3b82620db5d546183c948382f3bfa648f47a7736bca5b",
+        "max_charge_error_e": 5.3901894336849665e-09,
+        "max_gradient_error_hartree_per_bohr": 2.649141020265311e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "ammonia-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.4348933414539715e-09,
+        "input_sha256": "d9fc7ad0d703724341b3b82620db5d546183c948382f3bfa648f47a7736bca5b",
+        "max_charge_error_e": 8.867371975584959e-09,
+        "max_gradient_error_hartree_per_bohr": 2.626985371421975e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "ammonia-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.476514270379539e-09,
+        "input_sha256": "d9fc7ad0d703724341b3b82620db5d546183c948382f3bfa648f47a7736bca5b",
+        "max_charge_error_e": 3.83974763096262e-09,
+        "max_gradient_error_hartree_per_bohr": 2.6712773226050812e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "ammonia-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.515278817507351e-09,
+        "input_sha256": "d9fc7ad0d703724341b3b82620db5d546183c948382f3bfa648f47a7736bca5b",
+        "max_charge_error_e": 3.605474113710372e-09,
+        "max_gradient_error_hartree_per_bohr": 2.6752944547181468e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "ammonia-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 4.476308212986169e-09,
+        "input_sha256": "d9fc7ad0d703724341b3b82620db5d546183c948382f3bfa648f47a7736bca5b",
+        "max_charge_error_e": 2.475969207438311e-09,
+        "max_gradient_error_hartree_per_bohr": 2.6572154680597204e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "ammonia-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.853629250092581e-09,
+        "input_sha256": "7bb679c7ab12175325e73ff28d32783a1185d1af8da2dcf736cd5977a4a23082",
+        "max_charge_error_e": 4.751213263098908e-09,
+        "max_gradient_error_hartree_per_bohr": 1.5888955608037506e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "methane-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.854769671183476e-09,
+        "input_sha256": "7bb679c7ab12175325e73ff28d32783a1185d1af8da2dcf736cd5977a4a23082",
+        "max_charge_error_e": 1.366483842746291e-09,
+        "max_gradient_error_hartree_per_bohr": 1.5718162004168396e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "methane-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.8548806934859385e-09,
+        "input_sha256": "7bb679c7ab12175325e73ff28d32783a1185d1af8da2dcf736cd5977a4a23082",
+        "max_charge_error_e": 2.4876103607573974e-09,
+        "max_gradient_error_hartree_per_bohr": 1.5682517394075002e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "methane-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.854044029414581e-09,
+        "input_sha256": "7bb679c7ab12175325e73ff28d32783a1185d1af8da2dcf736cd5977a4a23082",
+        "max_charge_error_e": 2.111965213824618e-09,
+        "max_gradient_error_hartree_per_bohr": 1.588503133556369e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "methane-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.8543397928283412e-09,
+        "input_sha256": "7bb679c7ab12175325e73ff28d32783a1185d1af8da2dcf736cd5977a4a23082",
+        "max_charge_error_e": 4.7572224215475245e-09,
+        "max_gradient_error_hartree_per_bohr": 1.5777763243043225e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "methane-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 5.900784749712784e-09,
+        "input_sha256": "92d32bb1eef704d12dca7dd21b385b2717bdfe12529ebeea3d447b5a4320ba30",
+        "max_charge_error_e": 6.578884270691532e-09,
+        "max_gradient_error_hartree_per_bohr": 1.006104748124681e-11,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "nh4_plus-vacuum"
+      },
+      {
+        "charge": 1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 5.758617582785064e-09,
+        "input_sha256": "92d32bb1eef704d12dca7dd21b385b2717bdfe12529ebeea3d447b5a4320ba30",
+        "max_charge_error_e": 8.691351194300978e-09,
+        "max_gradient_error_hartree_per_bohr": 7.868988446957381e-12,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "nh4_plus-Alpb-water"
+      },
+      {
+        "charge": 1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 5.851825690683654e-09,
+        "input_sha256": "92d32bb1eef704d12dca7dd21b385b2717bdfe12529ebeea3d447b5a4320ba30",
+        "max_charge_error_e": 5.913126210899122e-09,
+        "max_gradient_error_hartree_per_bohr": 1.9427116165759983e-12,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "nh4_plus-Gbsa-water"
+      },
+      {
+        "charge": 1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 5.902370148191949e-09,
+        "input_sha256": "92d32bb1eef704d12dca7dd21b385b2717bdfe12529ebeea3d447b5a4320ba30",
+        "max_charge_error_e": 8.407330498449994e-09,
+        "max_gradient_error_hartree_per_bohr": 2.1118020526733616e-12,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "nh4_plus-Alpb-benzene"
+      },
+      {
+        "charge": 1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 5.908784572739023e-09,
+        "input_sha256": "92d32bb1eef704d12dca7dd21b385b2717bdfe12529ebeea3d447b5a4320ba30",
+        "max_charge_error_e": 7.790511513672271e-09,
+        "max_gradient_error_hartree_per_bohr": 4.8590471923848355e-12,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "nh4_plus-Gbsa-acetonitrile"
+      },
+      {
+        "charge": -1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 2.175920776892326e-09,
+        "input_sha256": "5355d4847d9157ff6679072df3220b3405c6c0fee8505310c33f6fb94c61451c",
+        "max_charge_error_e": 2.850181868296886e-09,
+        "max_gradient_error_hartree_per_bohr": 7.780175809157797e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "oh_minus-vacuum"
+      },
+      {
+        "charge": -1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 2.1457067234109672e-09,
+        "input_sha256": "5355d4847d9157ff6679072df3220b3405c6c0fee8505310c33f6fb94c61451c",
+        "max_charge_error_e": 2.1133355065927617e-09,
+        "max_gradient_error_hartree_per_bohr": 5.67480878260751e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "oh_minus-Alpb-water"
+      },
+      {
+        "charge": -1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 2.1517658765901615e-09,
+        "input_sha256": "5355d4847d9157ff6679072df3220b3405c6c0fee8505310c33f6fb94c61451c",
+        "max_charge_error_e": 2.808456772696033e-09,
+        "max_gradient_error_hartree_per_bohr": 6.462203151064161e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "oh_minus-Gbsa-water"
+      },
+      {
+        "charge": -1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 2.1668951077913334e-09,
+        "input_sha256": "5355d4847d9157ff6679072df3220b3405c6c0fee8505310c33f6fb94c61451c",
+        "max_charge_error_e": 5.337007336070343e-09,
+        "max_gradient_error_hartree_per_bohr": 7.584462866777608e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "oh_minus-Alpb-benzene"
+      },
+      {
+        "charge": -1.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 2.156177458800812e-09,
+        "input_sha256": "5355d4847d9157ff6679072df3220b3405c6c0fee8505310c33f6fb94c61451c",
+        "max_charge_error_e": 3.295472561504198e-09,
+        "max_gradient_error_hartree_per_bohr": 7.481398018455154e-10,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "oh_minus-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.96152130280825e-09,
+        "input_sha256": "f827d22404e34b5185233917809ca28ad5292b0fff0607f7c8ad0dd4d4d739e9",
+        "max_charge_error_e": 6.2830506353250826e-09,
+        "max_gradient_error_hartree_per_bohr": 0.004831839086700896,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water_dimer-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.725645983531649e-09,
+        "input_sha256": "f827d22404e34b5185233917809ca28ad5292b0fff0607f7c8ad0dd4d4d739e9",
+        "max_charge_error_e": 8.224825043257056e-09,
+        "max_gradient_error_hartree_per_bohr": 0.00483793765608871,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water_dimer-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.764773795633118e-09,
+        "input_sha256": "f827d22404e34b5185233917809ca28ad5292b0fff0607f7c8ad0dd4d4d739e9",
+        "max_charge_error_e": 1.0097956915089412e-08,
+        "max_gradient_error_hartree_per_bohr": 0.004949410313703422,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water_dimer-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.912351745493652e-09,
+        "input_sha256": "f827d22404e34b5185233917809ca28ad5292b0fff0607f7c8ad0dd4d4d739e9",
+        "max_charge_error_e": 7.732729456755294e-09,
+        "max_gradient_error_hartree_per_bohr": 0.004875549033022423,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water_dimer-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 8.80893047394693e-09,
+        "input_sha256": "f827d22404e34b5185233917809ca28ad5292b0fff0607f7c8ad0dd4d4d739e9",
+        "max_charge_error_e": 9.130029510195925e-09,
+        "max_gradient_error_hartree_per_bohr": 0.004930929429827442,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "water_dimer-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.3995258285603995e-08,
+        "input_sha256": "d23473e33bf47388440bcab1e5176a40888e1ece68ad4402036e54e8dde7fd70",
+        "max_charge_error_e": 4.254334662334713e-09,
+        "max_gradient_error_hartree_per_bohr": 0.01169603006737283,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "glycine_zwitterion-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.3911201079963575e-08,
+        "input_sha256": "d23473e33bf47388440bcab1e5176a40888e1ece68ad4402036e54e8dde7fd70",
+        "max_charge_error_e": 3.345302923563054e-09,
+        "max_gradient_error_hartree_per_bohr": 0.01392875550669026,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "glycine_zwitterion-Alpb-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.3925117059443437e-08,
+        "input_sha256": "d23473e33bf47388440bcab1e5176a40888e1ece68ad4402036e54e8dde7fd70",
+        "max_charge_error_e": 5.178124279185681e-09,
+        "max_gradient_error_hartree_per_bohr": 0.014588143120322205,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "glycine_zwitterion-Gbsa-water"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.398425553134075e-08,
+        "input_sha256": "d23473e33bf47388440bcab1e5176a40888e1ece68ad4402036e54e8dde7fd70",
+        "max_charge_error_e": 4.348640836315809e-09,
+        "max_gradient_error_hartree_per_bohr": 0.013306966099479504,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "glycine_zwitterion-Alpb-benzene"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "measured",
+        "electronic_temperature_K": 0.0,
+        "energy_error_hartree": 1.3962235811959545e-08,
+        "input_sha256": "d23473e33bf47388440bcab1e5176a40888e1ece68ad4402036e54e8dde7fd70",
+        "max_charge_error_e": 4.1892689317535314e-09,
+        "max_gradient_error_hartree_per_bohr": 0.01432025916091427,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "fail",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 0,
+        "validation_id": "glycine_zwitterion-Gbsa-acetonitrile"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "not_emitted_by_xtb_tblite_backend",
+        "electronic_temperature_K": 300.0,
+        "energy_error_hartree": 3.1451799564763405e-07,
+        "input_sha256": "9ec22360fcbe506f07cad0573d58f8b2a3115b2f96e7026246315b9e83c5cc46",
+        "max_charge_error_e": null,
+        "max_gradient_error_hartree_per_bohr": 2.5384819337705145e-08,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 1,
+        "validation_id": "oh_radical-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "not_emitted_by_xtb_tblite_backend",
+        "electronic_temperature_K": 300.0,
+        "energy_error_hartree": 8.769132886499165e-08,
+        "input_sha256": "aa35c88154af515bd98d8f14b4dbf096ead3af896042164b0f831de27301ffe9",
+        "max_charge_error_e": null,
+        "max_gradient_error_hartree_per_bohr": 1.0596445001835597e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 1,
+        "validation_id": "no_radical-vacuum"
+      },
+      {
+        "charge": 0.0,
+        "charge_reference_status": "not_emitted_by_xtb_tblite_backend",
+        "electronic_temperature_K": 300.0,
+        "energy_error_hartree": 1.9698298103776324e-08,
+        "input_sha256": "1fb2771d39d2e7785ab60db2ffb1d8849ddf673648979b265a48e4ac14bd1946",
+        "max_charge_error_e": null,
+        "max_gradient_error_hartree_per_bohr": 4.685376869470459e-09,
+        "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+        "reference_archive_sha256": "62a8d18778286e815292ee53d76ce447daf460a4dea3782c0f25cbac7019b5df",
+        "reference_version": "xtb version 6.7.1 (edcfbbe)",
+        "solvent_temperature_K": 298.15,
+        "status": "pass",
+        "thresholds": {
+          "charge": 2e-05,
+          "energy": 1e-06,
+          "gradient": 2e-06
+        },
+        "unpaired": 2,
+        "validation_id": "o2_triplet-vacuum"
+      }
+    ],
+    "executed_cases": 43,
+    "package_version": "0.6.0-dev.1",
+    "schema": "gfn1-rs-xtb-parity-v1",
+    "status": "fail"
+  },
+  "reference_energy_gradient_audit": {
+    "cases": [
+      {
+        "base_energy_error_hartree": 8.96152130280825e-09,
+        "case": "water_dimer",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.0048317953419241165,
+            "official_energy_fd": -0.004804123749924116,
+            "rust_analytic_error": 4.3744776779229555e-08,
+            "rust_energy_fd": -0.004804124236201801,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.00483182659470226,
+            "official_energy_fd": -0.0048041550027022595,
+            "rust_analytic_error": 1.2491998636031398e-08,
+            "rust_energy_fd": -0.004804156690241257,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 2.7671592e-05,
+        "rust_analytic": -0.0048041674947008955,
+        "solvent": "vacuum",
+        "source_predicted_missing_h0_ds": -0.004831839317902008
+      },
+      {
+        "base_energy_error_hartree": 8.725645983531649e-09,
+        "case": "water_dimer",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.0048378937851068435,
+            "official_energy_fd": -0.010264827499106843,
+            "rust_analytic_error": 4.387098186640903e-08,
+            "rust_energy_fd": -0.010264828391726155,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.004837926287996112,
+            "official_energy_fd": -0.010264860001996112,
+            "rust_analytic_error": 1.1368092597482948e-08,
+            "rust_energy_fd": -0.01026486061039833,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": -0.005426933714,
+        "rust_analytic": -0.01026487137008871,
+        "solvent": "Alpb-water",
+        "source_predicted_missing_h0_ds": -0.004837937941433034
+      },
+      {
+        "base_energy_error_hartree": 8.764773795633118e-09,
+        "case": "water_dimer",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.004949364751713804,
+            "official_energy_fd": -0.0046338549997138045,
+            "rust_analytic_error": 4.5561989617769194e-08,
+            "rust_energy_fd": -0.004633857300095912,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.004949399752604879,
+            "official_energy_fd": -0.004633890000604879,
+            "rust_analytic_error": 1.0561098543436509e-08,
+            "rust_energy_fd": -0.004633889676419756,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.000315509752,
+        "rust_analytic": -0.004633900561703422,
+        "solvent": "Gbsa-water",
+        "source_predicted_missing_h0_ds": -0.004949410551611958
+      },
+      {
+        "base_energy_error_hartree": 8.912351745493652e-09,
+        "case": "water_dimer",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.004875504124720952,
+            "official_energy_fd": -0.0017530637497209511,
+            "rust_analytic_error": 4.490830147227225e-08,
+            "rust_energy_fd": -0.001753065326237646,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.004875537873280454,
+            "official_energy_fd": -0.0017530974982804537,
+            "rust_analytic_error": 1.1159741969716738e-08,
+            "rust_energy_fd": -0.0017530978002611164,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.003122440375,
+        "rust_analytic": -0.0017531086580224234,
+        "solvent": "Alpb-benzene",
+        "source_predicted_missing_h0_ds": -0.004875549249650411
+      },
+      {
+        "base_energy_error_hartree": 8.80893047394693e-09,
+        "case": "water_dimer",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.004930885728481658,
+            "official_energy_fd": -0.0012389399994816586,
+            "rust_analytic_error": 4.370134578410116e-08,
+            "rust_energy_fd": -0.0012389402614942924,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.004930915731148676,
+            "official_energy_fd": -0.001238970002148676,
+            "rust_analytic_error": 1.3698678766630931e-08,
+            "rust_energy_fd": -0.0012389728132333744,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.003691945729,
+        "rust_analytic": -0.0012389837008274427,
+        "solvent": "Gbsa-acetonitrile",
+        "source_predicted_missing_h0_ds": -0.004930929642727682
+      },
+      {
+        "base_energy_error_hartree": 1.3995258285603995e-08,
+        "case": "glycine",
+        "coordinate": 4,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.011696045635869384,
+            "official_energy_fd": 0.03734653000186938,
+            "rust_analytic_error": 1.5568496554430045e-08,
+            "rust_energy_fd": 0.03734653008624633,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.011696033130317234,
+            "official_energy_fd": 0.03734651749631723,
+            "rust_analytic_error": 3.0629444050522814e-09,
+            "rust_energy_fd": 0.03734651826903246,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.025650484366,
+        "rust_analytic": 0.03734651443337283,
+        "solvent": "vacuum",
+        "source_predicted_missing_h0_ds": 0.011696027996679624
+      },
+      {
+        "base_energy_error_hartree": 1.3911201079963575e-08,
+        "case": "glycine",
+        "coordinate": 4,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.01392877041721453,
+            "official_energy_fd": 0.03070465124821453,
+            "rust_analytic_error": 1.4910524270134173e-08,
+            "rust_energy_fd": 0.030704651905466562,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.013928756668212593,
+            "official_energy_fd": 0.030704637499212595,
+            "rust_analytic_error": 1.1615223331762348e-09,
+            "rust_energy_fd": 0.0307046404746103,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.016775880831,
+        "rust_analytic": 0.03070463633769026,
+        "solvent": "Alpb-water",
+        "source_predicted_missing_h0_ds": 0.013928755336186888
+      },
+      {
+        "base_energy_error_hartree": 1.3925117059443437e-08,
+        "case": "glycine",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.01458817839996256,
+            "official_energy_fd": -0.00844088874796256,
+            "rust_analytic_error": 3.527964035666964e-08,
+            "rust_energy_fd": -0.008440888215055509,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.01458815215873115,
+            "official_energy_fd": -0.00844086250673115,
+            "rust_analytic_error": 9.03840894662944e-09,
+            "rust_energy_fd": -0.00844086212481443,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.006147289652,
+        "rust_analytic": -0.008440853468322204,
+        "solvent": "Gbsa-water",
+        "source_predicted_missing_h0_ds": -0.0145881430298538
+      },
+      {
+        "base_energy_error_hartree": 1.398425553134075e-08,
+        "case": "glycine",
+        "coordinate": 4,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.013306980700345403,
+            "official_energy_fd": 0.0335857687483454,
+            "rust_analytic_error": 1.4600865898273252e-08,
+            "rust_energy_fd": 0.0335857696498465,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.013306969451565717,
+            "official_energy_fd": 0.033585757499565716,
+            "rust_analytic_error": 3.352086212771166e-09,
+            "rust_energy_fd": 0.03358575807688169,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.020278788048,
+        "rust_analytic": 0.0335857541474795,
+        "solvent": "Alpb-benzene",
+        "source_predicted_missing_h0_ds": 0.013306965545979123
+      },
+      {
+        "base_energy_error_hartree": 1.3962235811959545e-08,
+        "case": "glycine",
+        "coordinate": 1,
+        "finite_differences": [
+          {
+            "official_analytic_error": 0.014320294498755973,
+            "official_energy_fd": -0.008221027498755973,
+            "rust_analytic_error": 3.5337841703189654e-08,
+            "rust_energy_fd": -0.00822102730335672,
+            "step_bohr": 0.0004
+          },
+          {
+            "official_analytic_error": 0.014320266996311207,
+            "official_energy_fd": -0.008220999996311207,
+            "rust_analytic_error": 7.835396937175276e-09,
+            "rust_energy_fd": -0.008221000875607842,
+            "step_bohr": 0.0002
+          }
+        ],
+        "official_analytic": 0.006099267,
+        "rust_analytic": -0.00822099216091427,
+        "solvent": "Gbsa-acetonitrile",
+        "source_predicted_missing_h0_ds": -0.014320259071615368
+      }
+    ],
+    "executed_cases": 10,
+    "package_version": "0.6.0-dev.1",
+    "schema": "gfn1-rs-xtb-gradient-audit-v1",
+    "status": "pass"
+  },
+  "spin_temperature_diagnostic": {
+    "schema": "gfn1-rs-spin-temperature-diagnostic-v1",
+    "status": "diagnostic_only",
+    "cases": [
+      {
+        "case": "oh",
+        "requested_temperature_K": 0.0,
+        "reference_energy_hartree": -5.083302493866,
+        "rust_energy_hartree": -5.081985139444075,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -5.081985139444075,
+          "total_internal": -5.081985139444075,
+          "repulsion": 0.015502427590597138,
+          "electronic": -5.104496903398468,
+          "isotropic_scc": 0.022718619530256598,
+          "third_order": 8.855317719646966e-06,
+          "higher_order": 0.0,
+          "dispersion": -5.782174197683761e-05,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.01566031674220427,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": 0.0
+        },
+        "reference_minus_rust_hartree": -0.0013173544219249322
+      },
+      {
+        "case": "oh",
+        "requested_temperature_K": 100.0,
+        "reference_energy_hartree": -5.083302493866,
+        "rust_energy_hartree": -5.082424152745344,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -5.082424152745344,
+          "total_internal": -5.081985139444029,
+          "repulsion": 0.015502427590597138,
+          "electronic": -5.1044969033984176,
+          "isotropic_scc": 0.02271861953025622,
+          "third_order": 8.855317719645007e-06,
+          "higher_order": 0.0,
+          "dispersion": -5.782174197683761e-05,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.015660316742207678,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.0004390133013147941
+        },
+        "reference_minus_rust_hartree": -0.000878341120656323
+      },
+      {
+        "case": "oh",
+        "requested_temperature_K": 300.0,
+        "reference_energy_hartree": -5.083302493866,
+        "rust_energy_hartree": -5.083302179348005,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -5.083302179348005,
+          "total_internal": -5.08198513944406,
+          "repulsion": 0.015502427590597138,
+          "electronic": -5.104496903398452,
+          "isotropic_scc": 0.02271861953025655,
+          "third_order": 8.855317719646366e-06,
+          "higher_order": 0.0,
+          "dispersion": -5.782174197683761e-05,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.015660316742205443,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.001317039903944375
+        },
+        "reference_minus_rust_hartree": -3.1451799564763405e-07
+      },
+      {
+        "case": "oh",
+        "requested_temperature_K": 600.0,
+        "reference_energy_hartree": -5.083302493866,
+        "rust_energy_hartree": -5.084619219251947,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -5.084619219251947,
+          "total_internal": -5.0819851394440585,
+          "repulsion": 0.015502427590597138,
+          "electronic": -5.104496903398448,
+          "isotropic_scc": 0.022718619530254017,
+          "third_order": 8.855317719644802e-06,
+          "higher_order": 0.0,
+          "dispersion": -5.782174197683761e-05,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.015660316742205097,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.002634079807888765
+        },
+        "reference_minus_rust_hartree": 0.0013167253859469596
+      },
+      {
+        "case": "no",
+        "requested_temperature_K": 0.0,
+        "reference_energy_hartree": -7.743500213083,
+        "rust_energy_hartree": -7.742183260870392,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -7.742183260870392,
+          "total_internal": -7.742183260870392,
+          "repulsion": 0.033706327702318,
+          "electronic": -7.77542379297049,
+          "isotropic_scc": 0.007897579153287933,
+          "third_order": 1.2316474268604287e-05,
+          "higher_order": 0.0,
+          "dispersion": -0.0001249141087015274,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.008250777121075466,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": 0.0
+        },
+        "reference_minus_rust_hartree": -0.0013169522126084132
+      },
+      {
+        "case": "no",
+        "requested_temperature_K": 100.0,
+        "reference_energy_hartree": -7.743500213083,
+        "rust_energy_hartree": -7.742622274171719,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -7.742622274171719,
+          "total_internal": -7.742183260870404,
+          "repulsion": 0.033706327702318,
+          "electronic": -7.775423792970502,
+          "isotropic_scc": 0.007897579153287718,
+          "third_order": 1.231647426859963e-05,
+          "higher_order": 0.0,
+          "dispersion": -0.0001249141087015274,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.008250777121076074,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.0004390133013148006
+        },
+        "reference_minus_rust_hartree": -0.0008779389112811842
+      },
+      {
+        "case": "no",
+        "requested_temperature_K": 300.0,
+        "reference_energy_hartree": -7.743500213083,
+        "rust_energy_hartree": -7.7435003007743335,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -7.7435003007743335,
+          "total_internal": -7.742183260870389,
+          "repulsion": 0.033706327702318,
+          "electronic": -7.775423792970488,
+          "isotropic_scc": 0.007897579153288274,
+          "third_order": 1.2316474268605354e-05,
+          "higher_order": 0.0,
+          "dispersion": -0.0001249141087015274,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.008250777121075454,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.0013170399039444019
+        },
+        "reference_minus_rust_hartree": 8.769133330588375e-08
+      },
+      {
+        "case": "no",
+        "requested_temperature_K": 600.0,
+        "reference_energy_hartree": -7.743500213083,
+        "rust_energy_hartree": -7.744817340678273,
+        "rust_terms": {
+          "ml_correction": 0.0,
+          "solvation_electrostatic": 0.0,
+          "solvation_hydrogen_bond": 0.0,
+          "solvation_sasa": 0.0,
+          "solvation_shift": 0.0,
+          "total_free": -7.744817340678273,
+          "total_internal": -7.742183260870385,
+          "repulsion": 0.033706327702318,
+          "electronic": -7.775423792970483,
+          "isotropic_scc": 0.007897579153287749,
+          "third_order": 1.2316474268605717e-05,
+          "higher_order": 0.0,
+          "dispersion": -0.0001249141087015274,
+          "halogen": 0.0,
+          "multipole": 0.0,
+          "exchange": 0.0,
+          "spin_polarization": -0.008250777121075302,
+          "plus_u": 0.0,
+          "external_field": 0.0,
+          "electronic_entropy": -0.002634079807888789
+        },
+        "reference_minus_rust_hartree": 0.0013171275952732486
+      }
+    ],
+    "comparison_scale_2_kBT_ln2_at_300K_hartree": 0.0013170399039443318,
+    "scope": "Temperature sweep of the pinned official xtb tblite backend and native collinear spin; no reference-energy correction applied",
+    "reference_temperature_variation_hartree": {
+      "oh": 0.0,
+      "no": 0.0
+    },
+    "reference_default_input_source": "https://github.com/grimme-lab/xtb/blob/edcfbbe39d411edc225e27315fbda3a204ddb023/src/tblite/calculator.F90#L69"
+  }
+}

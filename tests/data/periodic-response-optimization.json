@@ -1,0 +1,36 @@
+{
+  "schema": "gfn1-rs-periodic-charge-slot-profile-v1",
+  "package_version": "0.6.0-dev.1",
+  "status": "pass",
+  "threads": {
+    "rayon": 1,
+    "faer": 1
+  },
+  "samples_per_path": 5,
+  "warm_up": "One untimed call per path; timed order alternates each repetition",
+  "scope": "Geometric scalar-potential derivative at response charges, one sub-operation of periodic Gamma FC3",
+  "legacy": "Clone the converged SCC, replace charge slots and rebuild full Gamma AO skeleton derivatives",
+  "optimized": "Borrow reference geometry and explicit response charges; build only scalar-potential derivatives",
+  "memory_metric": "Avoided fock/overlap matrix element payload 2*ndof*nAO^2*sizeof(f64), plus an unmeasured SCC clone; not a process-RSS or end-to-end peak-memory measurement",
+  "conditions": "Windows x86_64 reltest, other validation processes active; no end-to-end FC3 speedup inferred from this sub-operation",
+  "source_sha256": {
+    "src/pbc/gamma_response.rs": "c3ae3cbe8a88ee921f0166fa9045f69dfb70e3e5edff7d7ccba7a475997b6da8",
+    "src/pbc/hessian.rs": "ab206d6ab998375e7fbc1b06311f0925bbb748ba99e7e6aab631bdbc67f326c4"
+  },
+  "cases": [
+    {
+      "fixture": "diamond-skew",
+      "legacy_median_ms": 211.5445,
+      "borrowed_median_ms": 0.2695,
+      "max_absolute_difference": 0.0,
+      "avoided_ao_matrix_payload_bytes": 6144
+    },
+    {
+      "fixture": "BN-skew",
+      "legacy_median_ms": 198.84640000000002,
+      "borrowed_median_ms": 0.2748,
+      "max_absolute_difference": 0.0,
+      "avoided_ao_matrix_payload_bytes": 6144
+    }
+  ]
+}

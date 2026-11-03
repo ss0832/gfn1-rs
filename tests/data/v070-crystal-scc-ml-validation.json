@@ -1,0 +1,166 @@
+{
+  "schema": "gfn1-rs-v070-crystal-scc-ml-validation-v1",
+  "package_version": "0.7.0",
+  "rust": {
+    "passed": 632,
+    "ignored": 50,
+    "groups": {
+      "library": [
+        540,
+        0,
+        48
+      ],
+      "excited_hessian": [
+        3,
+        0,
+        2
+      ],
+      "fragment": [
+        4,
+        0,
+        0
+      ],
+      "fourth_derivative": [
+        6,
+        0,
+        0
+      ],
+      "magnetic": [
+        16,
+        0,
+        0
+      ],
+      "smearing": [
+        5,
+        0,
+        0
+      ],
+      "td": [
+        17,
+        0,
+        0
+      ],
+      "third_derivative_contracted": [
+        5,
+        0,
+        0
+      ],
+      "training_cli": [
+        2,
+        0,
+        0
+      ],
+      "training_observables": [
+        3,
+        0,
+        0
+      ],
+      "vpt2_molecules": [
+        2,
+        0,
+        0
+      ],
+      "pbc_scc_solver": [
+        2,
+        0,
+        0
+      ],
+      "scf_accelerators": [
+        1,
+        0,
+        0
+      ],
+      "pbc_mechanical": [
+        6,
+        0,
+        0
+      ],
+      "pbc_spectra": [
+        9,
+        0,
+        0
+      ],
+      "pbc_electromechanical": [
+        6,
+        0,
+        0
+      ],
+      "property_training": [
+        5,
+        0,
+        0
+      ]
+    },
+    "log_sha256": "d452ec3147b93dd2947006627767835b450553b8db57fc2527e2ade015a69389"
+  },
+  "installed_release_wheel_python_ase": {
+    "windows": {
+      "passed": 95,
+      "seconds": 186.6,
+      "log_sha256": "5c03d42387c05f117692610c11ba5fbbb90b84eb8144b324e907347711ec1f5b"
+    },
+    "linux": {
+      "passed": 95,
+      "seconds": 127.89,
+      "log_sha256": "31d3a2acd2330198b2b541654086f67967c1e0799ae4a474bc16a47fbd6fb3c6"
+    }
+  },
+  "wheel_sha256": {
+    "gfn1_rs_python-0.7.0-cp39-abi3-manylinux_2_39_x86_64.whl": "fe75185c8e8ba345f99118229f8f37de4de7c9a454e77b855972cdfdca20a612",
+    "gfn1_rs_python-0.7.0-cp39-abi3-win_amd64.whl": "f144e3c1607d82ab681aad791392afc334f1128184ed509bce3ce19c9cca1681"
+  },
+  "native_cli_binary_sha256": {
+    "gfn1-rs.exe": "a79d0583dcabafb4fcacb446fbc0f295060d49f89166333cee8b0b28bbf18cfa",
+    "gfn1-rs-train.exe": "6359cd2e409a060db1223d9876308664e3be14ca88cc46886c106d4aa56d043e"
+  },
+  "native_cli_checks": {
+    "cold_lif_energy_forces_stress_300K": "pass",
+    "warm_user_model_property_fit": "pass",
+    "report_sha256": "8eedb57b4f58b60dbf2f6a0f57141b1e8c13e98cd7c683496c94b35a7d2e57b9"
+  },
+  "warning_checks": {
+    "all_targets_all_features_clippy": "pass with -D warnings",
+    "clippy_log_sha256": "587e3c3c3606a4db48cca46029e9d68683a41cb3239ac4268a3d43bc6849fed4",
+    "rustfmt": "pass",
+    "python_warnings": "errors"
+  },
+  "cargo_extracted_source_build": {
+    "status": "pass",
+    "log_sha256": "710c9a8f3398a35944d29d7d8e41de68b29d5ac38242021eea6e3705a1ec4cb7"
+  },
+  "measured_evidence_sha256": {
+    "tests/data/crystal-mechanical-properties.json": "2975d4e1230871a79309799809f739a6ac1076c7daf01a48e44c610d2d11dcfa",
+    "tests/data/crystal-electromechanical-properties.json": "5e0d0a601f243ae5c2ac74941c6e6013b91b4594a276ff8f69df824095b9ae4a",
+    "tests/data/strain-skeleton-performance.json": "aeb4625078cb6e11ba7ef1ea2668a01ef6e6d07911610abaaa386959b8a814ce",
+    "tests/data/pbc-scc-results.json": "7f5c16b5e99190093bac2a3b429ccd990f2486fa832e7163e85edc1de5f1bf72",
+    "tests/data/ethylene-stda-original-stationary.json": "902294925c79192e1aec67422b624ef1aa203a23f97118f02eac1c1bfe96842e",
+    "tests/data/ml-periodic-property-training.json": "9f8d51c33808660fe08ba8480d4321c3bc3f1a3928c2c1157eda238d3f239a48"
+  },
+  "source_sha256": {
+    "Cargo.toml": "dbe4ab83bc607c19c831459b0eaa2a46f0ea4fb2473c874552e3d6ceb9ee143d",
+    "Cargo.lock": "cf7f07002596cc600cb5ee570a440b226a6aa70d8eb139078252e6a09df8c55a",
+    "pyproject.toml": "c28ceadbc31b3bae8e94d5b6ba1774c90f1a7da8c184e4bce40e00d86c5b6f6a",
+    "src/pbc/scf.rs": "8364ba6ce3ee731deb14d046b09ea7194cc77f28ce76c52e85cd81046993a379",
+    "src/pbc/scc_solver.rs": "f95e86e7e423c255cf5599357a6f94f5ea931edae77d3ccf415c1cc2980ccb43",
+    "src/property_training.rs": "6819524b3acc2c8e2e42ad0bbe1fdfdfdf60af1682d0df97ca33e2daf05e82ec",
+    "src/python.rs": "8492e912b6a81c7da831bb9e3f0cb613c4aee202d54dead3079ebe92318813da",
+    "python/gfn1_rs/ase.py": "09f759ec042f07d258fbd1ae1338c5bade119ecac0d524a6cdbed60d4553c500"
+  },
+  "source_hash_scope": "Delivered-source fingerprints; measured historical receipts retain their own source and binary identities, including any later formatting distinction.",
+  "scc_same_conditions": {
+    "temperature_kelvin": 300,
+    "cases": 15,
+    "auto_converged": 15,
+    "newton_converged": 15,
+    "legacy_broyden_converged": 11
+  },
+  "scope": [
+    "Representative model regressions, not universal chemical-accuracy certification",
+    "Original signed sTDA force-zero saddles are audited; a smooth minimum remains unverified",
+    "Gamma LiF stationary cell retains negative ionic curvature",
+    "Berry thermal occupation/gap guards remain enforced at 300 K",
+    "Sparse crystal meshes and nonstationary experimental inputs are not called converged physical predictions",
+    "17 property-fit targets; general parameter differences wrap analytic physical backends",
+    "Older release/PH3/magnetic/VPT2 receipts keep actual historical hashes; they are not relabelled as current-wheel measurements"
+  ]
+}

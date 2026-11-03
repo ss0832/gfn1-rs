@@ -30,6 +30,8 @@
 
 pub mod bloch;
 pub mod complex;
+pub mod elastic_response;
+pub mod electromechanical;
 pub mod ewald;
 pub mod ewald_multipole;
 pub(crate) mod gamma_response;
@@ -39,8 +41,14 @@ pub mod gruneisen;
 pub mod hessian;
 pub(crate) mod kpoint_third;
 pub mod kpoints;
+pub mod mechanical;
+pub mod ml;
+pub mod phonon;
 pub mod polarization;
 pub mod scf;
+pub mod soc;
+pub(crate) mod soc_response;
+pub mod spectra;
 pub mod stress;
 pub mod third_derivative;
 
@@ -55,18 +63,22 @@ pub use gamma_response::{
     pbc_gamma_third_analytic_vector, pbc_gamma_third_with_reference, GammaThirdReference,
 };
 pub use gradient::{pbc_analytic_gradient, pbc_gradient_from_scc, PbcGradientResult};
+pub use gruneisen::{pbc_gruneisen, GruneisenOptions, GruneisenResult, SecondOrderStencil};
+pub use hessian::{pbc_gamma_hessian, pbc_kpoint_hessian, PbcHessianResult};
 pub use kpoint_third::{
     pbc_kpoint_third_analytic_block, pbc_kpoint_third_analytic_dense,
     pbc_kpoint_third_analytic_vector, pbc_kpoint_third_with_reference, KpointThirdReference,
 };
-pub use gruneisen::{pbc_gruneisen, GruneisenOptions, GruneisenResult, SecondOrderStencil};
-pub use hessian::{pbc_gamma_hessian, pbc_kpoint_hessian, PbcHessianResult};
 pub use polarization::{
     pbc_berry_polarization, BerryMethodSelector, BerryPolarizationMethod, BerryPolarizationOptions,
     BerryPolarizationResult, POLARIZATION_AU_TO_C_PER_M2,
 };
 pub use scf::{
     pbc_electronic_result, run_pbc_scc, run_pbc_scc_with_guess, PbcSccGuess, PbcSccResult,
+};
+pub use soc::{
+    pbc_soc_analytic_gradient, pbc_soc_hessian, pbc_soc_stress, run_pbc_soc_scc,
+    PbcSocHessianResult, PbcSocResult,
 };
 pub use stress::{pbc_stress, pbc_stress_from_scc, PbcStressResult};
 pub use third_derivative::{
@@ -85,7 +97,7 @@ pub fn run_electronic_pbc(
     params: &Gfn1Parameters,
     options: &ElectronicOptions,
 ) -> Result<ElectronicResult> {
-    let pbc = PbcOptions::for_boundary(options.boundary);
+    let pbc = PbcOptions::for_electronic(options)?;
     let scf = run_pbc_scc(system, params, options, &pbc)?;
     pbc_electronic_result(scf, system, pbc.ao_cutoff)
 }
@@ -180,6 +192,18 @@ impl Default for PbcOptions {
 }
 
 impl PbcOptions {
+    pub fn for_electronic(options: &ElectronicOptions) -> Result<Self> {
+        let mut pbc = Self::for_boundary(options.boundary);
+        if let Some(cutoff) = options.pbc_ao_cutoff {
+            if !cutoff.is_finite() || cutoff <= 0. {
+                return Err(crate::Gfn1Error::InvalidInput(
+                    "periodic AO cutoff must be positive and finite (bohr)".into(),
+                ));
+            }
+            pbc.ao_cutoff = cutoff;
+        }
+        Ok(pbc)
+    }
     /// Pick the PBC options implied by a [`BoundaryCondition`] when the caller
     /// did not specify an explicit mesh.
     pub fn for_boundary(boundary: BoundaryCondition) -> Self {

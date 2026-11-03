@@ -58,6 +58,28 @@ pub fn analytic_gradient(
     params: &Gfn1Parameters,
     options: AnalyticGradientOptions,
 ) -> Result<AnalyticGradientResult> {
+    let span = options
+        .electronic
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "analytic_gradient",
+                serde_json::json!({"atoms":system.atoms.len(),"periodic":system.lattice.is_some()}),
+            )
+        })
+        .transpose()?;
+    crate::logging::finish(
+        span,
+        analytic_gradient_impl(system, params, options),
+        |g| serde_json::json!({"total_free_hartree":g.total_energy,"max_gradient_hartree_per_bohr":g.max_gradient}),
+    )
+}
+fn analytic_gradient_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: AnalyticGradientOptions,
+) -> Result<AnalyticGradientResult> {
     if system.lattice.is_some()
         || options.electronic.boundary != crate::model::BoundaryCondition::NonPeriodic
     {
@@ -81,7 +103,7 @@ fn pbc_analytic_gradient_result(
             "experimental D4 dispersion is implemented for non-PBC gradients only".to_string(),
         ));
     }
-    let pbc = crate::pbc::PbcOptions::for_boundary(options.electronic.boundary);
+    let pbc = crate::pbc::PbcOptions::for_electronic(&options.electronic)?;
     let result = crate::pbc::pbc_analytic_gradient(system, params, &options.electronic, &pbc)?;
     let electronic_result =
         crate::pbc::pbc_electronic_result(result.scf.clone(), system, pbc.ao_cutoff)?;
@@ -143,6 +165,26 @@ pub fn analytic_gradient_from_result(
         electronic_gradient = electronic_gradient_terms(system, params, &electronic, options)?;
         for atom in 0..nat {
             gradient[atom] += electronic_gradient[atom];
+        }
+    }
+
+    if options.include_hamiltonian {
+        if let Some(view) = &electronic.ml_parameters {
+            let sensitivities = crate::ml::level_sensitivities(system, params, &electronic)?;
+            let chain = view.gradient(&sensitivities)?;
+            for a in 0..nat {
+                gradient[a] += chain[a];
+                electronic_gradient[a] += chain[a];
+            }
+        }
+    }
+    if options.include_scc {
+        if let Some(solvent) = &electronic.solvation {
+            let explicit = solvent.gradient(&electronic.atomic_charges)?;
+            for a in 0..nat {
+                gradient[a] += explicit[a];
+                electronic_gradient[a] += explicit[a];
+            }
         }
     }
 
@@ -315,8 +357,18 @@ fn electronic_gradient_terms(
     let plus_u_weight: Option<crate::linalg::Matrix> = match (&result.spin, options.include_scc) {
         (Some(s), true) if !s.plus_u_subspace.is_empty() => {
             let ovl = &result.integrals.overlap;
-            let qa = crate::plus_u::plus_u_v_overlap_weight(&s.density_alpha, ovl, &s.plus_u_subspace, &s.plus_u_pairs);
-            let qb = crate::plus_u::plus_u_v_overlap_weight(&s.density_beta, ovl, &s.plus_u_subspace, &s.plus_u_pairs);
+            let qa = crate::plus_u::plus_u_v_overlap_weight(
+                &s.density_alpha,
+                ovl,
+                &s.plus_u_subspace,
+                &s.plus_u_pairs,
+            );
+            let qb = crate::plus_u::plus_u_v_overlap_weight(
+                &s.density_beta,
+                ovl,
+                &s.plus_u_subspace,
+                &s.plus_u_pairs,
+            );
             let nn = qa.rows();
             let mut w = qa;
             for i in 0..nn {
@@ -405,6 +457,14 @@ fn electronic_gradient_terms(
                                     );
                                     let overlap = moments[0];
 
+                                    // Upstream tracking: xtb 6.7.1 gradient discrepancy due to
+                                    // S=0 screening omission. The molecular matlist2/noreset path
+                                    // in scf_module.F90 reconstructs H0/S only for unscreened S.
+                                    // Keep H0*dS terms here even when the overlap value is zero:
+                                    // dS/dR and the corresponding density element can be nonzero.
+                                    // See tests/xtb_gradient_audit.rs (official energy-FD audit)
+                                    // and tests/oracle_regressions.rs (native transverse forces).
+
                                     let p = result.density[(mu, nu)];
                                     let w = result.energy_weighted_density[(mu, nu)];
                                     let scalar_shift = if scc_on {
@@ -412,7 +472,8 @@ fn electronic_gradient_terms(
                                     } else {
                                         0.0
                                     };
-                                    let mut overlap_coeff = p * (2.0 * hij - scalar_shift) - 2.0 * w;
+                                    let mut overlap_coeff =
+                                        p * (2.0 * hij - scalar_shift) - 2.0 * w;
                                     // spGFN1 spin Pulay term. The per-spin effective shell potential
                                     // is `u^σ = v^c ∓ V^s` (α: −V^s, β: +V^s; see `crate::spin`),
                                     // so the overlap-derivative contribution summed over spin is
@@ -423,8 +484,8 @@ fn electronic_gradient_terms(
                                     // `+P_spin·(V^s_μ + V^s_ν)`.
                                     if spin_on {
                                         let p_spin = spin_density.as_ref().unwrap()[(mu, nu)];
-                                        overlap_coeff +=
-                                            p_spin * (spin_ao_potential[mu] + spin_ao_potential[nu]);
+                                        overlap_coeff += p_spin
+                                            * (spin_ao_potential[mu] + spin_ao_potential[nu]);
                                     }
                                     // DFT+U/+U+V explicit overlap-Pulay term +Tr(W_{+U} dS).
                                     // The loop's `coeff = 2·X` convention (unordered atom pair
@@ -580,11 +641,17 @@ fn plus_u_consistency_gradient_terms(
     let ovl = &result.integrals.overlap;
 
     // ∂E/∂U_I (summed over the two spin channels) and ∂E/∂V_IJ = −Σ_σ Σ(n_IJ)².
-    let (du_a, dv_a) = crate::plus_u::plus_u_param_derivatives(&spin.density_alpha, ovl, subspace, pairs);
-    let (du_b, dv_b) = crate::plus_u::plus_u_param_derivatives(&spin.density_beta, ovl, subspace, pairs);
+    let (du_a, dv_a) =
+        crate::plus_u::plus_u_param_derivatives(&spin.density_alpha, ovl, subspace, pairs);
+    let (du_b, dv_b) =
+        crate::plus_u::plus_u_param_derivatives(&spin.density_beta, ovl, subspace, pairs);
     let de_du: Vec<f64> = du_a.iter().zip(du_b.iter()).map(|(a, b)| a + b).collect();
     // dv_* are +Σ(n_IJ)² per channel; ∂E/∂V = −(dv_a + dv_b).
-    let de_dv: Vec<f64> = dv_a.iter().zip(dv_b.iter()).map(|(a, b)| -(a + b)).collect();
+    let de_dv: Vec<f64> = dv_a
+        .iter()
+        .zip(dv_b.iter())
+        .map(|(a, b)| -(a + b))
+        .collect();
 
     // dU_I/dR, dV_IJ/dR **analytically** via the SCC-CPHF geometry response of the linear-
     // response χ0/χ (see [`crate::plus_u_dudr`]): per Cartesian DOF, `dU/dR` is aligned to
@@ -2101,7 +2168,7 @@ mod multipole_grad_tests {
         opt.electronic.camm_damp = 1.2;
         opt.electronic.camm_aes_scale = 0.7;
         opt.electronic.camm_onsite_scale = 0.6; // global s_onsite (fallback for elements w/o override)
-        // element-specific κ (O vs H) exercises the √(κ_A·κ_B) per-atom path in the gradient.
+                                                // element-specific κ (O vs H) exercises the √(κ_A·κ_B) per-atom path in the gradient.
         opt.electronic.camm_damp_elem = vec![(8, 1.6), (1, 0.7)];
         // element-specific s_onsite (O override; H falls back to the global 0.6) exercises the
         // per-atom on-site-penalty path in the analytic gradient.

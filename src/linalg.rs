@@ -1,34 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::error::{Gfn1Error, Result};
-use faer::{Accum, MatMut as FaerMatMut, MatRef as FaerMatRef, Side};
+use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::{Accum, MatMut as FaerMatMut, MatRef as FaerMatRef};
 use std::ops::{Index, IndexMut};
-use std::sync::OnceLock;
-
-/// Switch faer's dense linear algebra (eigensolves, matmuls, factorizations) to the
-/// multi-threaded path once, lazily. The O(N³) SCF eigensolve and the Löwdin congruence
-/// matmuls dominate large-system cost; without this faer runs single-threaded. `Par::rayon(0)`
-/// uses the shared rayon global pool (so it composes with the crate's existing `into_par_iter`
-/// loops rather than oversubscribing). Numerically identical — only the scheduling changes.
-/// `GFN1_FAER_THREADS=1` (or `0`) forces the sequential path for benchmarking/reproducibility.
+/// Compatibility hook. Faer's default global sentinel resolves parallelism in
+/// the current Rayon pool on each call. Setting `Par::rayon(0)` globally would
+/// instead freeze the size of whichever pool first reached this function.
+/// Per-calculation scopes therefore leave the process-global setting alone.
 #[inline]
-pub fn ensure_parallelism() {
-    static INIT: OnceLock<()> = OnceLock::new();
-    INIT.get_or_init(|| {
-        let seq = std::env::var("GFN1_FAER_THREADS")
-            .ok()
-            .map(|v| {
-                let v = v.trim();
-                v == "0" || v == "1"
-            })
-            .unwrap_or(false);
-        let par = if seq {
-            faer::Par::Seq
-        } else {
-            faer::Par::rayon(0)
-        };
-        faer::set_global_parallelism(par);
-    });
-}
+pub fn ensure_parallelism() {}
 
 #[derive(Clone, Debug)]
 pub struct Matrix {
@@ -139,7 +119,10 @@ impl IndexMut<(usize, usize)> for Matrix {
 /// Deprecated alias for [`symmetric_eigen`]. The `tol` and `max_sweeps`
 /// arguments were never used: this has delegated to a direct (faer) symmetric
 /// eigendecomposition rather than a Jacobi sweep loop since well before v0.5.0.
-#[deprecated(since = "0.5.0", note = "use symmetric_eigen; tol/max_sweeps were ignored")]
+#[deprecated(
+    since = "0.5.0",
+    note = "use symmetric_eigen; tol/max_sweeps were ignored"
+)]
 pub fn symmetric_eigen_jacobi(
     input: &Matrix,
     tol: f64,
@@ -173,20 +156,110 @@ pub fn symmetric_eigen(input: &Matrix) -> Result<EigenDecomposition> {
     ensure_parallelism();
     // Zero-copy strided view over the row-major buffer — no O(N²) conversion.
     let faer_input = FaerMatRef::from_row_major_slice(input.as_slice(), n, n);
-    let eig = faer_input.self_adjoint_eigen(Side::Lower).map_err(|err| {
+    crate::resources::check_dense_workspace(n, n, 8, "symmetric eigensolver")?;
+    let par = crate::resources::faer_parallelism();
+    let mut values_native = faer::diag::Diag::<f64>::zeros(n);
+    let mut vectors_native = faer::Mat::<f64>::zeros(n, n);
+    let mut scratch = MemBuffer::new(faer::linalg::evd::self_adjoint_evd_scratch::<f64>(
+        n,
+        faer::linalg::evd::ComputeEigenvectors::Yes,
+        par,
+        Default::default(),
+    ));
+    faer::linalg::evd::self_adjoint_evd(
+        faer_input,
+        values_native.as_mut(),
+        Some(vectors_native.as_mut()),
+        par,
+        MemStack::new(&mut scratch),
+        Default::default(),
+    )
+    .map_err(|err| {
         Gfn1Error::InvalidInput(format!("faer symmetric eigensolver failed: {err:?}"))
     })?;
     let mut values = Vec::with_capacity(n);
-    for value in eig.S().column_vector().iter() {
+    for value in values_native.column_vector().iter() {
         values.push(*value);
     }
-    let u = eig.U();
+    let u = vectors_native.as_ref();
     let mut vectors = Matrix::zeros(n, n);
     for j in 0..n {
         for i in 0..n {
             vectors[(i, j)] = u[(i, j)];
         }
     }
+    Ok(EigenDecomposition { values, vectors })
+}
+
+/// Eigenpairs of D A D for positive diagonal D and positive-definite A.
+/// Factor A = L L^T and take the SVD of L^T D to preserve the smallest
+/// singular values at the scale of D instead of its square.
+pub(crate) fn scaled_positive_eigen(mut a: Matrix, d: &[f64]) -> Result<EigenDecomposition> {
+    use faer::linalg::cholesky::llt::factor::{cholesky_in_place, cholesky_in_place_scratch};
+    use faer::linalg::svd::{svd, svd_scratch, ComputeSvdVectors};
+
+    let n = d.len();
+    crate::resources::check_dense_workspace(n, n, 8, "scaled response eigensolver")?;
+    let par = crate::resources::faer_parallelism();
+    cholesky_in_place(
+        FaerMatMut::from_row_major_slice_mut(a.as_mut_slice(), n, n),
+        Default::default(),
+        par,
+        MemStack::new(&mut MemBuffer::new(cholesky_in_place_scratch::<f64>(
+            n,
+            par,
+            Default::default(),
+        ))),
+        Default::default(),
+    )
+    .map_err(|err| {
+        Gfn1Error::InvalidInput(format!(
+            "unstable RPA reference: scaled response is not positive definite ({err:?})"
+        ))
+    })?;
+    for j in 0..n {
+        for i in 0..=j {
+            a[(i, j)] = a[(j, i)] * d[j];
+        }
+    }
+    for i in 0..n {
+        for j in 0..i {
+            a[(i, j)] = 0.;
+        }
+    }
+    let mut singular = faer::diag::Diag::<f64>::zeros(n);
+    let mut native_vectors = faer::Mat::<f64>::zeros(n, n);
+    let mut scratch = MemBuffer::new(svd_scratch::<f64>(
+        n,
+        n,
+        ComputeSvdVectors::No,
+        ComputeSvdVectors::Thin,
+        par,
+        Default::default(),
+    ));
+    svd(
+        FaerMatRef::from_row_major_slice(a.as_slice(), n, n),
+        singular.as_mut(),
+        None,
+        Some(native_vectors.as_mut()),
+        par,
+        MemStack::new(&mut scratch),
+        Default::default(),
+    )
+    .map_err(|err| Gfn1Error::LinearAlgebra(format!("scaled response SVD failed: {err:?}")))?;
+    let sigma = singular.column_vector();
+    let mut order: Vec<_> = (0..n).collect();
+    order.sort_unstable_by(|&i, &j| sigma[i].total_cmp(&sigma[j]));
+    let mut vectors = Matrix::zeros(n, n);
+    for (col, &old) in order.iter().enumerate() {
+        for row in 0..n {
+            vectors[(row, col)] = native_vectors[(row, old)];
+        }
+    }
+    let values = order
+        .iter()
+        .map(|&index| sigma[index] * sigma[index])
+        .collect();
     Ok(EigenDecomposition { values, vectors })
 }
 
@@ -344,6 +417,12 @@ pub fn matmul_transpose_a(a: &Matrix, b: &Matrix) -> Result<Matrix> {
     }
     ensure_parallelism();
     let (rows, cols) = (a.cols(), b.cols());
+    crate::resources::check_dense_workspace(
+        rows.max(a.rows()),
+        cols.max(a.cols()),
+        4,
+        "transpose GEMM",
+    )?;
     let mut out = Matrix::zeros(rows, cols);
     if rows == 0 || cols == 0 || a.rows() == 0 {
         return Ok(out);
@@ -351,7 +430,14 @@ pub fn matmul_transpose_a(a: &Matrix, b: &Matrix) -> Result<Matrix> {
     let lhs = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows(), a.cols()).transpose();
     let rhs = FaerMatRef::from_row_major_slice(b.as_slice(), b.rows(), b.cols());
     let dst = FaerMatMut::from_row_major_slice_mut(out.as_mut_slice(), rows, cols);
-    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, 1.0, faer::get_global_parallelism());
+    faer::linalg::matmul::matmul(
+        dst,
+        Accum::Replace,
+        lhs,
+        rhs,
+        1.0,
+        crate::resources::faer_parallelism(),
+    );
     Ok(out)
 }
 
@@ -367,11 +453,19 @@ fn matmul_dense(a: &Matrix, b: &Matrix) -> Result<Matrix> {
     // into the row-major output. This removes the three O(N²) layout copies the
     // old Mat conversions paid on every multiply (~11 per SCC iteration).
     let (rows, cols) = (a.rows, b.cols);
+    crate::resources::check_dense_workspace(rows.max(a.cols), cols.max(b.rows), 4, "GEMM")?;
     let mut out = Matrix::zeros(rows, cols);
     let lhs = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows, a.cols);
     let rhs = FaerMatRef::from_row_major_slice(b.as_slice(), b.rows, b.cols);
     let dst = FaerMatMut::from_row_major_slice_mut(out.as_mut_slice(), rows, cols);
-    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, 1.0, faer::get_global_parallelism());
+    faer::linalg::matmul::matmul(
+        dst,
+        Accum::Replace,
+        lhs,
+        rhs,
+        1.0,
+        crate::resources::faer_parallelism(),
+    );
     Ok(out)
 }
 
@@ -381,7 +475,9 @@ fn matmul_dense(a: &Matrix, b: &Matrix) -> Result<Matrix> {
 /// response right-hand sides.
 pub struct DenseLu {
     n: usize,
-    lu: faer::linalg::solvers::PartialPivLu<f64>,
+    lu: faer::Mat<f64>,
+    forward: Vec<usize>,
+    inverse: Vec<usize>,
 }
 
 impl DenseLu {
@@ -391,11 +487,35 @@ impl DenseLu {
                 "DenseLu requires a square matrix".to_string(),
             ));
         }
+        crate::resources::check_dense_workspace(a.rows, a.cols, 4, "dense LU")?;
         ensure_parallelism();
         let view = FaerMatRef::from_row_major_slice(a.as_slice(), a.rows, a.cols);
+        let n = a.rows;
+        let par = crate::resources::faer_parallelism();
+        let mut lu = view.to_owned();
+        let mut forward = vec![0usize; n];
+        let mut inverse = vec![0usize; n];
+        let mut scratch = MemBuffer::new(
+            faer::linalg::lu::partial_pivoting::factor::lu_in_place_scratch::<usize, f64>(
+                n,
+                n,
+                par,
+                Default::default(),
+            ),
+        );
+        let _ = faer::linalg::lu::partial_pivoting::factor::lu_in_place(
+            lu.as_mut(),
+            &mut forward,
+            &mut inverse,
+            par,
+            MemStack::new(&mut scratch),
+            Default::default(),
+        );
         Ok(Self {
             n: a.rows,
-            lu: faer::linalg::solvers::PartialPivLu::new(view),
+            lu,
+            forward,
+            inverse,
         })
     }
 
@@ -407,9 +527,43 @@ impl DenseLu {
                 self.n
             )));
         }
-        let rhs_view = FaerMatRef::from_column_major_slice(rhs, self.n, 1);
-        let solution = faer::linalg::solvers::Solve::solve(&self.lu, rhs_view);
+        let solution = self.solve_matrix(&Matrix::from_vec(self.n, 1, rhs.to_vec())?)?;
         Ok((0..self.n).map(|i| solution[(i, 0)]).collect())
+    }
+
+    pub fn solve_matrix(&self, rhs: &Matrix) -> Result<Matrix> {
+        if rhs.rows() != self.n {
+            return Err(Gfn1Error::InvalidInput(
+                "DenseLu RHS matrix dimension mismatch".into(),
+            ));
+        }
+        crate::resources::check_dense_workspace(self.n, rhs.cols(), 4, "dense LU RHS")?;
+        let par = crate::resources::faer_parallelism();
+        let mut solution =
+            FaerMatRef::from_row_major_slice(rhs.as_slice(), rhs.rows(), rhs.cols()).to_owned();
+        let mut scratch = MemBuffer::new(
+            faer::linalg::lu::partial_pivoting::solve::solve_in_place_scratch::<usize, f64>(
+                self.n,
+                rhs.cols(),
+                par,
+            ),
+        );
+        let permutation = faer::perm::PermRef::new_checked(&self.forward, &self.inverse, self.n);
+        faer::linalg::lu::partial_pivoting::solve::solve_in_place(
+            self.lu.as_ref(),
+            self.lu.as_ref(),
+            permutation,
+            solution.as_mut(),
+            par,
+            MemStack::new(&mut scratch),
+        );
+        let mut result = Matrix::zeros(self.n, rhs.cols());
+        for i in 0..self.n {
+            for j in 0..rhs.cols() {
+                result[(i, j)] = solution[(i, j)];
+            }
+        }
+        Ok(result)
     }
 }
 

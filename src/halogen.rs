@@ -204,7 +204,8 @@ pub fn halogen_energy_gradient_hessian(
             triple.neighbor_translation,
             ndof,
         );
-        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
+        if let Some(term_energy) =
+            halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
         {
             total = total.add(&term_energy);
         }
@@ -229,16 +230,48 @@ pub fn halogen_energy_gradient_hessian(
     })
 }
 
-pub fn halogen_stress(
-    system: &PeriodicSystem,
-    params: &Gfn1Parameters,
-) -> Result<Option<Matrix>> {
+pub fn halogen_stress(system: &PeriodicSystem, params: &Gfn1Parameters) -> Result<Option<Matrix>> {
     let Some(lattice) = system.lattice.as_ref() else {
         return Ok(None);
     };
+    let total = halogen_strain_energy_jet(system, params)?;
+    let inv_volume = 1.0 / lattice.volume();
+    let mut stress = Matrix::zeros(3, 3);
+    for a in 0..3 {
+        for b in 0..3 {
+            stress[(a, b)] = total.gradient[3 * a + b] * inv_volume;
+        }
+    }
+    Ok(Some(stress))
+}
+
+/// Exact affine energy Hessian, indexed by unsymmetrized strain `3*row+column`.
+pub fn halogen_strain_hessian(system: &PeriodicSystem, params: &Gfn1Parameters) -> Result<Matrix> {
+    Matrix::from_vec(9, 9, halogen_strain_energy_jet(system, params)?.hessian)
+}
+
+/// Joint exact Hessian for R'=F(R+u), with nuclear coordinates followed by nine
+/// unsymmetrized strain components. Uses the identical halogen triple energy.
+pub fn halogen_affine_nuclear_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<Matrix> {
+    let d = 3 * system.atoms.len() + 9;
+    crate::resources::check_dense_workspace(d, d, 12, "affine halogen jets")?;
+    Matrix::from_vec(d, d, halogen_affine_energy_jet(system, params, d)?.hessian)
+}
+
+fn halogen_strain_energy_jet(system: &PeriodicSystem, params: &Gfn1Parameters) -> Result<Jet2> {
+    halogen_affine_energy_jet(system, params, 9)
+}
+
+fn halogen_affine_energy_jet(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    ndof: usize,
+) -> Result<Jet2> {
     let damping = params.required_global("xbdamp")?;
     let rad_scale = params.required_global("xbrad")?;
-    let ndof = 9;
     let mut total = Jet2::constant(0.0, ndof);
     for triple in halogen_triples(system)? {
         let donor = triple.donor;
@@ -251,7 +284,7 @@ pub fn halogen_stress(
             continue;
         }
         let r0jx = rad_scale * (atomic_radius_bohr(xzp)? + atomic_radius_bohr(jzp)?);
-        let dxj = strain_vector_jets(
+        let dxj = strain_pair_vector_jets(
             image_vector(
                 system,
                 acceptor,
@@ -260,8 +293,10 @@ pub fn halogen_stress(
                 Vec3::zero(),
             ),
             ndof,
+            acceptor,
+            donor,
         );
-        let dxk = strain_vector_jets(
+        let dxk = strain_pair_vector_jets(
             image_vector(
                 system,
                 neighbor,
@@ -270,8 +305,10 @@ pub fn halogen_stress(
                 Vec3::zero(),
             ),
             ndof,
+            neighbor,
+            donor,
         );
-        let dkj = strain_vector_jets(
+        let dkj = strain_pair_vector_jets(
             image_vector(
                 system,
                 acceptor,
@@ -280,20 +317,16 @@ pub fn halogen_stress(
                 triple.neighbor_translation,
             ),
             ndof,
+            acceptor,
+            neighbor,
         );
-        if let Some(term_energy) = halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
+        if let Some(term_energy) =
+            halogen_term_energy_jet(&dxj, &dxk, &dkj, r0jx, cc, damping, ndof)
         {
             total = total.add(&term_energy);
         }
     }
-    let inv_volume = 1.0 / lattice.volume();
-    let mut stress = Matrix::zeros(3, 3);
-    for a in 0..3 {
-        for b in 0..3 {
-            stress[(a, b)] = total.gradient[3 * a + b] * inv_volume;
-        }
-    }
-    Ok(Some(stress))
+    Ok(total)
 }
 
 /// Analytic third Cartesian derivative `T[a][b][c] = ∂³E_halogen/∂R_a∂R_b∂R_c`, returned as
@@ -460,6 +493,14 @@ pub fn halogen_fourth_directional(
     params: &Gfn1Parameters,
     v: &[f64],
 ) -> Result<f64> {
+    Ok(halogen_directional_jet(system, params, v)?.d4)
+}
+
+pub(crate) fn halogen_directional_jet(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    v: &[f64],
+) -> Result<Jet1> {
     let nat = system.atoms.len();
     let ndof = 3 * nat;
     if v.len() != ndof {
@@ -511,7 +552,7 @@ pub fn halogen_fourth_directional(
             total = HalJet::add(&total, &term);
         }
     }
-    Ok(total.d4)
+    Ok(total)
 }
 
 // --- Order-generic forward-AD plumbing -----------------------------------------------------
@@ -698,6 +739,19 @@ fn halogen_term_energy_jet<J: HalJet>(
     )
 }
 
+fn strain_pair_vector_jets(
+    vector: Vec3,
+    ndof: usize,
+    positive: usize,
+    negative: usize,
+) -> [Jet2; 3] {
+    if ndof == 9 {
+        strain_vector_jets(vector, ndof)
+    } else {
+        crate::pbc::elastic_response::affine_nuclear_vector_jet(vector, ndof, positive, negative)
+    }
+}
+
 fn strain_vector_jets(vector: Vec3, ndof: usize) -> [Jet2; 3] {
     let components = vector.to_array();
     let mut out = [
@@ -874,16 +928,10 @@ mod tests {
         let target = ParameterTarget::parse("glob:xbdamp").unwrap();
         let base = params.parameter_value(&target).unwrap();
         let h = 1.0e-4;
-        let plus = halogen_energy(
-            &system,
-            &params.with_parameter(&target, base + h).unwrap(),
-        )
-        .unwrap();
-        let minus = halogen_energy(
-            &system,
-            &params.with_parameter(&target, base - h).unwrap(),
-        )
-        .unwrap();
+        let plus =
+            halogen_energy(&system, &params.with_parameter(&target, base + h).unwrap()).unwrap();
+        let minus =
+            halogen_energy(&system, &params.with_parameter(&target, base - h).unwrap()).unwrap();
         let derivative = (plus - minus) / (2.0 * h);
         assert!(
             derivative.abs() > 1.0e-10,

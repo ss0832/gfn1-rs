@@ -59,7 +59,7 @@ table in [derivatives.md](derivatives.md#0-the-term-registry-require_order).
 ## Build and test conventions
 
 ```bash
-cargo build --release                # CLI -> target/release/gfn1_rs_cli
+cargo build --release                # CLI -> target/release/gfn1-rs
 cargo test                           # parameters resolve to the bundled set; no env var needed
 cargo test -- --ignored              # long-running gates (FD probes, finite-T Hessian ladders)
 ```

@@ -2,9 +2,7 @@
 //! Convergence of the second-order Gruneisen parameter in the volumetric step.
 
 use gfn1_rs::pbc::gruneisen::DEFAULT_GRUNEISEN_DELTA_SECOND;
-use gfn1_rs::pbc::{
-    pbc_gruneisen, EwaldOptions, GruneisenOptions, PbcOptions, SecondOrderStencil,
-};
+use gfn1_rs::pbc::{pbc_gruneisen, EwaldOptions, GruneisenOptions, PbcOptions, SecondOrderStencil};
 use gfn1_rs::{ElectronicOptions, Gfn1Parameters, PeriodicSystem};
 
 const DIAMOND_PRIMITIVE: &str = "2\n\
@@ -156,9 +154,7 @@ fn gruneisen_second_order_stencils_agree_at_the_default_step() {
     let g3 = three.gamma2_at(300.0).unwrap();
     let g5 = five.gamma2_at(300.0).unwrap();
     let rel = (g3 - g5).abs() / g5.abs();
-    println!(
-        "[G2] diamond gamma2(300 K): 3-point {g3:+.6}, 5-point {g5:+.6}, rel gap {rel:.3e}"
-    );
+    println!("[G2] diamond gamma2(300 K): 3-point {g3:+.6}, 5-point {g5:+.6}, rel gap {rel:.3e}");
     assert!(
         g3 < 0.0 && g5 < 0.0,
         "gamma2 must not flip sign between stencils: 3-point {g3:+.6}, 5-point {g5:+.6}"
@@ -177,7 +173,10 @@ fn gruneisen_second_order_stencils_agree_at_the_default_step() {
         }
     }
     println!("[G2] worst per-mode relative stencil gap: {worst:.3e}");
-    assert!(worst < 1.0e-2, "per-mode gamma2 stencil gap rel {worst:.3e}");
+    assert!(
+        worst < 1.0e-2,
+        "per-mode gamma2 stencil gap rel {worst:.3e}"
+    );
 }
 
 /// **`gamma2` must be stable against its own step.** A quantity that moves when

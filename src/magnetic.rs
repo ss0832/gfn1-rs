@@ -47,9 +47,9 @@
 //!   exact. Both are gated in `tests/magnetic.rs`.
 //! - **Occupations.** The magnetic SCC is strictly zero-temperature: it fills the
 //!   lowest `2 * nocc` states with integer occupations and **ignores**
-//!   `ElectronicOptions::electronic_temperature`. It also ignores the anisotropic
-//!   multipole (AES) options — only the isotropic shell-charge Coulomb model is
-//!   used, matching the field-free path at its defaults.
+//!   `ElectronicOptions::electronic_temperature`. Unsupported model combinations
+//!   (including multipoles, exchange, solvation and D4) are rejected; only the
+//!   isotropic third-order shell-charge Coulomb model is used.
 //!
 //! # References
 //!
@@ -86,7 +86,7 @@ use crate::hamiltonian::build_h0;
 use crate::linalg::{lowdin_solve_generalized, Matrix};
 use crate::math::Vec3;
 use crate::params::Gfn1Parameters;
-use crate::pbc::complex::{hermitian_generalized_eigen, weighted_density, CMatrix};
+use crate::pbc::complex::{weighted_density, CMatrix};
 use crate::repulsion::repulsion_energy;
 use crate::secondary_basis::SecondaryBasis;
 use crate::sto::PrimitiveGaussian;
@@ -369,6 +369,86 @@ pub fn boosted_overlap_pair(
     q: Vec3,
 ) -> (f64, f64) {
     complex_boost_overlap_pair(a, b, ca, cb, -q)
+}
+
+/// Exact boosted overlap and its two centre and Cartesian wave-vector gradients.
+/// Gaussian raising/lowering identities include the derivative of the boost's
+/// absolute position; no displaced geometry or wave vector is evaluated.
+#[allow(clippy::type_complexity)]
+pub fn boosted_overlap_pair_derivatives(
+    a: &AOBasisFunction,
+    b: &AOBasisFunction,
+    ca: Vec3,
+    cb: Vec3,
+    q: Vec3,
+) -> (
+    (f64, f64),
+    [(f64, f64); 3],
+    [(f64, f64); 3],
+    [(f64, f64); 3],
+) {
+    let mut value = (0., 0.);
+    let mut da = [(0., 0.); 3];
+    let mut db = da;
+    let mut dq = da;
+    let ac = ca.to_array();
+    let bc = cb.to_array();
+    let chi = (-q).to_array();
+    let r2 = (ca - cb).norm2();
+    for pa in &a.primitives {
+        for pb in &b.primitives {
+            let zeta = pa.exponent + pb.exponent;
+            let inv2zeta = 0.5 / zeta;
+            let p = (ca * pa.exponent + cb * pb.exponent) * (1. / zeta);
+            let pc = p.to_array();
+            let magnitude =
+                (-q.norm2() / (4. * zeta) - pa.exponent * pb.exponent * r2 / zeta).exp();
+            let angle = p.dot(q);
+            let kp = (magnitude * angle.cos(), magnitude * angle.sin());
+            let base = ((std::f64::consts::PI / zeta).sqrt(), 0.);
+            for at in &a.components {
+                for bt in &b.components {
+                    let ap = [at.power.x, at.power.y, at.power.z];
+                    let bp = [bt.power.x, bt.power.y, bt.power.z];
+                    let scale = pa.coefficient * pb.coefficient * at.coefficient * bt.coefficient;
+                    let one = |axis: usize, l: usize, r: usize| {
+                        lao_overlap_1d(
+                            l, r, pc[axis], chi[axis], ac[axis], bc[axis], inv2zeta, base,
+                        )
+                    };
+                    let s: [(f64, f64); 3] =
+                        std::array::from_fn(|axis| one(axis, ap[axis], bp[axis]));
+                    let full = cscale(cmul(cmul(s[0], s[1]), cmul(s[2], kp)), scale);
+                    value = cadd(value, full);
+                    for axis in 0..3 {
+                        let other =
+                            cscale(cmul(kp, cmul(s[(axis + 1) % 3], s[(axis + 2) % 3])), scale);
+                        let upa = one(axis, ap[axis] + 1, bp[axis]);
+                        let upb = one(axis, ap[axis], bp[axis] + 1);
+                        let mut bra = cscale(upa, 2. * pa.exponent);
+                        let mut ket = cscale(upb, 2. * pb.exponent);
+                        if ap[axis] > 0 {
+                            bra = cadd(
+                                bra,
+                                cscale(one(axis, ap[axis] - 1, bp[axis]), -(ap[axis] as f64)),
+                            );
+                        }
+                        if bp[axis] > 0 {
+                            ket = cadd(
+                                ket,
+                                cscale(one(axis, ap[axis], bp[axis] - 1), -(bp[axis] as f64)),
+                            );
+                        }
+                        da[axis] = cadd(da[axis], cmul(bra, other));
+                        db[axis] = cadd(db[axis], cmul(ket, other));
+                        let moment = cmul(cadd(upa, cscale(s[axis], ac[axis])), other);
+                        dq[axis] = cadd(dq[axis], (-moment.1, moment.0));
+                    }
+                }
+            }
+        }
+    }
+    (value, da, db, dq)
 }
 
 /// Exact London (GIAO) AO overlap matrix `S(B)_{mu nu} = <omega_mu|omega_nu>` via
@@ -882,6 +962,33 @@ fn charge_rms(a: &[f64], b: &[f64]) -> f64 {
     (ss / a.len() as f64).sqrt()
 }
 
+/// Strict M1 shell coverage (Cheng2023Magnetic). A missing dual contraction is
+/// not a published-M1 approximation. The primary-basis helper below remains
+/// usable by the separate experimental multipole model.
+pub fn validate_m1_coverage(basis: &BasisSet, secondary: &SecondaryBasis) -> Result<()> {
+    let mut ranks: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut missing = Vec::new();
+    for shell in &basis.shells {
+        let l = shell.angular.as_index();
+        let rank = ranks.entry((shell.atom_index, l)).or_insert(0);
+        let z = basis.aos[shell.first_ao].z;
+        if secondary.contraction(z, l, *rank).is_none() {
+            missing.push(format!(
+                "atom {} (Z={z}), l={l}, shell-rank={rank}",
+                shell.atom_index
+            ));
+        }
+        *rank += 1;
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(Gfn1Error::InvalidInput(format!(
+            "strict M1: missing secondary contractions for {}; primary-basis fallback would be mixed M1/M0",
+            missing.join("; "))))
+    }
+}
+
 /// Closed-shell, zero-temperature **magnetic (GFN1-xTB-M0) SCC** for a uniform
 /// magnetic field `options.external_field.magnetic_field`. The zero-field GFN1
 /// Build the **secondary (dual) basis AOs** for GFN1-xTB-M1: one secondary AO per
@@ -1015,7 +1122,10 @@ fn magnetic_ke_correction(
 /// how it is oriented, so the energy stops being rotation / translation invariant.
 /// A block whose overlap vanishes identically (beyond the integral cutoff) has
 /// `H0 = 0` too, so `hij = 0` there is exact.
-fn shell_pair_h0_prefactors(basis: &BasisSet, core: &crate::hamiltonian::HamiltonianCore) -> Matrix {
+fn shell_pair_h0_prefactors(
+    basis: &BasisSet,
+    core: &crate::hamiltonian::HamiltonianCore,
+) -> Matrix {
     let nsh = basis.shells.len();
     let mut hij = Matrix::zeros(nsh, nsh);
     for (ish, shi) in basis.shells.iter().enumerate() {
@@ -1116,6 +1226,9 @@ pub fn magnetic_h0_overlap(
         let _p = crate::profile::scope("magnetic.h0.core");
         build_h0(system, &basis, params, &options.hamiltonian)?
     };
+    if let Some(sec) = secondary {
+        validate_m1_coverage(&basis, sec)?;
+    }
     Ok(assemble_magnetic_matrices(
         system,
         &basis,
@@ -1172,6 +1285,43 @@ fn magnetic_geom(
     params: &Gfn1Parameters,
     options: &ElectronicOptions,
 ) -> Result<MagneticGeom> {
+    if options.solvation.is_some()
+        || options.ml_model.is_some()
+        || options.multipole
+        || options.lr_exchange
+        || options.onsite_exchange
+        || options.experimental_d4
+        || options.spin_polarization
+        || options.spin_multiplicity.is_some_and(|m| m != 1)
+        || options.plus_u
+        || options.plus_u_v
+        || options.charge_order != 3
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "magnetic M0/M1 supports the closed-shell, third-order GFN1 model only; solvation, ML, multipoles, exchange, D4, spin polarization and +U/+V cannot be combined with it".into(),
+        ));
+    }
+    let finite_vec = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
+    if !finite_vec(options.external_field.origin)
+        || options
+            .external_field
+            .electric_field
+            .is_some_and(|v| !finite_vec(v))
+        || options
+            .external_field
+            .magnetic_field
+            .is_some_and(|v| !finite_vec(v))
+        || options.max_scc == 0
+        || !options.energy_tolerance.is_finite()
+        || options.energy_tolerance <= 0.0
+        || !options.charge_tolerance.is_finite()
+        || options.charge_tolerance <= 0.0
+        || !options.mixing.is_finite()
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "magnetic fields/origin must be finite, and SCC iteration count and tolerances must be positive".into(),
+        ));
+    }
     if system.lattice.is_some() {
         return Err(Gfn1Error::InvalidInput(
             "magnetic SCC is implemented for non-periodic systems only".to_string(),
@@ -1240,6 +1390,9 @@ fn run_magnetic_scc_with_geom(
     }
 
     let basis = &geom.basis;
+    if let Some(sec) = secondary {
+        validate_m1_coverage(basis, sec)?;
+    }
     let core = &geom.core;
     let n = basis.len();
     let nsh = basis.shells.len();
@@ -1249,6 +1402,8 @@ fn run_magnetic_scc_with_geom(
     // reduces to field-free GFN1. `secondary = Some` selects the M1 dual basis for the
     // kinetic-energy correction.
     let (mut h0_b, s_b) = assemble_magnetic_matrices(system, basis, core, &field, secondary);
+    let overlap_orthogonalizer =
+        crate::pbc::complex::embedded_overlap_orthogonalizer(&s_b, options.eigen_tolerance)?;
     // Optional caller-supplied one-electron operator added to `H0(B)` (Hermitian).
     // Used by the NMR-shielding FD gate to inject the orbital-Zeeman / nuclear
     // magnetic-dipole couplings (`extra_h0 = B.L_O + m.L_A/r_A^3 + B.m.d`) so the
@@ -1268,6 +1423,11 @@ fn run_magnetic_scc_with_geom(
 
     let charge = options.charge.unwrap_or(system.charge);
     let nelec = basis.total_reference_electrons - charge;
+    if !nelec.is_finite() || nelec < 0.0 || nelec > 2.0 * n as f64 {
+        return Err(Gfn1Error::InvalidInput(
+            "magnetic electron count must lie between zero and twice the AO dimension".into(),
+        ));
+    }
     let nocc = (nelec / 2.0).round() as usize;
     if (nelec - 2.0 * nocc as f64).abs() > 1.0e-6 {
         return Err(Gfn1Error::InvalidInput(
@@ -1316,6 +1476,7 @@ fn run_magnetic_scc_with_geom(
     // part), exposed so the analytic magnetic response can rebuild the frozen-charge
     // effective Hamiltonian `F = H0 - vao(.)S` and take its field derivatives.
     let mut final_vao = vec![0.0_f64; n];
+    let mut final_rms = f64::INFINITY;
 
     for iter in 1..=options.max_scc {
         iterations = iter;
@@ -1336,23 +1497,32 @@ fn run_magnetic_scc_with_geom(
                 fock.im[(i, j)] = h0_b.im[(i, j)] - shift * s_b.im[(i, j)];
             }
         }
-        let eig = hermitian_generalized_eigen(&fock, &s_b, options.eigen_tolerance)?;
+        let eig = crate::pbc::complex::hermitian_generalized_eigen_with_orthogonalizer(
+            &fock,
+            &overlap_orthogonalizer,
+            n,
+            options.eigen_tolerance,
+        )?;
         let p = weighted_density(&eig, &occ)?;
         let new_q = magnetic_mulliken(basis, &p, &s_b);
+        // Evaluate the physical energy at the density-derived charges, rather
+        // than mixing an input-charge Coulomb energy with the output density.
+        let physical_scc = coulomb_energy_potential_from_matrix(basis, shell_model, &new_q, amat)?;
         let band = complex_trace_product(&p, &h0_b);
         let elec = elec_shell
             .as_deref()
             .map(|es| electric_field_energy(es, &new_q))
             .unwrap_or(0.0);
-        let energy = band + scc.second_order + scc.third_order + elec;
+        let energy = band + physical_scc.second_order + physical_scc.third_order + elec;
         let rms = charge_rms(&new_q, &q);
+        final_rms = rms;
         let err = last_energy
             .map(|e| (energy - e).abs())
             .unwrap_or(f64::INFINITY);
         final_q = new_q.clone();
         final_band = band;
-        final_scc2 = scc.second_order;
-        final_scc3 = scc.third_order;
+        final_scc2 = physical_scc.second_order;
+        final_scc3 = physical_scc.third_order;
         final_elec = elec;
         let ew_weights: Vec<f64> = occ
             .iter()
@@ -1380,7 +1550,7 @@ fn run_magnetic_scc_with_geom(
     if !converged {
         return Err(Gfn1Error::SccNotConverged {
             iterations,
-            rms: 0.0,
+            rms: final_rms,
         });
     }
     let energy =
@@ -2125,6 +2295,11 @@ fn magnetic_polarizability_with_geom(
     secondary: Option<&SecondaryBasis>,
     e_step: f64,
 ) -> Result<[[f64; 3]; 3]> {
+    if !(e_step.is_finite() && e_step > 0.0) {
+        return Err(Gfn1Error::InvalidInput(
+            "polarizability electric-field step must be positive".to_string(),
+        ));
+    }
     let dipole_at = |e: Vec3| -> Result<Vec3> {
         let mut opt = options.clone();
         opt.external_field.electric_field = Some(e);
@@ -2148,14 +2323,11 @@ fn magnetic_polarizability_with_geom(
 /// difference in `B` of [`magnetic_polarizability`] about the field `b0` (usually
 /// zero). Indexed `[k][i][j]`.
 ///
-/// **Note (GFN1 monopole model):** in GFN1 the electric field couples only to the
-/// Mulliken monopoles and `dq/dB = 0` by time reversal, so the monopole dipole has no
-/// first-order `B` response and this tensor is **identically zero**. A nonzero orbital-
-/// current MCD/Faraday rotation requires the length-gauge electric dipole (the LAO
-/// dipole integrals, [`lao_dipole_matrix`]) rather than the point-charge dipole — the
-/// same physics that makes the static optical-rotation `G`-tensor vanish. The routine
-/// is the correct general `d alpha / d B` and would be nonzero for a dipole-coupled
-/// model. `e_step`/`b_step` are the electric/magnetic finite-difference steps.
+/// This is a **static** derivative, not an optical MCD/Faraday spectrum. At zero
+/// field it vanishes for a time-reversal-symmetric closed shell, including a
+/// length-gauge dipole model. Frequency-dependent antisymmetric complex response
+/// is required for optical Faraday/MCD observables and is not provided here.
+/// `e_step`/`b_step` are the electric/magnetic finite-difference steps.
 /// Non-periodic.
 pub fn mcd_tensor(
     system: &PeriodicSystem,
@@ -2647,17 +2819,20 @@ mod tests {
     const WATER: &str = "3\nwater\nO 0.0 0.0 0.0\nH 0.757 0.586 0.0\nH -0.757 0.586 0.0\n";
 
     fn load_params() -> Option<crate::params::Gfn1Parameters> {
-        let params = crate::params::Gfn1Parameters::resolve(None)
-            .expect("GFN1 parameter resolution failed");
+        let params =
+            crate::params::Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         Some(params)
     }
 
-    /// Load the GFN1-xTB-M1 secondary basis from the path in `GFN1_M1_BASIS` (the
-    /// paper's `$Basis = GFN1-xTB-cc-pVDZ` file). Tests no-op when it is absent.
+    /// Exercise bundled M1 data by default; explicit invalid inputs must fail.
     fn load_m1_basis() -> Option<SecondaryBasis> {
-        let path = std::env::var("GFN1_M1_BASIS").ok()?;
-        let text = std::fs::read_to_string(path).ok()?;
-        parse_secondary_basis(&text).ok()
+        Some(match std::env::var("GFN1_M1_BASIS") {
+            Ok(path) => {
+                parse_secondary_basis(&std::fs::read_to_string(path).expect("M1 basis read failed"))
+                    .expect("M1 basis parse failed")
+            }
+            Err(_) => crate::builtin_secondary("cc-pVDZ").unwrap().unwrap(),
+        })
     }
 
     fn opts_with_field(b: Vec3) -> ElectronicOptions {

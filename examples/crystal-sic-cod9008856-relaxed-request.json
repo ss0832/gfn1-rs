@@ -1,0 +1,97 @@
+{
+  "schema": "gfn1-rs-crystal-properties-v1",
+  "parameter_file": "builtin",
+  "geometry": {
+    "numbers": [
+      14,
+      6
+    ],
+    "positions": [
+      [
+        6.472183015562577e-13,
+        -8.077663657984851e-13,
+        -3.44880470396086e-13
+      ],
+      [
+        2.134279505072532,
+        2.1342795050739474,
+        2.134279505073495
+      ]
+    ],
+    "cell": [
+      [
+        6.434211308825887e-14,
+        4.268559010146275,
+        4.268559010146276
+      ],
+      [
+        4.268559010146353,
+        -2.0003328014671264e-14,
+        4.26855901014636
+      ],
+      [
+        4.268559010146329,
+        4.268559010146335,
+        4.285452908177125e-15
+      ]
+    ],
+    "coordinate_units": "bohr",
+    "charge": 0
+  },
+  "electronic": {
+    "temperature_kelvin": 300,
+    "energy_tolerance_hartree": 1e-13,
+    "charge_tolerance": 1e-11,
+    "max_scc": 1000,
+    "scc_accelerator": "auto"
+  },
+  "periodic": {
+    "kmesh": [
+      2,
+      2,
+      2
+    ],
+    "gamma_centered": true,
+    "fold_time_reversal": false,
+    "ao_cutoff_bohr": 24.0
+  },
+  "tasks": [
+    {
+      "id": "response",
+      "operation": "electromechanical_response",
+      "arguments": {
+        "masses_amu": [
+          28.085,
+          12.011
+        ]
+      }
+    },
+    {
+      "id": "lo100",
+      "operation": "lo_to_modes",
+      "arguments": {
+        "hessian_hartree_per_bohr2": {
+          "$ref": "response#/elastic/nuclear_hessian_hartree_per_bohr2"
+        },
+        "born_effective_charges": {
+          "$ref": "response#/berry/born_effective_charges"
+        },
+        "electronic_relative_dielectric": {
+          "$ref": "response#/electronic/electronic_relative_dielectric"
+        },
+        "volume_bohr3": {
+          "$ref": "response#/berry/volume_bohr3"
+        },
+        "masses_amu": [
+          28.085,
+          12.011
+        ],
+        "direction": [
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,644 @@
+{
+  "schema": "gfn1-rs-independent-stda-spectrum-v1",
+  "ground_commit": "238db6c7df81d5a2ed829f4f682f00aaa87e137d",
+  "response_commit": "8d50f9f2a4b66b534e19bb8a99524be6b7153a47",
+  "executable_sha256": {
+    "xtb4stda": "8b50735697f6112c498e4dbf8f7c61d6854f4e636e3d64dae1231d5ce8b2d223",
+    "std2": "8e790e258d26d42cdf046daa617264aebe72938dba3e68692da8567abe0a93c5"
+  },
+  "energy_window_ev": 20,
+  "energy_output_resolution_ev": 0.0001,
+  "strength_output_resolution": 1e-06,
+  "cases": [
+    {
+      "name": "water",
+      "numbers": [
+        8,
+        1,
+        1
+      ],
+      "positions_bohr": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.4305225436179931,
+          1.107379406288169,
+          0.0
+        ],
+        [
+          -1.4305225436179931,
+          1.107379406288169,
+          0.0
+        ]
+      ],
+      "states": [
+        {
+          "root": 1,
+          "excitation_ev": 7.5134,
+          "oscillator_strength": 0.042099
+        },
+        {
+          "root": 2,
+          "excitation_ev": 8.9575,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 3,
+          "excitation_ev": 9.606,
+          "oscillator_strength": 0.003448
+        },
+        {
+          "root": 4,
+          "excitation_ev": 10.0144,
+          "oscillator_strength": 0.006349
+        },
+        {
+          "root": 5,
+          "excitation_ev": 10.7913,
+          "oscillator_strength": 0.108034
+        },
+        {
+          "root": 6,
+          "excitation_ev": 12.2508,
+          "oscillator_strength": 0.134189
+        },
+        {
+          "root": 7,
+          "excitation_ev": 12.9584,
+          "oscillator_strength": 0.000975
+        },
+        {
+          "root": 8,
+          "excitation_ev": 13.1412,
+          "oscillator_strength": 4.7e-05
+        },
+        {
+          "root": 9,
+          "excitation_ev": 14.3509,
+          "oscillator_strength": 0.068953
+        },
+        {
+          "root": 10,
+          "excitation_ev": 14.4982,
+          "oscillator_strength": 0.022784
+        },
+        {
+          "root": 11,
+          "excitation_ev": 15.7091,
+          "oscillator_strength": 0.015204
+        },
+        {
+          "root": 12,
+          "excitation_ev": 16.5311,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 13,
+          "excitation_ev": 16.8518,
+          "oscillator_strength": 0.015476
+        },
+        {
+          "root": 14,
+          "excitation_ev": 16.9604,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 15,
+          "excitation_ev": 17.8052,
+          "oscillator_strength": 0.025758
+        },
+        {
+          "root": 16,
+          "excitation_ev": 19.983,
+          "oscillator_strength": 0.067611
+        }
+      ]
+    },
+    {
+      "name": "ethylene",
+      "numbers": [
+        6,
+        6,
+        1,
+        1,
+        1,
+        1
+      ],
+      "positions_bohr": [
+        [
+          -1.2651715230544867,
+          0.0,
+          0.0
+        ],
+        [
+          1.2651715230544867,
+          0.0,
+          0.0
+        ],
+        [
+          -2.328142369534171,
+          -1.7536656809478173,
+          0.0
+        ],
+        [
+          -2.328142369534171,
+          1.7536656809478173,
+          0.0
+        ],
+        [
+          2.328142369534171,
+          -1.7536656809478173,
+          0.0
+        ],
+        [
+          2.328142369534171,
+          1.7536656809478173,
+          0.0
+        ]
+      ],
+      "states": [
+        {
+          "root": 1,
+          "excitation_ev": 7.0313,
+          "oscillator_strength": 5.1e-05
+        },
+        {
+          "root": 2,
+          "excitation_ev": 8.0042,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 3,
+          "excitation_ev": 8.0556,
+          "oscillator_strength": 0.525019
+        },
+        {
+          "root": 4,
+          "excitation_ev": 8.1865,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 5,
+          "excitation_ev": 8.1937,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 6,
+          "excitation_ev": 8.6279,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 7,
+          "excitation_ev": 9.4343,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 8,
+          "excitation_ev": 9.8951,
+          "oscillator_strength": 0.00099
+        },
+        {
+          "root": 9,
+          "excitation_ev": 10.1355,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 10,
+          "excitation_ev": 10.4479,
+          "oscillator_strength": 0.094779
+        },
+        {
+          "root": 11,
+          "excitation_ev": 10.5701,
+          "oscillator_strength": 0.093215
+        },
+        {
+          "root": 12,
+          "excitation_ev": 10.8521,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 13,
+          "excitation_ev": 10.9468,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 14,
+          "excitation_ev": 11.3559,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 15,
+          "excitation_ev": 11.3595,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 16,
+          "excitation_ev": 12.2519,
+          "oscillator_strength": 0.080548
+        },
+        {
+          "root": 17,
+          "excitation_ev": 12.3123,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 18,
+          "excitation_ev": 12.3183,
+          "oscillator_strength": 0.236109
+        },
+        {
+          "root": 19,
+          "excitation_ev": 12.5504,
+          "oscillator_strength": 0.049616
+        },
+        {
+          "root": 20,
+          "excitation_ev": 12.5826,
+          "oscillator_strength": 0.010445
+        },
+        {
+          "root": 21,
+          "excitation_ev": 12.8947,
+          "oscillator_strength": 0.017062
+        },
+        {
+          "root": 22,
+          "excitation_ev": 13.1431,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 23,
+          "excitation_ev": 13.6758,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 24,
+          "excitation_ev": 13.7754,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 25,
+          "excitation_ev": 13.9367,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 26,
+          "excitation_ev": 14.0075,
+          "oscillator_strength": 0.277448
+        },
+        {
+          "root": 27,
+          "excitation_ev": 14.2352,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 28,
+          "excitation_ev": 14.3209,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 29,
+          "excitation_ev": 14.3534,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 30,
+          "excitation_ev": 14.5252,
+          "oscillator_strength": 0.221667
+        },
+        {
+          "root": 31,
+          "excitation_ev": 14.8012,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 32,
+          "excitation_ev": 15.1365,
+          "oscillator_strength": 0.000889
+        },
+        {
+          "root": 33,
+          "excitation_ev": 15.1409,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 34,
+          "excitation_ev": 15.4049,
+          "oscillator_strength": 0.004336
+        },
+        {
+          "root": 35,
+          "excitation_ev": 15.5629,
+          "oscillator_strength": 0.001898
+        },
+        {
+          "root": 36,
+          "excitation_ev": 16.2508,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 37,
+          "excitation_ev": 16.3622,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 38,
+          "excitation_ev": 16.4376,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 39,
+          "excitation_ev": 16.4502,
+          "oscillator_strength": 0.011835
+        },
+        {
+          "root": 40,
+          "excitation_ev": 16.9521,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 41,
+          "excitation_ev": 16.967,
+          "oscillator_strength": 0.785642
+        },
+        {
+          "root": 42,
+          "excitation_ev": 17.1274,
+          "oscillator_strength": 0.228889
+        },
+        {
+          "root": 43,
+          "excitation_ev": 17.3364,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 44,
+          "excitation_ev": 17.7597,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 45,
+          "excitation_ev": 17.9749,
+          "oscillator_strength": 7.9e-05
+        },
+        {
+          "root": 46,
+          "excitation_ev": 18.0914,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 47,
+          "excitation_ev": 18.6593,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 48,
+          "excitation_ev": 18.7744,
+          "oscillator_strength": 0.441979
+        },
+        {
+          "root": 49,
+          "excitation_ev": 18.8581,
+          "oscillator_strength": 0.275854
+        },
+        {
+          "root": 50,
+          "excitation_ev": 19.0662,
+          "oscillator_strength": 0.102482
+        },
+        {
+          "root": 51,
+          "excitation_ev": 19.4633,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 52,
+          "excitation_ev": 19.8427,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 53,
+          "excitation_ev": 19.9345,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 54,
+          "excitation_ev": 19.9785,
+          "oscillator_strength": 0.0
+        }
+      ]
+    },
+    {
+      "name": "formaldehyde",
+      "numbers": [
+        6,
+        8,
+        1,
+        1
+      ],
+      "positions_bohr": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          2.2827889467510376,
+          0.0,
+          0.0
+        ],
+        [
+          -1.1092691322374661,
+          1.7744526663900864,
+          0.0
+        ],
+        [
+          -1.1092691322374661,
+          -1.7744526663900864,
+          0.0
+        ]
+      ],
+      "states": [
+        {
+          "root": 1,
+          "excitation_ev": 4.2927,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 2,
+          "excitation_ev": 6.4812,
+          "oscillator_strength": 0.031555
+        },
+        {
+          "root": 3,
+          "excitation_ev": 7.7509,
+          "oscillator_strength": 0.068308
+        },
+        {
+          "root": 4,
+          "excitation_ev": 8.1273,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 5,
+          "excitation_ev": 8.4174,
+          "oscillator_strength": 0.029571
+        },
+        {
+          "root": 6,
+          "excitation_ev": 10.4739,
+          "oscillator_strength": 0.006305
+        },
+        {
+          "root": 7,
+          "excitation_ev": 11.5762,
+          "oscillator_strength": 0.155779
+        },
+        {
+          "root": 8,
+          "excitation_ev": 11.8098,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 9,
+          "excitation_ev": 12.3922,
+          "oscillator_strength": 0.220696
+        },
+        {
+          "root": 10,
+          "excitation_ev": 12.5004,
+          "oscillator_strength": 0.000273
+        },
+        {
+          "root": 11,
+          "excitation_ev": 12.6639,
+          "oscillator_strength": 0.006422
+        },
+        {
+          "root": 12,
+          "excitation_ev": 13.4541,
+          "oscillator_strength": 0.449036
+        },
+        {
+          "root": 13,
+          "excitation_ev": 13.7269,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 14,
+          "excitation_ev": 13.8871,
+          "oscillator_strength": 0.164925
+        },
+        {
+          "root": 15,
+          "excitation_ev": 13.9838,
+          "oscillator_strength": 0.013954
+        },
+        {
+          "root": 16,
+          "excitation_ev": 14.1623,
+          "oscillator_strength": 0.022059
+        },
+        {
+          "root": 17,
+          "excitation_ev": 14.2953,
+          "oscillator_strength": 0.052602
+        },
+        {
+          "root": 18,
+          "excitation_ev": 14.2961,
+          "oscillator_strength": 0.08843
+        },
+        {
+          "root": 19,
+          "excitation_ev": 14.6153,
+          "oscillator_strength": 0.067413
+        },
+        {
+          "root": 20,
+          "excitation_ev": 14.8377,
+          "oscillator_strength": 0.226397
+        },
+        {
+          "root": 21,
+          "excitation_ev": 15.0952,
+          "oscillator_strength": 0.073305
+        },
+        {
+          "root": 22,
+          "excitation_ev": 15.2924,
+          "oscillator_strength": 0.000967
+        },
+        {
+          "root": 23,
+          "excitation_ev": 15.596,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 24,
+          "excitation_ev": 15.873,
+          "oscillator_strength": 0.006811
+        },
+        {
+          "root": 25,
+          "excitation_ev": 17.1027,
+          "oscillator_strength": 0.000247
+        },
+        {
+          "root": 26,
+          "excitation_ev": 17.2374,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 27,
+          "excitation_ev": 18.2433,
+          "oscillator_strength": 0.087757
+        },
+        {
+          "root": 28,
+          "excitation_ev": 18.2677,
+          "oscillator_strength": 0.031115
+        },
+        {
+          "root": 29,
+          "excitation_ev": 18.3749,
+          "oscillator_strength": 0.005302
+        },
+        {
+          "root": 30,
+          "excitation_ev": 18.655,
+          "oscillator_strength": 0.000932
+        },
+        {
+          "root": 31,
+          "excitation_ev": 18.6883,
+          "oscillator_strength": 0.0
+        },
+        {
+          "root": 32,
+          "excitation_ev": 18.7502,
+          "oscillator_strength": 0.010849
+        },
+        {
+          "root": 33,
+          "excitation_ev": 18.9128,
+          "oscillator_strength": 0.072248
+        },
+        {
+          "root": 34,
+          "excitation_ev": 19.0196,
+          "oscillator_strength": 0.00215
+        },
+        {
+          "root": 35,
+          "excitation_ev": 19.7217,
+          "oscillator_strength": 0.13664
+        }
+      ]
+    }
+  ]
+}

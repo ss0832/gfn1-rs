@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Integration gates for the **analytic Gamma-point periodic third derivative**
-//! (`src/pbc/gamma_response.rs`): the acoustic sum rule, and the consistency of
-//! the dense / block polarization modes with the directional evaluator they are
-//! built from.
+//! (`src/pbc/gamma_response.rs`): all Cartesian components against independent
+//! Hessian differences, the acoustic sum rule, and dense/block/vector agreement.
 //!
-//! The *accuracy* gate lives next to the assembly as a unit test
-//! (`gamma_analytic_third_matches_seminumerical`), where it can reach the
-//! crate-internal diagnostics; it pins the assembled directional third against
-//! a Richardson-extrapolated finite difference of the production periodic
-//! Hessian. What is gated HERE is everything a caller of the public API can
-//! check without a finite difference:
+//! The finite-temperature gate covers H2 and HF, a zero-temperature H2
+//! regression, and a B2 cell with exactly degenerate fractional bands. It checks
+//! all 216 components per fixture with two Hessian-difference steps and
+//! Richardson extrapolation. The additional ignored diamond/BN gates check:
 //!
 //! 1. **Acoustic sum rule** — a rigid translation of the whole cell changes no
 //!    interatomic distance and no image sum, so `e³[v] = 0` identically for
@@ -23,17 +20,13 @@
 //!
 //! # Fixtures
 //!
-//! Both gates run on the same two **distorted** cells the assembly's own gates
-//! use: a skewed 2-atom diamond cell and a skewed zincblende BN cell. The
-//! distortion is deliberate — perfect diamond has a triply degenerate `t2`
-//! frontier at Gamma, where the arbitrary in-block eigenbasis makes the
-//! periodic CPXTB response basis-dependent (see `docs/pbc.md`). BN additionally
-//! exercises the heteronuclear Ewald / Klopman-Ohno charge path, which the
-//! homonuclear diamond cell leaves almost silent.
+//! The historical invariant gates use a skewed 2-atom diamond cell and a skewed
+//! zincblende BN cell. BN exercises the heteronuclear Ewald / Klopman-Ohno
+//! charge path, which homonuclear diamond leaves almost silent. The thermal B2
+//! fixture explicitly asserts degeneracy rather than lifting it by distortion.
 //!
-//! Every gate is `#[ignore]`d: one directional evaluation costs a periodic SCC
-//! plus two image-summed skeleton builds, and the dense mode multiplies that by
-//! `C(n+2,3)` directions.
+//! The older crystal invariant gates are ignored for runtime. The canonical
+//! all-component regression is enabled by default.
 
 use gfn1_rs::pbc::{
     pbc_gamma_third_analytic_block, pbc_gamma_third_analytic_dense,
@@ -273,5 +266,155 @@ fn gamma_analytic_third_rejects_a_kpoint_mesh() {
     assert!(
         text.contains("Gamma-only") && text.contains("seminumerical"),
         "unhelpful k-mesh rejection: {text}"
+    );
+}
+
+fn check_gamma_fc3_all_components(
+    name: &str,
+    xyz: &str,
+    temperature: f64,
+    pbc: PbcOptions,
+    exact_degenerate: bool,
+) {
+    use gfn1_rs::math::Vec3;
+    use gfn1_rs::pbc::pbc_gamma_hessian;
+    let params = params();
+    let system = PeriodicSystem::from_xyz_str(xyz, 0., false).unwrap();
+    let options = ElectronicOptions {
+        electronic_temperature: temperature,
+        enable_dispersion: false,
+        energy_tolerance: 1e-13,
+        charge_tolerance: 1e-11,
+        max_scc: 1000,
+        ..Default::default()
+    };
+    let reference = GammaThirdReference::build(&system, &params, &options, &pbc).unwrap();
+    if temperature > 0. {
+        assert!(reference
+            .mos()
+            .occupations
+            .iter()
+            .any(|&f| f > 1e-4 && f < 2. - 1e-4));
+    }
+    if exact_degenerate {
+        let mos = reference.mos();
+        assert!(
+            (0..mos.energies.len()).any(|i| (0..i).any(|j| (mos.energies[i] - mos.energies[j])
+                .abs()
+                < 1e-9
+                && mos.occupations[i] > 1e-4
+                && mos.occupations[i] < 2. - 1e-4
+                && mos.occupations[j] > 1e-4
+                && mos.occupations[j] < 2. - 1e-4)),
+            "{name}: fixture must exercise exact fractional degeneracy"
+        );
+    }
+    let dense = pbc_gamma_third_analytic_dense(&system, &params, &options, &pbc).unwrap();
+    let n = 3 * system.atoms.len();
+    let mut largest = 0.0_f64;
+    for c in 0..n {
+        let mut stencils = Vec::new();
+        for h in [1e-3, 5e-4] {
+            let mut plus = system.clone();
+            let mut minus = system.clone();
+            let unit = match c % 3 {
+                0 => Vec3::new(h, 0., 0.),
+                1 => Vec3::new(0., h, 0.),
+                _ => Vec3::new(0., 0., h),
+            };
+            plus.atoms[c / 3].position += unit;
+            minus.atoms[c / 3].position -= unit;
+            let hp = pbc_gamma_hessian(&plus, &params, &options, &pbc)
+                .unwrap()
+                .hessian;
+            let hm = pbc_gamma_hessian(&minus, &params, &options, &pbc)
+                .unwrap()
+                .hessian;
+            stencils.push((hp, hm, h));
+        }
+        for a in 0..n {
+            for b in 0..n {
+                let fd0 = (stencils[0].0[(a, b)] - stencils[0].1[(a, b)]) / (2. * stencils[0].2);
+                let fd1 = (stencils[1].0[(a, b)] - stencils[1].1[(a, b)]) / (2. * stencils[1].2);
+                let fd = (4. * fd1 - fd0) / 3.;
+                let analytic = dense.get(a, b, c);
+                largest = largest.max((analytic - fd).abs());
+                assert!(
+                    (analytic - fd).abs() < 2e-9 + 1e-8 * fd.abs(),
+                    "{name}: component ({a},{b},{c}) analytic={analytic:e} FD={fd:e}"
+                );
+            }
+        }
+    }
+    for seed in [11, 29] {
+        let v = direction(n, seed);
+        let scalar =
+            pbc_gamma_third_with_reference(&system, &params, &options, &pbc, &reference, &v)
+                .unwrap();
+        assert!((dense.contract_vvv(&v) - scalar).abs() < 1e-9);
+    }
+    let rigid = vec![0.2, -0.3, 0.5, 0.2, -0.3, 0.5];
+    assert!(
+        pbc_gamma_third_with_reference(&system, &params, &options, &pbc, &reference, &rigid)
+            .unwrap()
+            .abs()
+            < 1e-10
+    );
+    let block =
+        pbc_gamma_third_analytic_block(&system, &params, &options, &pbc, &[0, 2, 4]).unwrap();
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                assert!(
+                    (block.get(i, j, k) - dense.get([0, 2, 4][i], [0, 2, 4][j], [0, 2, 4][k]))
+                        .abs()
+                        < 1e-11
+                );
+            }
+        }
+    }
+    eprintln!(
+        "Gamma FC3 {name} at {temperature} K: all {} components passed, maximum error {largest:e}",
+        n * n * n
+    );
+}
+
+#[test]
+fn gamma_thermal_fc3_all_components_match_independent_hessian_differences() {
+    let pbc = PbcOptions {
+        kmesh: KMesh::gamma(),
+        ao_cutoff: 12.,
+        ewald: EwaldOptions {
+            real_cutoff: 20.,
+            sr_cutoff: 8.,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let h2 =
+        "2\nLattice=\"5.13 0 0 0 5.13 0 0 0 5.13\" pbc=\"T T T\"\nH .11 -.07 .03\nH .93 .12 -.06\n";
+    check_gamma_fc3_all_components("H2 thermal", h2, 30000., pbc, false);
+    check_gamma_fc3_all_components("H2 integer", h2, 0., pbc, false);
+    check_gamma_fc3_all_components(
+        "HF thermal",
+        "2\nLattice=\"5.13 0 0 0 5.13 0 0 0 5.13\" pbc=\"T T T\"\nH .11 -.07 .03\nF .93 .12 -.06\n",
+        30000.,
+        pbc,
+        false,
+    );
+    let degenerate_pbc = PbcOptions {
+        ao_cutoff: 20.,
+        ewald: EwaldOptions {
+            sr_cutoff: 12.,
+            ..pbc.ewald
+        },
+        ..pbc
+    };
+    check_gamma_fc3_all_components(
+        "B2 exact fractional degeneracy",
+        "2\nLattice=\"6 0 0 0 6 0 0 0 6\" pbc=\"T T T\"\nB .13 .21 .07\nB .13 .21 1.67\n",
+        3000.,
+        degenerate_pbc,
+        true,
     );
 }

@@ -1,0 +1,230 @@
+{
+  "reviews": [
+    {
+      "commit": "2b5cd4829290775e575807daee21560f851ff7e1",
+      "files": [
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "f878fd7f8eea16f326aff283fbc7ca23800045992c0f86536e18ad91816cf7ca",
+          "path": "third_party/xtb/param_gfn1-si-xtb.txt",
+          "source_sha256": "f878fd7f8eea16f326aff283fbc7ca23800045992c0f86536e18ad91816cf7ca",
+          "source_sha256_lf": "f878fd7f8eea16f326aff283fbc7ca23800045992c0f86536e18ad91816cf7ca",
+          "status": "pass",
+          "upstream_path": "param_gfn1-si-xtb.txt",
+          "url": "https://raw.githubusercontent.com/grimme-lab/xtb/2b5cd4829290775e575807daee21560f851ff7e1/param_gfn1-si-xtb.txt"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "81a9d7afdee31f5d8fd67a4d8ec966179317c7b100261c9c82d724bafb460399",
+          "path": "third_party/xtb/param_gfn1-xtb.txt",
+          "source_sha256": "81a9d7afdee31f5d8fd67a4d8ec966179317c7b100261c9c82d724bafb460399",
+          "source_sha256_lf": "81a9d7afdee31f5d8fd67a4d8ec966179317c7b100261c9c82d724bafb460399",
+          "status": "pass",
+          "upstream_path": "param_gfn1-xtb.txt",
+          "url": "https://raw.githubusercontent.com/grimme-lab/xtb/2b5cd4829290775e575807daee21560f851ff7e1/param_gfn1-xtb.txt"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "third_party/xtb/COPYING",
+          "shared_standard_text": false,
+          "source_sha256_lf": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/grimme-lab/xtb/2b5cd4829290775e575807daee21560f851ff7e1/COPYING"
+        },
+        {
+          "path": "third_party/xtb/COPYING.LESSER",
+          "shared_standard_text": false,
+          "source_sha256_lf": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/grimme-lab/xtb/2b5cd4829290775e575807daee21560f851ff7e1/COPYING.LESSER"
+        }
+      ],
+      "schema": "gfn1-rs-upstream-byte-review-v1",
+      "scope": "Original upstream source bytes and retained license texts; separate mathematical/transcription tests remain necessary",
+      "source": "xtb",
+      "spdx": "LGPL-3.0-or-later",
+      "status": "pass"
+    },
+    {
+      "commit": "eb50bbfbe1c0869e2e18c9b7cc13144e5130b6df",
+      "files": [
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "2833e0636ae0148d6ffde82b39b7bdf83f7f8034ff08b26b6e90ffd27466e34e",
+          "path": "third_party/tblite/spin.f90",
+          "source_sha256": "2833e0636ae0148d6ffde82b39b7bdf83f7f8034ff08b26b6e90ffd27466e34e",
+          "source_sha256_lf": "2833e0636ae0148d6ffde82b39b7bdf83f7f8034ff08b26b6e90ffd27466e34e",
+          "status": "pass",
+          "upstream_path": "src/tblite/data/spin.f90",
+          "url": "https://raw.githubusercontent.com/tblite/tblite/eb50bbfbe1c0869e2e18c9b7cc13144e5130b6df/src/tblite/data/spin.f90"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "third_party/xtb/COPYING",
+          "shared_standard_text": true,
+          "source_sha256_lf": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/tblite/tblite/eb50bbfbe1c0869e2e18c9b7cc13144e5130b6df/COPYING"
+        },
+        {
+          "path": "third_party/xtb/COPYING.LESSER",
+          "shared_standard_text": true,
+          "source_sha256_lf": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/tblite/tblite/eb50bbfbe1c0869e2e18c9b7cc13144e5130b6df/COPYING.LESSER"
+        }
+      ],
+      "schema": "gfn1-rs-upstream-byte-review-v1",
+      "scope": "Original upstream source bytes and retained license texts; separate mathematical/transcription tests remain necessary",
+      "source": "tblite",
+      "spdx": "LGPL-3.0-or-later",
+      "status": "pass"
+    },
+    {
+      "commit": "3f40e365c856b75a2c82adf8fa2f5459e6b8aa44",
+      "files": [
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "8254bfc673e763f7589b9be20506438b202a59ce795dc175d6ea9ba623e23e1f",
+          "path": "third_party/dftd4/assets/parameters.toml",
+          "source_sha256": "8254bfc673e763f7589b9be20506438b202a59ce795dc175d6ea9ba623e23e1f",
+          "source_sha256_lf": "8254bfc673e763f7589b9be20506438b202a59ce795dc175d6ea9ba623e23e1f",
+          "status": "pass",
+          "upstream_path": "assets/parameters.toml",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/assets/parameters.toml"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "670f52160cfcbbf6df3c0a85b4586e782b0444432432e25f31d26db2ec9b5556",
+          "path": "third_party/dftd4/src/dftd4/data/hardness.f90",
+          "source_sha256": "670f52160cfcbbf6df3c0a85b4586e782b0444432432e25f31d26db2ec9b5556",
+          "source_sha256_lf": "670f52160cfcbbf6df3c0a85b4586e782b0444432432e25f31d26db2ec9b5556",
+          "status": "pass",
+          "upstream_path": "src/dftd4/data/hardness.f90",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/data/hardness.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "57b3c084ac806e37bf95b50207f61e40ff0a7da9483cb98bdcde1e734e2d9fb9",
+          "path": "third_party/dftd4/src/dftd4/data/r4r2.f90",
+          "source_sha256": "57b3c084ac806e37bf95b50207f61e40ff0a7da9483cb98bdcde1e734e2d9fb9",
+          "source_sha256_lf": "57b3c084ac806e37bf95b50207f61e40ff0a7da9483cb98bdcde1e734e2d9fb9",
+          "status": "pass",
+          "upstream_path": "src/dftd4/data/r4r2.f90",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/data/r4r2.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "ffc7f9f48fd0fc01afc9e4e21be79e36569be2a5293d4147be27a4b655cd642d",
+          "path": "third_party/dftd4/src/dftd4/data/wfpair.f90",
+          "source_sha256": "ffc7f9f48fd0fc01afc9e4e21be79e36569be2a5293d4147be27a4b655cd642d",
+          "source_sha256_lf": "ffc7f9f48fd0fc01afc9e4e21be79e36569be2a5293d4147be27a4b655cd642d",
+          "status": "pass",
+          "upstream_path": "src/dftd4/data/wfpair.f90",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/data/wfpair.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "b261a5c7e565f765676a119c31b447f7c0c543cc47c6bdc9b19631ec20c7ad73",
+          "path": "third_party/dftd4/src/dftd4/data/zeff.f90",
+          "source_sha256": "b261a5c7e565f765676a119c31b447f7c0c543cc47c6bdc9b19631ec20c7ad73",
+          "source_sha256_lf": "b261a5c7e565f765676a119c31b447f7c0c543cc47c6bdc9b19631ec20c7ad73",
+          "status": "pass",
+          "upstream_path": "src/dftd4/data/zeff.f90",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/data/zeff.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "b70b2f2a7145739afdc4b6a1c4feab8d588629f3d1b6318f9f0e352c0be67c6c",
+          "path": "third_party/dftd4/src/dftd4/reference.f90",
+          "source_sha256": "b70b2f2a7145739afdc4b6a1c4feab8d588629f3d1b6318f9f0e352c0be67c6c",
+          "source_sha256_lf": "b70b2f2a7145739afdc4b6a1c4feab8d588629f3d1b6318f9f0e352c0be67c6c",
+          "status": "pass",
+          "upstream_path": "src/dftd4/reference.f90",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/reference.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "0cc90b5f5d8b81dcd5f7a87acb44f575ee3d9e75df6e903f7f1a3ecc728e162f",
+          "path": "third_party/dftd4/src/dftd4/reference.inc",
+          "source_sha256": "0cc90b5f5d8b81dcd5f7a87acb44f575ee3d9e75df6e903f7f1a3ecc728e162f",
+          "source_sha256_lf": "0cc90b5f5d8b81dcd5f7a87acb44f575ee3d9e75df6e903f7f1a3ecc728e162f",
+          "status": "pass",
+          "upstream_path": "src/dftd4/reference.inc",
+          "url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/src/dftd4/reference.inc"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "third_party/dftd4/COPYING",
+          "shared_standard_text": false,
+          "source_sha256_lf": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/COPYING"
+        },
+        {
+          "path": "third_party/dftd4/COPYING.LESSER",
+          "shared_standard_text": false,
+          "source_sha256_lf": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/dftd4/dftd4/3f40e365c856b75a2c82adf8fa2f5459e6b8aa44/COPYING.LESSER"
+        }
+      ],
+      "schema": "gfn1-rs-upstream-byte-review-v1",
+      "scope": "Original upstream source bytes and retained license texts; separate mathematical/transcription tests remain necessary",
+      "source": "dftd4",
+      "spdx": "LGPL-3.0-or-later",
+      "status": "pass"
+    },
+    {
+      "commit": "f147b265d8b53dcf1666d7b0aba579ec02233fe8",
+      "files": [
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "c339eec5d337fed885fbb3bff521f9c972bedcf368a435e24e58c110f6dd1925",
+          "path": "third_party/simple-dftd3/src/dftd3/data/r4r2.f90",
+          "source_sha256": "c339eec5d337fed885fbb3bff521f9c972bedcf368a435e24e58c110f6dd1925",
+          "source_sha256_lf": "c339eec5d337fed885fbb3bff521f9c972bedcf368a435e24e58c110f6dd1925",
+          "status": "pass",
+          "upstream_path": "src/dftd3/data/r4r2.f90",
+          "url": "https://raw.githubusercontent.com/dftd3/simple-dftd3/f147b265d8b53dcf1666d7b0aba579ec02233fe8/src/dftd3/data/r4r2.f90"
+        },
+        {
+          "byte_comparison": "upstream CRLF to LF only",
+          "distributed_sha256": "76368b2d3aa682216e82292b4170edf704b8e88838b32d033722f18710217c0b",
+          "path": "third_party/simple-dftd3/src/dftd3/reference.f90",
+          "source_sha256": "76368b2d3aa682216e82292b4170edf704b8e88838b32d033722f18710217c0b",
+          "source_sha256_lf": "76368b2d3aa682216e82292b4170edf704b8e88838b32d033722f18710217c0b",
+          "status": "pass",
+          "upstream_path": "src/dftd3/reference.f90",
+          "url": "https://raw.githubusercontent.com/dftd3/simple-dftd3/f147b265d8b53dcf1666d7b0aba579ec02233fe8/src/dftd3/reference.f90"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "third_party/simple-dftd3/COPYING",
+          "shared_standard_text": false,
+          "source_sha256_lf": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/dftd3/simple-dftd3/f147b265d8b53dcf1666d7b0aba579ec02233fe8/COPYING"
+        },
+        {
+          "path": "third_party/simple-dftd3/COPYING.LESSER",
+          "shared_standard_text": false,
+          "source_sha256_lf": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+          "status": "pass",
+          "upstream_url": "https://raw.githubusercontent.com/dftd3/simple-dftd3/f147b265d8b53dcf1666d7b0aba579ec02233fe8/COPYING.LESSER"
+        }
+      ],
+      "schema": "gfn1-rs-upstream-byte-review-v1",
+      "scope": "Original upstream source bytes and retained license texts; separate mathematical/transcription tests remain necessary",
+      "source": "simple-dftd3",
+      "spdx": "LGPL-3.0-or-later",
+      "status": "pass"
+    }
+  ],
+  "schema": "gfn1-rs-upstream-byte-reviews-v1",
+  "status": "pass"
+}

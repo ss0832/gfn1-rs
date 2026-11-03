@@ -756,22 +756,10 @@ mod tests {
                     for c0 in 0..3 {
                         for d0 in 0..3 {
                             let sums = [
-                                (
-                                    "t_bbb",
-                                    q.q_bbbb[a0][b0][c0][d0] + q.q_bbbk[a0][b0][c0][d0],
-                                ),
-                                (
-                                    "t_bbk",
-                                    q.q_bbbk[a0][b0][d0][c0] + q.q_bbkk[a0][b0][c0][d0],
-                                ),
-                                (
-                                    "t_bkk",
-                                    q.q_bbkk[a0][d0][b0][c0] + q.q_bkkk[a0][b0][c0][d0],
-                                ),
-                                (
-                                    "t_kkk",
-                                    q.q_bkkk[d0][a0][b0][c0] + q.q_kkkk[a0][b0][c0][d0],
-                                ),
+                                ("t_bbb", q.q_bbbb[a0][b0][c0][d0] + q.q_bbbk[a0][b0][c0][d0]),
+                                ("t_bbk", q.q_bbbk[a0][b0][d0][c0] + q.q_bbkk[a0][b0][c0][d0]),
+                                ("t_bkk", q.q_bbkk[a0][d0][b0][c0] + q.q_bkkk[a0][b0][c0][d0]),
+                                ("t_kkk", q.q_bkkk[d0][a0][b0][c0] + q.q_kkkk[a0][b0][c0][d0]),
                             ];
                             for (which, sum) in sums {
                                 assert!(

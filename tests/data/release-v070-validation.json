@@ -1,0 +1,218 @@
+{
+  "schema": "gfn1-rs-release-validation-v1",
+  "package_version": "0.7.0",
+  "status": "pass_with_documented_model_scope",
+  "rust": {
+    "passed": 599,
+    "ignored_exploratory_tests": 50,
+    "groups_in_order": [
+      "library",
+      "excited_hessian",
+      "fourth_derivative",
+      "fragment",
+      "magnetic",
+      "smearing",
+      "td",
+      "third_derivative_contracted",
+      "training_cli",
+      "training_observables",
+      "vpt2_molecules"
+    ],
+    "group_counts": [
+      [
+        536,
+        0,
+        48
+      ],
+      [
+        3,
+        0,
+        2
+      ],
+      [
+        6,
+        0,
+        0
+      ],
+      [
+        4,
+        0,
+        0
+      ],
+      [
+        16,
+        0,
+        0
+      ],
+      [
+        5,
+        0,
+        0
+      ],
+      [
+        17,
+        0,
+        0
+      ],
+      [
+        5,
+        0,
+        0
+      ],
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        3,
+        0,
+        0
+      ],
+      [
+        2,
+        0,
+        0
+      ]
+    ],
+    "log_sha256": "e4ee4b5587bff206147be2b781872f96e960843b0c0acd9cb294c39d27e10dcc"
+  },
+  "installed_wheel_python_and_ase": {
+    "linux": {
+      "passed": 83,
+      "seconds": 76.89,
+      "log_sha256": "756cffc220852e5d268b02d968703007a26f9b8220a90254a1b3bbac22ef3c8e"
+    },
+    "windows": {
+      "passed": 83,
+      "seconds": 118.26,
+      "log_sha256": "5e7672192b4b5e38f81561807a7355c5fb661532924e6b229246c39c11ebf144"
+    }
+  },
+  "periodic_fc3_full_regression": {
+    "passed": 13,
+    "ignored": 0,
+    "includes_slow_tests": true,
+    "log_sha256": "e1ab203d55ec738db06080a15c57287352199530ed0afe05f0472791799eaf54"
+  },
+  "molecular_soc_cp_regression": {
+    "passed": 3,
+    "log_sha256": "955c555acb651e722fbe5a974927911409b6ad35a89ad0c597a5c45375da44ad",
+    "post_core_change": "Apply configured residual thresholds to molecular spinor polarizability; normal results unchanged, strict bounds fail explicitly"
+  },
+  "cp_controls": {
+    "guide": "docs/cp-settings.md",
+    "interfaces": [
+      "Rust",
+      "Python native",
+      "ASE",
+      "both CLIs"
+    ],
+    "checks": [
+      "actual direct-solve residual",
+      "iterative budget failure",
+      "thread propagation",
+      "unattainable tolerance failure",
+      "unchanged normal Hessian",
+      "JSONL logging"
+    ],
+    "supplemental_log_sha256": {
+      "cp-resources-tests.log": "1e083745a240a4a00e5501400483c52096fc6fac5e68a8c65c438ab40de55be8",
+      "cp-iteration-tests.log": "c1f935d4b525489487eed9a0f2d1737f1c904aefbd607fcde91fde994bf9a361"
+    },
+    "installed_wheel_cases_per_platform": 3,
+    "native_cli_log_sha256": {
+      "final-native-training-cli.log": "0e680eeb6c10d30567b3ec7a01dff9b2571229ab1a58ddd1a51c7a2c682b313f",
+      "final-native-calculation-cli.log": "ab22bf2fbb0a554b30e2b50a97b01ca91e746daf63c640b0f7142556f906566e"
+    }
+  },
+  "warning_checks": {
+    "clippy_all_targets_all_features": "pass with -D warnings",
+    "clippy_log_sha256": "3c8ae6798ddfe2021b924b2b3f5454d99b402ab8c6876bae6aecc49ddf13c58b",
+    "pytest_policy": "warnings are errors"
+  },
+  "cargo_source_package": {
+    "extracted_build": "pass",
+    "hidden_stda_parameters": "explicitly included",
+    "verification_log_sha256": "0b09a2fc631eadcac0d0506f3403f0c5c5e0936b31369eadfa7d9641c740ac53"
+  },
+  "crystal_dfpt": {
+    "cases": 12,
+    "cartesian_components": 432,
+    "max_error_hartree_per_bohr2": 7.572619198370489e-10,
+    "receipt": "tests/data/crystal-dfpt-results.json"
+  },
+  "tda_stda_comparison": {
+    "temperature_kelvin": 300,
+    "receipt": "tests/data/tda-stda-native-comparison.json"
+  },
+  "smearing_all_component_checks": {
+    "molecular_fc3_components": 216,
+    "molecular_fc4_components": 1296,
+    "gamma_fc3_components": 864,
+    "kmesh_fc3_components": 648,
+    "units": "Hartree/bohr^order",
+    "log_sha256": {
+      "molecular-smearing-routes-final.log": "387efb274045525146f541e8fb00388f28728bc6818e57c1dc6ef94227b7ed1e",
+      "gamma-smearing-all-cases.log": "e7359b7c11aad5315b0769c35b6dbb183ed8d6f98d4b83c0eb9f03fec0b450fa",
+      "kpoint-fc3-final.log": "c6aa9ecb4cd0f7ce550c561f3feb9f1b7312bd4a263fe1347388556ef67d79dc"
+    },
+    "note": "Independent Hessian/FC3 differences; thermal and exact-degeneracy cases are identified in each log, not all at 300 K"
+  },
+  "excited_hessians": {
+    "models": [
+      "TD-GFN1",
+      "GFN1+sTDA-xTB"
+    ],
+    "api_tests": "Rust, installed native Python and ASE",
+    "verification": "All Cartesian components against analytic-gradient differences; no production nuclear finite differences"
+  },
+  "ml_training_and_identity": {
+    "guide": "docs/ml-training.md",
+    "interfaces": [
+      "Rust",
+      "Python native",
+      "ASE"
+    ],
+    "user_model_roundtrip": "tests/python/test_user_ml_training.py",
+    "identity": [
+      "resolved source",
+      "source SHA-256",
+      "canonical SHA-256",
+      "training provenance",
+      "SPDX license"
+    ]
+  },
+  "adopted_gemm_registry": {
+    "crate": "private-gemm-x86",
+    "version": "0.1.22",
+    "yanked": false,
+    "checksum": "bba0a7831d1297712e7e7b33759b0c837941e79196dd05df506d5f36f7f78619",
+    "source": "https://crates.io/api/v1/crates/private-gemm-x86/0.1.22"
+  },
+  "wheel_sha256": {
+    "gfn1_rs_python-0.7.0-cp39-abi3-manylinux_2_39_x86_64.whl": "b04f71a8fad9b36658ca4f499a7d8ba9c325af03ff974e755cc8590c93655c54",
+    "gfn1_rs_python-0.7.0-cp39-abi3-win_amd64.whl": "a6b3ea1a1f31eea8701fdd166dee160bd8fa5a7fddd5b79e87503f026f15eb99"
+  },
+  "source_sha256": {
+    "Cargo.lock": "dfbe911ebdf5d695666ee6f775335def43f4d402e9b0b809638951de1d86c7b8",
+    "Cargo.toml": "949f5969df1e4c7527e3313a85c8bf613a54feee9f4eea035f04b602fd876537",
+    "pyproject.toml": "c28ceadbc31b3bae8e94d5b6ba1774c90f1a7da8c184e4bce40e00d86c5b6f6a"
+  },
+  "ethylene_stda_pes": {
+    "guide": "docs/stda-pes.md",
+    "receipt": "tests/data/stda-pes-optimization.json",
+    "original_signed_branch_smooth_minimum": "unestablished",
+    "separate_uncoupled_upper_envelope_crossing": "audited stationary point with positive tangent curvature",
+    "ordinary_branch_force_is_zero": false,
+    "model_limitation": "Direction-dependent CI limits at frontier orbital degeneracy persist with all configurations primary"
+  },
+  "historical_receipts": "Earlier exhaustive nuclear, PH3, Cotton-Mouton, VPT2 and backend measurements keep their actual package versions and source hashes. They are not relabelled as fresh runs.",
+  "scope": [
+    "Representative tested systems; no universal chemical-accuracy claim",
+    "Official-program drivers are absent; native sTDA is tested with an empty PATH",
+    "Crystal instability, coarse-k convergence and model boundaries remain explicit in docs",
+    "sTDA ethylene smooth force-zero convergence is not claimed; the separate upper-envelope crossing is labelled explicitly",
+    "Ignored exploratory tests and unavailable external oracles are not counted as passes"
+  ]
+}

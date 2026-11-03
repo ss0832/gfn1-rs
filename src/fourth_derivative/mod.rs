@@ -24,7 +24,9 @@ pub mod response_stage;
 pub use assemble::{
     directional_fourth_derivative, directional_fourth_seminumerical,
     directional_fourth_with_reference, fourth_derivative_analytic_block,
-    fourth_derivative_analytic_dense, QuarticReference,
+    fourth_derivative_analytic_block_with_limits, fourth_derivative_analytic_dense,
+    fourth_derivative_analytic_semidiagonal, semidiagonal_from_directional, QuarticAssemblyOptions,
+    QuarticReference,
 };
 
 use crate::error::{Gfn1Error, Result};
@@ -38,7 +40,7 @@ use crate::third_derivative::SymmetricThird;
 /// `C(d+3,4) + C(c+2,3) + C(b+1,2) + a`.
 ///
 /// Memory: dense equivalents are `O(n⁴)`; the packed store is ~24× smaller but
-/// still grows quartically (300 DOF ≈ 2.8 GB dense, ≈ 120 MB packed), so the
+/// still grows quartically (300 DOF: 64.8 GB dense, 2.7543306 GB packed), so the
 /// contracted/block accessors are the production interface for large systems.
 #[derive(Clone, Debug)]
 pub struct SymmetricFourth {
@@ -58,16 +60,49 @@ fn c3(x: usize) -> usize {
 
 #[inline]
 fn c4(x: usize) -> usize {
-    x * (x + 1) * (x + 2) * (x + 3) / 24
+    let x = x as u128;
+    (x * (x + 1) * (x + 2) * (x + 3) / 24) as usize
+}
+
+/// Checked `C(n+3,4)` without overflowing intermediate usize products.
+pub fn checked_packed_len(n: usize) -> Result<usize> {
+    let mut value = 1u128;
+    for k in 1..=4u128 {
+        value = value
+            .checked_mul(n as u128 + k - 1)
+            .ok_or_else(|| Gfn1Error::InvalidInput("quartic size overflow".into()))?
+            / k;
+        if value > usize::MAX as u128 {
+            return Err(Gfn1Error::InvalidInput(
+                "quartic size exceeds address space".into(),
+            ));
+        }
+    }
+    Ok(value as usize)
 }
 
 impl SymmetricFourth {
     pub fn zeros(n: usize) -> Self {
-        // Packed length C(n+3, 4) = n(n+1)(n+2)(n+3)/24 ≡ c4(n).
-        Self {
-            n,
-            data: vec![0.0; c4(n)],
+        Self::try_zeros(n, usize::MAX).expect("quartic allocation failed")
+    }
+
+    /// Fallible, budgeted packed allocation. Production drivers preflight the
+    /// entire assembly before building their electronic reference as well.
+    pub fn try_zeros(n: usize, max_bytes: usize) -> Result<Self> {
+        let max_bytes = crate::resources::effective_memory_budget(max_bytes);
+        let len = checked_packed_len(n)?;
+        let bytes = len
+            .checked_mul(std::mem::size_of::<f64>())
+            .ok_or_else(|| Gfn1Error::InvalidInput("quartic byte size overflow".into()))?;
+        if bytes > max_bytes {
+            return Err(Gfn1Error::InvalidInput(format!(
+                "quartic packed output needs {bytes} bytes; budget is {max_bytes}; use directional contractions")));
         }
+        let mut data = Vec::new();
+        data.try_reserve_exact(len)
+            .map_err(|e| Gfn1Error::InvalidInput(format!("quartic allocation failed: {e}")))?;
+        data.resize(len, 0.0);
+        Ok(Self { n, data })
     }
 
     #[inline]

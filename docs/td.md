@@ -11,10 +11,12 @@ plus the in-module `src/td.rs` diagnostic tests.
 
 ## 1. The model
 
-TD-GFN1 is the Tamm-Dancoff approximation (TDA) of the transition-charge
-TD-DFTB response model (Niehaus et al., *Phys. Rev. B* **63**, 085108 (2001))
-built on the GFN1 Mulliken transition shell charges and the GFN1 SCC response
-kernel. For a converged, **gapped, closed-shell** ground state the TDA matrix
+TD-GFN1 is the project's legacy transition-charge Tamm-Dancoff model, inspired
+by TD-DFTB response (Niehaus et al., *Phys. Rev. B* **63**, 085108 (2001)),
+built on the GFN1 shell-charge response coordinates and SCC response kernel.
+Its normalization below is retained for compatibility; it is not a claim of
+identical literature TD-DFTB equations or fitted excited-state parameters.
+For a converged, **gapped, closed-shell** ground state the TDA matrix
 over occupied→virtual pairs `(i,a)` is
 
 ```text
@@ -30,10 +32,42 @@ with
 | `K_st = d^2 E_SCC / dq_s dq_t` | the SCC response kernel: the second-order Klopman-Ohno `gamma_st` **plus** the on-site anharmonic block `d^2E_onsite/dq_A^2 = 2 Gamma_A q_A + …` (DFTB3 third order, and the Linear Breathing-Radius orders when `charge_order > 3`) |
 | `c` | spin factor: `2` for singlets, `0` for triplets |
 
+The defined `q` is twice the symmetrized Mulliken orbital-product charge
+(`-1/2` times the parenthesized AO sum). Thus replacing it by `q/2` at the same
+`c` would reduce the coupling by four, and would reduce the legacy monopole
+strength by four at fixed excitation and amplitudes. Such a change would
+alter existing spectra and gradients; it is not silently made here. The
+optional AO length operator below uses normalized spin-adapted AO dipole
+matrix elements and does not renormalize this legacy excitation kernel.
+
 The excitation energies are the eigenvalues of `A`, the amplitudes `X` its
 (orthonormal) eigenvectors. Oscillator strengths use the Mulliken monopole
 transition dipole `mu = sqrt(2) sum_{ia} X_ia sum_s q^{ia}_s R_{A(s)}`, consistent
 with the GFN1 point-charge electrostatics, so `f = (2/3) omega |mu|^2`.
+This remains the default for compatibility. The molecular API additionally
+supports full AO-integral length-gauge transition dipoles, using exactly the
+same excitation energies and CI amplitudes:
+
+```python
+legacy = calc.tda(numbers, positions)  # unchanged Mulliken default
+ao = calc.tda(numbers, positions, transition_dipole="ao_length")
+# ASE: atoms.calc.get_tda(atoms=atoms, transition_dipole="ao_length")
+```
+
+Rust uses `solve_tda_with_dipole(..., TdaOptions { ... },
+TdaTransitionDipole::AoLength)`; `solve_tda` and existing `TdaOptions` struct
+literals remain valid and keep their original strengths. The native Python
+result identifies the operator in `transition_dipole_method`.
+
+A near-zero Mulliken strength alone does not identify an excitation-energy
+implementation error. The monopole operator omits intra-atomic s-p and other
+transition dipoles; it can make a physically allowed transition artificially
+dark. In the water comparison, the first state's Mulliken strength is below
+1e-12, while its AO length-gauge strength is about 0.000636. Symmetry-forbidden
+states remain dark with the AO operator. The AO option corrects this observable
+approximation; it does not add multipole terms to the TD-GFN1 response kernel.
+Both TDA strength definitions and Rust sTDA-xTB are tabulated in the
+[same-molecule comparison](tda-stda-comparison.md).
 
 ### What is *not* in the kernel
 
@@ -54,11 +88,15 @@ with the GFN1 point-charge electrostatics, so `f = (2/3) omega |mu|^2`.
 
 ### Requirements
 
-`CpxtbSpace::from_occupations` demands integer closed-shell occupations, so the
-TDA and every TDA gradient need `electronic_temperature = 0` and a real HOMO-LUMO
-gap. A non-positive occupied→virtual gap is rejected:
-
-> `TD-GFN1 requires a positive occupied-virtual gap (gapped closed shell)`
+Molecular and Γ-point TDA use the converged spatial-orbital occupations in
+`[0,2]`. A pair enters the response when `f_i - f_a > 1e-10` and its gap is
+positive. Its transition charge is weighted by `sqrt((f_i - f_a)/2)`, which
+recovers the gapped closed-shell model at zero temperature. The analytic
+derivatives include the change of this factor with geometry at fixed electron
+count. The molecular analytic Hessian and Γ-point analytic gradient support
+fractional occupations. The legacy off-Γ TDA k-mesh route uses gapped integer
+bands. Optical TD-DFPT accepts fractional bands on a k-mesh. See
+[Hu and Sugino](https://pubmed.ncbi.nlm.nih.gov/17328598/).
 
 ---
 
@@ -98,39 +136,36 @@ get `d omega/dR` alone, subtract the ground-state gradient
 | --- | --- | --- | --- |
 | `solve_tda_gradient_analytic` | non-periodic **and** periodic Γ | Fully analytic (direct CPHF), see §3 | 1 SCC + 1 CPHF over `3N` |
 | `solve_tda_kpoint_gradient_analytic` | periodic, any k-mesh | Fully analytic, BZ-summed | 1 SCC + per-k CPHF over `3N` |
-| `solve_tda_gradient_seminumerical` | non-periodic only | Analytic ground gradient + central FD of the frozen-amplitude `omega` | `6N` SCC |
+| `solve_tda_gradient_seminumerical` | molecule and periodic Γ | Analytic ground gradient + central FD of excitation energy | `6N` SCC |
 | `solve_tda_gradient` | non-periodic **and** periodic Γ | Full central FD of the re-diagonalised, root-tracked total energy | `6N` (SCC + TDA) |
 | `solve_tda_kpoint_gradient` | periodic, any k-mesh | Full central FD on the k-mesh | `6N` (SCC + TDA) |
 | `solve_tda_gradient_method` | dispatch | Selects `Analytic` / `SemiNumerical` / `FiniteDifference` | — |
 
 `TdaGradientMethod::parse` accepts `analytic` / `lagrangian` / `z_vector`,
 `semi_numerical` / `semi`, and `finite_difference` / `fd` / `numerical`
-(case- and hyphen-insensitive). `SemiNumerical` is the `Default`.
+(case- and hyphen-insensitive). `Analytic` is the default.
 
 ### Options that are honored, and options that are not
+
+Analytic molecular total excited-state Hessians are available through
+`solve_tda_hessian_analytic` / `_with_budget`, `calc.tda_hessian` and ASE
+`get_tda_hessian`. See [excited-hessians.md](excited-hessians.md) for all three
+API recipes, second-response equations and the narrower supported model scope.
 
 * **Honored:** `TdaOptions { n_states, spin }`; the whole `ElectronicOptions` of the
   ground-state SCC (convergence thresholds, `charge_order`, the CN-dependent `H0`
   switch — the CPHF chain follows `hamiltonian.enable_cn_hamiltonian`); the `KMesh`
   on the k-point entry points.
-* **Silently overridden:** every periodic TD entry point constructs its own
-  `PbcOptions` as `PbcOptions { kmesh, ..Default::default() }`. There is no
-  `PbcOptions` parameter, so Ewald settings, cutoffs and the boundary condition are
-  **not** configurable from the TD API, and `ElectronicOptions::boundary` has no
-  effect on which periodic path runs — that is decided by `system.lattice`.
+* The periodic TDA wrappers set the mesh explicitly and honor
+  `ElectronicOptions::pbc_ao_cutoff`. Optical TD-DFPT takes a `PbcOptions`
+  argument directly.
 * **Not in the coupling kernel** (but not rejected either): the experimental model
   layers listed in §1.
 * **State independent, so they cancel in `d omega/dR` but *are* in the returned
   total gradient:** D3 dispersion, repulsion, the halogen correction.
 
-`solve_tda_gradient_method(..., SemiNumerical)` on a periodic system errors:
-
-> `solve_tda_gradient_seminumerical is non-periodic; use solve_tda_gradient (finite difference) for periodic (Gamma-point) systems`
-
-`solve_tda_gradient_analytic` silently *routes* a periodic system to the
-Γ-point analytic path — it does not error.
-
----
+For periodic Γ the semi-numerical method differences re-diagonalized
+excitation energies, matching roots against the reference geometry.
 
 ## 3. The analytic gradient
 
@@ -217,7 +252,7 @@ Consequences before the fix, measured on jittered water:
 | `S4` | 3.0e-4 | **4.9e-2** | **1.9e-2** |
 
 The error **grows as `1/h`** (a fixed energy step divided by `2h`), and the
-`SemiNumerical` gradient — the **default** `TdaGradientMethod` — inherited it
+`SemiNumerical` gradient — the former default `TdaGradientMethod` — inherited it
 exactly. Dark roots, whose transition charges vanish identically, were accidentally
 immune, which is why every pre-existing gate (all of which used water `S0` or a
 dark formaldehyde root) passed.
@@ -312,21 +347,18 @@ belonging to the amplitude vector, not to an energy ordering.**
 
 ## 6. Limitations
 
-* **Integer occupations only.** No Fermi smearing anywhere in the TDA or its
-  gradients. Periodic finite-T response is separately known-broken
-  ([limitations.md](limitations.md)); the TDA never goes near it.
+* Off-Γ TDA uses the gapped, integer-occupation k-mesh backend. Molecular and
+  Γ-point TDA include fractional occupations.
 * **Triplets have no magnetic kernel** — the triplet spectrum is the bare
   orbital-gap spectrum (§1).
 * **Only the monopole (shell-charge) response channel** is in the coupling kernel;
   experimental model layers are not, and are not rejected.
 * **`tda_frozen_excitation_energy` with `reference = None` is only valid at the
   reference geometry** (§4).
-* The **periodic** branch of `solve_tda_gradient` does not phase-align its
-  displaced solves, so its amplitude-overlap root tracking is less robust than the
-  non-periodic branch.
-* **No excited-state properties beyond energies, oscillator strengths, rotatory
-  strengths and gradients** — no excited-state Hessian, no non-adiabatic couplings,
-  no state-specific density.
+* Molecular and periodic Γ finite differences align orbital phases to the
+  reference geometry. An isolated root is required for a single-state gradient.
+* Molecular analytic Hessians are available for TDA and RPA. The TD APIs do
+  not return nonadiabatic couplings or state-specific densities.
 * `solve_tda_kpoint` requires an integer closed-shell **band** filling:
 
   > `k-point TD-GFN1 requires an integer closed-shell band filling (gapped insulator)`
@@ -334,3 +366,142 @@ belonging to the amplitude vector, not to an energy ordering.**
   and rejects a metallic mesh:
 
   > `k-point TD-GFN1 found no positive-gap occupied->virtual transitions (metallic or non-integer occupations are not supported)`
+
+## Degenerate TDA roots in the CLI and APIs
+
+The Rust and pip executables use the same driver. The default gradient method
+is analytic. The Rust `TdaGradientMethod::default()` and the Python native and
+ASE default method arguments also select analytic response. The explicit Rust
+finite-difference functions take a displacement in bohr.
+
+At the reference geometry the CLI checks the requested root against the
+complete spectrum. Consecutive roots within `1e-8 Hartree` of the requested
+excitation energy are treated as a degenerate manifold. An ordinary gradient
+request for any root in that manifold exits with an error and reports its
+zero-based root range. Individual ordered energies can split differently for
+different nuclear displacement directions, so they have no unique Cartesian
+gradient at that geometry. The analytic excited-state Hessian applies the same isolation check to
+a single-root request. The spectrum can still be printed.
+
+For molecules and Γ-point cells, `--tda-manifold-average` computes the gradient
+of the mean surface `F_ground + (Omega_first + ... + Omega_last)/count`. The
+analytic method takes the trace of the response in the selected eigenspace and
+divides by its dimension. The numerical method differences the total mean
+surface. The semi-numerical method adds the analytic ground gradient to
+differences of the mean excitation energy. The finite-difference methods use
+the same contiguous rank interval on displaced geometries, which requires
+that the manifold stay separated from the other roots. The output reports
+`tda_manifold_first_root`, `tda_manifold_size`, and the separation to the
+neighboring spectrum. An isolated root has a manifold of size one.
+
+For a close but isolated root, `--tda-step` sets the maximum displacement in
+bohr. The CLI may lower it to `0.025 * gap` bohr with the nearest excitation
+gap expressed numerically in Hartree. For the mean of a degenerate manifold,
+the cap is one times the separation to the neighboring spectrum.
+`tda_effective_step_bohr` reports the actual displacement. The CLI tightens the SCC energy and charge convergence
+thresholds to `1e-12` and `1e-11` respectively for TD calculations.
+
+The symmetric `examples/ni_co4.xyz` at 0 K has a fivefold lowest singlet
+manifold around `0.022085 Hartree`. These commands select its mean surface.
+
+```sh
+gfn1-rs examples/ni_co4.xyz --tda-grad --etemp 0 --tda-manifold-average
+gfn1-rs examples/ni_co4.xyz --tda-grad --etemp 0 --tda-manifold-average --tda-gradient-method semi-numerical
+gfn1-rs examples/ni_co4.xyz --tda-grad --etemp 0 --tda-manifold-average --tda-gradient-method numerical
+```
+
+
+The same isolation check applies to Rust, Python native and ASE. Rust returns
+the selected zero-based range with `solve_tda_manifold_gradient` or
+`solve_tda_manifold_hessian_analytic`. Python and ASE accept
+`manifold_average=True` on their TDA gradient and Hessian methods.
+
+The mean TDA Hessian differentiates the trace of the selected spectral block.
+Mixing within that block cancels in its trace. The second-order response sums
+couplings from the block to all roots outside it, where the denominators are
+nonzero. An individual state Hessian at a degenerate root is rejected. The
+mean Hessian currently requires a molecule. At positive electronic
+temperature, an exactly degenerate Fock block is carried as a matrix in a
+smooth orthonormal frame. Differentiation includes the first and second
+canonical Fermi occupation matrices, with both chemical-potential responses
+chosen to conserve particle number.
+
+For a fractionally occupied reference, the interband space excludes
+transitions within an orbital-energy block of width `1e-6 Hartree`. This
+rule keeps a small displacement from introducing intrablock roots into the
+sorted spectrum. Derivatives are local to a fixed interband configuration
+space. A finite-difference check must also keep the selected CI rank range
+fixed when its members split. A small gap to a neighboring CI root can
+produce a large Hessian through the inverse-gap eigenvector response.
+
+A one-root selection returns that root's ordinary derivatives. The CLI writes
+`tda_manifold_status isolated_root` and `tda_manifold_size 1`. A multi-root
+average is labeled `degenerate_mean`. The Python and ASE dictionaries expose
+the same status via `manifold_status` and the count via `manifold_size`.
+The trace gives the mean energy surface. Splittings along a particular
+displacement require the directional perturbation eigenvalues within the block.
+
+```sh
+gfn1-rs examples/methane.xyz --tda-hessian --etemp 0 --tda-manifold-average
+gfn1-rs examples/water.xyz --tda-hessian --tda-manifold-average
+```
+
+## Full-TD RPA and optical periodic TD-DFPT
+
+The molecular scalar SCC kernel gives `A = D + C` and `B = C` with
+`D = diag(eps_a - eps_i)` and `C` the occupation-weighted coupling. Full TD
+solves the symmetric squared-frequency matrix `D^(1/2) (D + 2C) D^(1/2)`.
+The analytic gradient and Hessian differentiate this matrix and the
+square-root conversion to excitation energy. The Hessian includes response
+through all other roots. The same total free-energy surface and occupation
+derivatives as TDA apply. Positive squared frequencies are required. The nuclear derivatives support
+either an isolated root or the mean of a spectrally separated manifold.
+The RPA mean Hessian differentiates the trace of the square-root operator
+within the manifold as well as the response through outside roots. For small gaps,
+a scaled positive factor and its singular values resolve the lowest frequencies
+without squaring their condition in the eigensolver.
+
+Rust exposes `solve_rpa`, `solve_rpa_gradient_analytic` and
+`solve_rpa_hessian_analytic`, with separate manifold derivative functions.
+Python native exposes `rpa`, `rpa_gradient` and `rpa_hessian`; ASE exposes
+`get_rpa`, `get_rpa_gradient` and `get_rpa_hessian`. The Python and ASE
+derivative methods accept `manifold_average=True`. See [Furche and Ahlrichs](https://doi.org/10.1063/1.1508368).
+
+```sh
+gfn1-rs examples/water.xyz --rpa --n-states 5
+gfn1-rs examples/water.xyz --rpa-grad --rpa-state 0
+gfn1-rs examples/water.xyz --rpa-hessian --rpa-state 0
+gfn1-rs examples/ni_co4.xyz --rpa-hessian --rpa-manifold-average
+gfn1-rs examples/diamond.xyz --td-dfpt --kmesh 1,1,1 --n-states 5
+```
+
+The optical periodic TD-DFPT driver solves the linearized SCC density-matrix
+equations in a dense complex Bloch transition basis at momentum transfer
+`q = 0`. It includes the resonant and antiresonant sectors and uses both
+partners of time-reversal pairs with their original Brillouin-zone weights.
+`--soc-zeta-file PATH` selects the physical spinor SCC reference and couples
+the spin trace through the scalar charge kernel. The periodic output contains
+positive interband poles. Finite momentum transfer, intraband Drude response,
+optical intensities, and excited-state nuclear derivatives are outside this
+periodic route. The Rust entry point is `solve_optical_td_dfpt`. See [Rocca et al.](https://arxiv.org/abs/0801.1393).
+
+
+
+### Ni(CO)4 derivative verification at 300 K
+
+Ubuntu WSL checks used all 27 gradient and 729 Hessian components of
+the selected lowest manifold. The displaced calculations retained its
+reference rank range. The Hessian scale is the maximum absolute component
+of the finite-difference matrix.
+
+| Method | Roots in mean | Max gradient difference (Hartree/bohr) | Max Hessian difference (Hartree/bohr²) |
+| --- | ---: | ---: | ---: |
+| TDA | 3 | 2.52e-7 | 18.1 (2.52e-4 of the matrix scale) |
+| RPA | 6 | 1.70e-9 | 2.61e-5 |
+| Ensemble sTDA | 2 | 1.38e-8 | 3.80e-8 |
+
+The next TDA root lies about `1.27e-8 Hartree` away. Its response gives
+Hessian components of order `7e4 Hartree/bohr²`; this case requires a
+nanobohr-scale excitation stencil. The independent ground free-energy
+gradient check uses a larger displacement to avoid subtracting the
+large ground energies at that tiny step.

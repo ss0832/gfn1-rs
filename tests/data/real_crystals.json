@@ -1,0 +1,600 @@
+{
+  "cases": [
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "rock_salt",
+      "electronic_temperature_K": 300.0,
+      "formula": "ClNa",
+      "id": "nacl",
+      "masses_amu": [
+        22.98976928,
+        35.45
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.6402,
+        "license_spdx": "CC0-1.0",
+        "prototype": "rocksalt",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 2.820100000000 2.820100000000 2.820100000000 0.000000000000 2.820100000000 2.820100000000 2.820100000000 0.000000000000\" pbc=\"T T T\"\nNa 0.000000000000 0.000000000000 0.000000000000\nCl 2.820100000000 2.820100000000 2.820100000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "rock_salt",
+      "electronic_temperature_K": 300.0,
+      "formula": "MgO",
+      "id": "mgo",
+      "masses_amu": [
+        24.305,
+        15.999
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 4.212,
+        "license_spdx": "CC0-1.0",
+        "prototype": "rocksalt",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 2.106000000000 2.106000000000 2.106000000000 0.000000000000 2.106000000000 2.106000000000 2.106000000000 0.000000000000\" pbc=\"T T T\"\nMg 0.000000000000 0.000000000000 0.000000000000\nO 2.106000000000 2.106000000000 2.106000000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "diamond",
+      "electronic_temperature_K": 300.0,
+      "formula": "C2",
+      "id": "diamond",
+      "masses_amu": [
+        12.011,
+        12.011
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 3.567,
+        "license_spdx": "CC0-1.0",
+        "prototype": "diamond",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 1.783500000000 1.783500000000 1.783500000000 0.000000000000 1.783500000000 1.783500000000 1.783500000000 0.000000000000\" pbc=\"T T T\"\nC 0.000000000000 0.000000000000 0.000000000000\nC 0.891750000000 0.891750000000 0.891750000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "diamond",
+      "electronic_temperature_K": 300.0,
+      "formula": "Si2",
+      "id": "silicon",
+      "masses_amu": [
+        28.085,
+        28.085
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.431,
+        "license_spdx": "CC0-1.0",
+        "prototype": "diamond",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 2.715500000000 2.715500000000 2.715500000000 0.000000000000 2.715500000000 2.715500000000 2.715500000000 0.000000000000\" pbc=\"T T T\"\nSi 0.000000000000 0.000000000000 0.000000000000\nSi 1.357750000000 1.357750000000 1.357750000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "zinc_blende",
+      "electronic_temperature_K": 300.0,
+      "formula": "SZn",
+      "id": "zns",
+      "masses_amu": [
+        65.38,
+        32.06
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.409,
+        "license_spdx": "CC0-1.0",
+        "prototype": "zincblende",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 2.704500000000 2.704500000000 2.704500000000 0.000000000000 2.704500000000 2.704500000000 2.704500000000 0.000000000000\" pbc=\"T T T\"\nZn 0.000000000000 0.000000000000 0.000000000000\nS 1.352250000000 1.352250000000 1.352250000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 2,
+      "charge": 0.0,
+      "crystal_class": "zinc_blende",
+      "electronic_temperature_K": 300.0,
+      "formula": "CSi",
+      "id": "sic",
+      "masses_amu": [
+        28.085,
+        12.011
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.3333333333333333,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        3,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 4.3596,
+        "license_spdx": "CC0-1.0",
+        "prototype": "zincblende",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "2\nLattice=\"0.000000000000 2.179800000000 2.179800000000 2.179800000000 0.000000000000 2.179800000000 2.179800000000 2.179800000000 0.000000000000\" pbc=\"T T T\"\nSi 0.000000000000 0.000000000000 0.000000000000\nC 1.089900000000 1.089900000000 1.089900000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 80.0,
+      "atoms_in_primitive": 5,
+      "charge": 0.0,
+      "crystal_class": "perovskite",
+      "electronic_temperature_K": 300.0,
+      "formula": "O3SrTi",
+      "id": "srtio3",
+      "masses_amu": [
+        87.62,
+        47.867,
+        15.999,
+        15.999,
+        15.999
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.5,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        2,
+        1,
+        1
+      ],
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 3.905,
+        "license_spdx": "CC0-1.0",
+        "prototype": "cubic Pm-3m perovskite",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "xyz": "5\nLattice=\"3.905000000000 0.000000000000 0.000000000000 0.000000000000 3.905000000000 0.000000000000 0.000000000000 0.000000000000 3.905000000000\" pbc=\"T T T\"\nSr 0.000000000000 0.000000000000 0.000000000000\nTi 1.952500000000 1.952500000000 1.952500000000\nO 1.952500000000 1.952500000000 0.000000000000\nO 1.952500000000 0.000000000000 1.952500000000\nO 0.000000000000 1.952500000000 1.952500000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 14,
+      "charge": 0.0,
+      "crystal_class": "spinel",
+      "electronic_temperature_K": 300.0,
+      "formula": "Mo2Na4O8",
+      "id": "na2moo4",
+      "masses_amu": [
+        15.999,
+        15.999,
+        15.999,
+        15.999,
+        15.999,
+        15.999,
+        15.999,
+        15.999,
+        95.95,
+        95.95,
+        22.98976928,
+        22.98976928,
+        22.98976928,
+        22.98976928
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.5,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        2,
+        1,
+        1
+      ],
+      "source": {
+        "cod_id": "2240655",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "A. D. Fortes, Acta Cryst. E 71, 592-596 (2015), DOI 10.1107/S2056989015008774",
+        "removed_dummy_sites_in_asymmetric_unit": 0,
+        "reported_measurement_temperature_K": 298,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/spacegroup-builder/cif/2240655.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "265e0870e626161589697f2d094a545c87c65b37b081a848b8d65aac27080309",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2240655.cif"
+      },
+      "xyz": "14\nLattice=\"0.000000000000 4.554439500000 4.554439500000 4.554440000000 0.000000000000 4.554439500000 4.554440000000 4.554439500000 0.000000000000\" pbc=\"T T T\"\nO 2.392993864800 2.392993602090 2.392993602090\nO 6.715886135200 4.670213352090 4.670213352090\nO 4.438666135200 4.438665647910 2.392993602090\nO 4.670213864800 6.715885397910 4.670213352090\nO 2.392993864800 4.438665647910 4.438665647910\nO 4.670213864800 4.670213352090 6.715885397910\nO 4.438666135200 2.392993602090 4.438665647910\nO 6.715886135200 6.715885397910 6.715885397910\nMo 3.415830000000 3.415829625000 3.415829625000\nMo 5.693050000000 5.693049375000 5.693049375000\nNa 0.000000000000 0.000000000000 0.000000000000\nNa 0.000000000000 2.277219750000 2.277219750000\nNa 2.277220000000 2.277219750000 0.000000000000\nNa 2.277220000000 0.000000000000 2.277219750000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 48,
+      "charge": 0.0,
+      "crystal_class": "molecular_crystal",
+      "electronic_temperature_K": 300.0,
+      "formula": "C24H24",
+      "id": "benzene",
+      "masses_amu": [
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008
+      ],
+      "memory_budget_bytes": 536870912,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        1,
+        1,
+        1
+      ],
+      "source": {
+        "cod_id": "2100348",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "A. Budzianowski and A. Katrusiak, Crystalline benzene I revisited, Acta Cryst. B 62, 94-101 (2006)",
+        "removed_dummy_sites_in_asymmetric_unit": 0,
+        "reported_measurement_temperature_K": 296.0,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/2100348-benzene.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "ee896345d0b6e4d04f95689f796e61373a3ff8774353602df551a7fbbe4ec822",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2100348.cif"
+      },
+      "xyz": "48\nLattice=\"0.000000000000 0.000000000000 6.688000000000 7.287000000000 0.000000000000 0.000000000000 0.000000000000 9.200000000000 0.000000000000\" pbc=\"T T T\"\nC 6.895688100000 1.311000000000 0.064873600000\nC 4.034811900000 7.889000000000 3.408873600000\nC 0.391311900000 5.911000000000 3.279126400000\nC 3.252188100000 3.289000000000 6.623126400000\nC 0.391311900000 7.889000000000 6.623126400000\nC 3.252188100000 1.311000000000 3.279126400000\nC 6.895688100000 3.289000000000 3.408873600000\nC 4.034811900000 5.911000000000 0.064873600000\nH 6.667605000000 2.263200000000 0.227392000000\nH 4.262895000000 6.936800000000 3.571392000000\nH 0.619395000000 6.863200000000 3.116608000000\nH 3.024105000000 2.336800000000 6.460608000000\nH 0.619395000000 6.936800000000 6.460608000000\nH 3.024105000000 2.263200000000 3.116608000000\nH 6.667605000000 2.336800000000 3.571392000000\nH 4.262895000000 6.863200000000 0.227392000000\nC 0.612108000000 0.850080000000 0.918262400000\nC 3.031392000000 8.349920000000 4.262262400000\nC 6.674892000000 5.450080000000 2.425737600000\nC 4.255608000000 3.749920000000 5.769737600000\nC 6.674892000000 8.349920000000 5.769737600000\nC 4.255608000000 0.850080000000 2.425737600000\nC 0.612108000000 3.749920000000 4.262262400000\nC 3.031392000000 5.450080000000 0.918262400000\nH 1.020180000000 1.435200000000 1.464672000000\nH 2.623320000000 7.764800000000 4.808672000000\nH 6.266820000000 6.035200000000 1.879328000000\nH 4.663680000000 3.164800000000 5.223328000000\nH 6.266820000000 7.764800000000 5.223328000000\nH 4.663680000000 1.435200000000 1.879328000000\nH 1.020180000000 3.164800000000 4.808672000000\nH 2.623320000000 6.035200000000 1.464672000000\nC 0.978644100000 8.720680000000 0.825968000000\nC 2.664855900000 0.479320000000 4.169968000000\nC 6.308355900000 4.120680000000 2.518032000000\nC 4.622144100000 5.079320000000 5.862032000000\nC 6.308355900000 0.479320000000 5.862032000000\nC 4.622144100000 8.720680000000 2.518032000000\nC 0.978644100000 5.079320000000 4.169968000000\nC 2.664855900000 4.120680000000 0.825968000000\nH 1.603140000000 8.464000000000 1.364352000000\nH 2.040360000000 0.736000000000 4.708352000000\nH 5.683860000000 3.864000000000 1.979648000000\nH 5.246640000000 5.336000000000 5.323648000000\nH 5.683860000000 0.736000000000 5.323648000000\nH 5.246640000000 8.464000000000 1.979648000000\nH 1.603140000000 5.336000000000 4.708352000000\nH 2.040360000000 3.864000000000 1.364352000000\n"
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "atoms_in_primitive": 110,
+      "charge": 0.0,
+      "crystal_class": "organometallic_complex_crystal",
+      "electronic_temperature_K": 300.0,
+      "formula": "C50H52Fe2O4S2",
+      "id": "ferrocene_adduct",
+      "masses_amu": [
+        55.845,
+        55.845,
+        15.999,
+        15.999,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        32.06,
+        32.06,
+        15.999,
+        15.999,
+        12.011,
+        12.011,
+        12.011,
+        12.011,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008,
+        1.008
+      ],
+      "memory_budget_bytes": 6442450944,
+      "qpoints": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "repetitions": [
+        1,
+        1,
+        1
+      ],
+      "source": {
+        "cod_id": "2009668",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "C. Glidewell, C. M. Zakaria and G. Ferguson, Acta Cryst. C 50, 678-681 (1994), DOI 10.1107/S0108270194002180",
+        "removed_dummy_sites_in_asymmetric_unit": 2,
+        "reported_measurement_temperature_K": 293,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/2009668-with-dummy-atom.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "4bb5ddb99533ec40a52ba2ad7289ef9adc00fd84a28d01e8215358672cb5e0bb",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2009668.cif"
+      },
+      "xyz": "110\nLattice=\"7.717400000000 0.000000000000 0.000000000000 -2.295475969249 9.241687958625 0.000000000000 -3.558611490974 -3.580722827205 15.368915593855\" pbc=\"T T T\"\nFe 2.777112098505 2.840677287594 13.097620402817\nFe -0.913799558729 2.820287843826 2.271295191038\nO 1.643564785796 0.806434431504 10.419971083478\nO 0.219747753981 4.854530699916 4.948944510377\nC 2.506013973675 0.115804408764 11.331501467349\nC -0.642701433898 5.545160722657 4.037414126506\nC 3.309018569760 1.093239361350 12.173871731049\nC -1.445706029983 4.567725770070 3.195043862807\nC -3.662526655192 2.192626644395 11.663777422488\nC 5.525839194969 3.468338487025 3.705138171367\nC -2.938294608343 2.774043408683 12.742214229709\nC 4.801607148120 2.886921722738 2.626701364146\nC -3.235005839766 2.057311668549 13.910559193154\nC 5.098318379543 3.603653462872 1.458356400701\nC -4.141360323162 1.011481567867 13.571981982622\nC 6.004672862939 4.649483563553 1.796933611234\nC 0.841955288355 3.288316026539 12.633248618149\nC 1.021357251422 2.372649104882 2.735666975706\nC 1.688617836606 4.340575862581 12.265931535456\nC 0.174694703171 1.320389268839 3.102984058399\nC 2.326747582123 4.783389503428 13.435506012148\nC -0.463435042346 0.877575627992 1.933409581707\nC 1.863542600314 3.995230738615 14.509793212159\nC -0.000230060537 1.665734392806 0.859122381696\nC 0.959193674027 3.080531950421 14.001082106002\nC 0.904118865750 2.580433181000 1.367833487853\nC 3.449623628782 -0.788940050939 10.530166208286\nC -1.586311089005 6.449905182360 4.838749385569\nC 2.925862076134 -1.567400839240 9.504137403240\nC -1.062549536357 7.228365970660 5.864778190615\nC 1.445242996196 6.807899101270 8.784103707668\nC 0.418069543581 -1.146933969849 6.584811886187\nC 2.783474777827 6.727348160479 9.058438851018\nC -0.920162238050 -1.066383029058 6.310476742837\nC -2.109181639755 -1.765711592583 10.069713497094\nC 3.972494179532 7.426676724003 5.299202096761\nC 4.794537935257 -0.900469405772 10.794665245656\nC -2.931225395480 6.561434537193 4.574250348199\nC 1.591902969669 -0.727869333098 12.235501082580\nC 0.271409570108 6.388834464519 3.133414511275\nC 0.331818669042 -0.277439237739 12.586988182211\nC 1.531493870735 5.938404369160 2.781927411644\nC -0.456226150790 -1.001295012726 13.472545098729\nC 2.319538690567 6.662260144147 1.896370495126\nC -0.005884904486 -2.180252884089 13.994934539764\nC 1.869197444263 7.841218015510 1.373981054091\nC 1.233895641395 -2.654346476718 13.637914630519\nC 0.629416898382 8.315311608139 1.731000963336\nC 2.035400199425 -1.921741784298 12.770339345246\nC -0.172087659648 7.582706915718 2.598576248609\nS 2.506422485403 2.168809240088 7.120264905477\nS -0.643109945626 3.492155891333 8.248650688378\nO 3.077187952743 2.236498058072 8.492555378852\nO -1.213875412966 3.424467073348 6.876360215003\nC 2.921814893805 3.725716950773 6.372720850992\nC -1.058502354028 1.935248180648 8.996194742863\nC 3.603593689193 1.155141377607 6.164472044695\nC -1.740281149416 4.505823753814 9.204443549160\nH 2.195869133137 1.279209665446 9.820737064473\nH -0.332556593361 4.381755465975 5.548178529382\nH -3.645693667076 2.484005518614 10.758240915699\nH 5.509006206853 3.176959612806 4.610674678157\nH -2.353241534497 3.524326926552 12.679355364930\nH 4.216554074274 2.136638204868 2.689560228925\nH -2.898034575405 2.238982734784 14.784896801289\nH 4.761347115182 3.421982396637 0.584018792566\nH 3.216360245530 0.367523672891 14.170140177534\nH -1.353047705753 5.293441458529 1.198775416321\nH 0.279647353711 2.793176206398 12.049229825582\nH 1.583665186066 2.867788925022 3.319685768273\nH 1.814707165604 4.684584624190 11.388366455047\nH 0.048605374172 0.976380507231 3.980549138808\nH -4.761382520323 5.497103599029 13.493907891405\nH 6.624695060100 0.163861532392 1.875007702450\nH 5.680296187020 7.650617149219 0.046106746782\nH -3.816983647243 -1.989652017798 15.322808847074\nH 0.489089455323 2.427158411963 14.492887405005\nH 1.374223084454 3.233806719458 0.876028188850\nH 2.003509778175 -1.500935777438 9.298193934282\nH -0.140197238398 7.161900908858 6.070721659573\nH 1.070007539379 6.264127849571 8.099418517962\nH 0.793305000398 -0.603162718150 7.269497075893\nH 3.346062482110 6.151045199623 8.545117070183\nH -1.482749942333 -0.490080068202 6.823798523672\nH -1.185624921586 -1.831760605924 10.281804532289\nH 3.048937461363 7.492725737344 5.087111061566\nH -2.544270835622 -0.386442061010 11.495948864204\nH 4.407583375399 6.047407192431 3.872966729651\nH 0.004242059930 0.535783145229 12.218287897115\nH 1.859070479846 5.125181986191 3.150627696740\nH -1.313648113585 -0.680265637121 13.709072709719\nH 3.176960653362 6.341230768541 1.659842884136\nH -0.552237517996 -2.671593337113 14.600469814162\nH 2.415550057773 8.332558468534 0.768445779693\nH -0.747954802773 5.761429674862 13.985713190408\nH 2.611267342550 -0.100464543441 1.383202403447\nH 2.894153477610 -2.247226606019 12.541035124586\nH -1.030840937833 7.908191737440 2.827880469269\nH 2.412525028438 4.418756718351 6.777691776890\nH -0.549212488661 1.242208413070 8.591223816965\nH 3.848261621338 3.900983387847 6.501051296201\nH -1.984949081561 1.759981743574 8.867864297654\nH 2.734556212678 3.685968864993 5.440596120225\nH -0.871243672901 1.974996266428 9.928319473630\nH 3.515863827094 0.246356159581 6.439575633825\nH -1.652551287317 5.414608971839 8.929339960030\nH 3.377444473758 1.237262512918 5.240800217505\nH -1.514131933981 4.423702618503 10.128115376350\nH 4.501162758387 1.443035347813 6.301255393481\nH -2.637850218610 4.217929783608 9.067660200374\n"
+    }
+  ],
+  "coordinate_units": "angstrom",
+  "generator_versions": {
+    "ase": "3.29.0",
+    "numpy": "2.5.4",
+    "spglib": "2.8.0"
+  },
+  "interpretation": "Geometries are unrelaxed model inputs; GFN1 residual forces and imaginary modes must be measured and reported, not assumed absent",
+  "mass_units": "amu",
+  "provenance": "Independent ideal prototypes and three explicitly attributed experimental COD geometries; no synthetic force constants or GFN1 fit outputs",
+  "schema": "gfn1-rs-real-crystal-fixtures-v1"
+}

@@ -224,6 +224,10 @@ impl BasisSet {
             reference_electrons.push(atom_ref);
         }
         let total_reference_electrons = reference_electrons.iter().sum();
+        // Every electronic route, including PBC/spin/SOC, constructs a basis
+        // before its dense AO arrays. This common lower-bound preflight also
+        // covers callers that bypass run_electronic.
+        crate::resources::check_dense_workspace(aos.len(), aos.len(), 32, "electronic AO arrays")?;
         Ok(Self {
             aos,
             shells: shells_out,
@@ -379,7 +383,7 @@ pub fn overlap_screened(atom_min_exp: &[f64], a: usize, b: usize, r2: f64) -> bo
     r2 * ea * eb > 40.0 * (ea + eb)
 }
 
-fn spherical_components(
+pub(crate) fn spherical_components(
     l: AngularMomentum,
 ) -> Result<Vec<(&'static str, Vec<CartesianComponent>)>> {
     let sqrt3 = 3.0_f64.sqrt();

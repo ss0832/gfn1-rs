@@ -86,6 +86,71 @@ pub fn repulsion_stress(
     Ok(Some(stress))
 }
 
+/// Exact affine energy Hessian, indexed by unsymmetrized strain `3*row+column`.
+/// Includes self-image pairs, whose nuclear force derivatives cancel but whose
+/// affine response is nonzero.
+pub fn repulsion_strain_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<Matrix> {
+    let mut out = Matrix::zeros(9, 9);
+    for_each_unique_short_range_pair(system, Cutoffs::default().repulsion, |pair| {
+        let p = repulsion_pair_energy_derivatives(
+            system.atoms[pair.i].z,
+            system.atoms[pair.j].z,
+            pair.r,
+            params,
+        )?;
+        let r = pair.dr.to_array();
+        for a in 0..3 {
+            for b in 0..3 {
+                for c in 0..3 {
+                    for d in 0..3 {
+                        let h = -p.gradient_prefactor_derivative * r[a] * r[c] / pair.r
+                            - if a == c { p.gradient_prefactor } else { 0. };
+                        out[(3 * a + b, 3 * c + d)] += h * r[b] * r[d];
+                    }
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Joint exact Hessian for reference nuclear coordinates and nine affine
+/// components in R'=F(R+u), including self-image and mixed-coordinate terms.
+pub fn repulsion_affine_nuclear_hessian(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+) -> Result<Matrix> {
+    let d = 3 * system.atoms.len() + 9;
+    crate::resources::check_dense_workspace(d, d, 8, "affine repulsion jets")?;
+    let mut total = crate::jets::Jet2::constant(0., d);
+    for_each_unique_short_range_pair(system, Cutoffs::default().repulsion, |pair| {
+        let p = repulsion_pair_energy_derivatives(
+            system.atoms[pair.i].z,
+            system.atoms[pair.j].z,
+            pair.r,
+            params,
+        )?;
+        let vector =
+            crate::pbc::elastic_response::affine_nuclear_vector_jet(pair.dr, d, pair.j, pair.i);
+        let mut r2 = crate::jets::Jet2::constant(0., d);
+        for v in vector {
+            r2 = r2.add(&v.mul(&v));
+        }
+        let r = r2.powf(0.5);
+        total = total.add(&r.compose(
+            p.energy,
+            -p.gradient_prefactor * pair.r,
+            -p.gradient_prefactor_derivative * pair.r - p.gradient_prefactor,
+        ));
+        Ok(())
+    })?;
+    Matrix::from_vec(d, d, total.hessian)
+}
+
 pub fn repulsion_energy_gradient_hessian(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -136,7 +201,7 @@ struct PairRepulsionDerivatives {
     radial_third_derivative: f64,
 }
 
-fn repulsion_pair_energy_gradient_prefactor(
+pub(crate) fn repulsion_pair_energy_gradient_prefactor(
     za: u8,
     zb: u8,
     r: f64,
@@ -290,12 +355,61 @@ fn repulsion_pair_hat_derivatives(
 /// third derivative this is purely geometric (a classical pair sum, no electronic response),
 /// so it enters the quartic assembly as the frozen repulsion block. `Q.get(a, b, c, d)` equals
 /// `∂(third-derivative slab)/∂R_d`, which is the FD gate.
+/// Direct radial jet along a nuclear direction: no Cartesian FC3/FC4 store.
+pub fn repulsion_directional_jet(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    v: &[f64],
+) -> Result<crate::jets::Jet1> {
+    use crate::jets::Jet1;
+    if v.len() != 3 * system.atoms.len() || v.iter().any(|x| !x.is_finite()) {
+        return Err(crate::error::Gfn1Error::InvalidInput(
+            "invalid repulsion direction".into(),
+        ));
+    }
+    let mut out = Jet1::constant(0.0);
+    for_each_unique_short_range_pair(system, Cutoffs::default().repulsion, |pair| {
+        if pair.i == pair.j {
+            return Ok(());
+        }
+        let mut r2 = Jet1::constant(0.0);
+        let dr = pair.dr.to_array();
+        for k in 0..3 {
+            let x = Jet1 {
+                value: dr[k],
+                d1: v[3 * pair.j + k] - v[3 * pair.i + k],
+                ..Default::default()
+            };
+            r2 = r2.add(&x.mul(&x));
+        }
+        let r = r2.sqrt();
+        let za = system.atoms[pair.i].z;
+        let zb = system.atoms[pair.j].z;
+        let a = params.element(za)?;
+        let b = params.element(zb)?;
+        let k = if za <= 2 && zb <= 2 {
+            params.global("kexplight", params.global("kexp", 1.5))
+        } else {
+            params.global("kexp", 1.5)
+        };
+        let term = r
+            .powf(k)
+            .scale(-(a.repa * b.repa).sqrt())
+            .exp()
+            .div(&r)
+            .scale(a.repb * b.repb);
+        out = out.add(&term);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
 pub fn repulsion_fourth_derivative(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
 ) -> Result<crate::fourth_derivative::SymmetricFourth> {
     let nat = system.atoms.len();
-    let mut store = crate::fourth_derivative::SymmetricFourth::zeros(3 * nat);
+    let mut store = crate::fourth_derivative::SymmetricFourth::try_zeros(3 * nat, usize::MAX)?;
     let cutoff = Cutoffs::default().repulsion;
     for_each_unique_short_range_pair(system, cutoff, |pair| {
         if pair.i == pair.j {

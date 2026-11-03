@@ -114,6 +114,32 @@ pub fn analytic_hessian(
     params: &Gfn1Parameters,
     options: AnalyticHessianOptions,
 ) -> Result<AnalyticHessianResult> {
+    let span = options
+        .electronic_options
+        .logger
+        .as_ref()
+        .map(|logger| {
+            logger.begin(
+                "analytic_hessian",
+                serde_json::json!({"atoms":system.atoms.len()}),
+            )
+        })
+        .transpose()?;
+    crate::logging::finish(
+        span,
+        analytic_hessian_impl(system, params, options),
+        |h| serde_json::json!({"degrees_of_freedom":h.hessian.rows()}),
+    )
+}
+fn analytic_hessian_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: AnalyticHessianOptions,
+) -> Result<AnalyticHessianResult> {
+    crate::resources::preflight_response(system, params, &options.electronic_options, 1, false)?;
+    if options.electronic_options.ml_model.is_some() {
+        return crate::variational_derivatives::hessian(system, params, None, options);
+    }
     ensure_non_pbc(system)?;
     ensure_hessian_supported_options(params, &options)?;
     let _profile = crate::profile::scope("hessian.nonpbc.total");
@@ -139,6 +165,19 @@ pub fn analytic_hessian_from_result(
     electronic: Option<ElectronicResult>,
     options: AnalyticHessianOptions,
 ) -> Result<AnalyticHessianResult> {
+    crate::resources::preflight_response(system, params, &options.electronic_options, 1, false)?;
+    if options.electronic_options.solvation.is_some() {
+        return crate::variational_derivatives::hessian(system, params, electronic, options);
+    }
+    if electronic
+        .as_ref()
+        .is_some_and(|e| e.solvation.is_some() || e.ml_parameters.is_some() || e.spin.is_some())
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "analytic Hessian is not implemented for the supplied solvent/ML/spin electronic state"
+                .into(),
+        ));
+    }
     let _profile = crate::profile::scope("hessian.assemble.total");
     ensure_non_pbc(system)?;
     ensure_hessian_supported_options(params, &options)?;
@@ -511,7 +550,7 @@ pub fn fixed_shell_charge_scc_fourth_derivative(
     ensure_non_pbc(system)?;
     let shell_model = ShellChargeModel::build(system, basis, params)?;
     let nat = system.atoms.len();
-    let mut store = crate::fourth_derivative::SymmetricFourth::zeros(3 * nat);
+    let mut store = crate::fourth_derivative::SymmetricFourth::try_zeros(3 * nat, usize::MAX)?;
     for i in 0..basis.shells.len() {
         let ai = basis.shells[i].atom_index;
         for j in 0..i {
@@ -542,6 +581,48 @@ pub fn fixed_shell_charge_scc_fourth_derivative(
         }
     }
     Ok(store)
+}
+
+/// Radial fourth contraction without a packed O((3N)^4) intermediate.
+pub(crate) fn fixed_shell_charge_scc_fourth_directional(
+    system: &PeriodicSystem,
+    basis: &BasisSet,
+    q: &[f64],
+    params: &Gfn1Parameters,
+    v: &[f64],
+) -> Result<f64> {
+    ensure_non_pbc(system)?;
+    ensure_direction_len(system, v)?;
+    let model = ShellChargeModel::build(system, basis, params)?;
+    let mut out = 0.0;
+    for i in 0..basis.shells.len() {
+        let ai = basis.shells[i].atom_index;
+        for j in 0..i {
+            let aj = basis.shells[j].atom_index;
+            if ai == aj {
+                continue;
+            }
+            let rvec = system.atoms[ai].position - system.atoms[aj].position;
+            let r = rvec.norm();
+            if r <= 1e-12 {
+                continue;
+            }
+            let w = Vec3::new(
+                v[3 * ai] - v[3 * aj],
+                v[3 * ai + 1] - v[3 * aj + 1],
+                v[3 * ai + 2] - v[3 * aj + 2],
+            );
+            let dot = rvec.dot(w);
+            let ww = w.norm2();
+            let (c2, c3, c4) = effective_kernel_hat_derivatives(
+                r,
+                harmonic_average(model.hardness[i], model.hardness[j]),
+            );
+            out +=
+                q[i] * q[j] * (c4 * dot.powi(4) + 6.0 * c3 * ww * dot * dot + 3.0 * c2 * ww * ww);
+        }
+    }
+    Ok(out)
 }
 
 /// Peak scratch the chunked AO-pair reductions below may hold. Each chunk owns
@@ -673,18 +754,10 @@ pub fn fixed_density_pulay_hessian(
                                         row_axis,
                                         col_axis,
                                     );
-                                    let ds_row = first(
-                                        &pair.d_bra[0],
-                                        &pair.d_ket[0],
-                                        row_center,
-                                        row_axis,
-                                    );
-                                    let ds_col = first(
-                                        &pair.d_bra[0],
-                                        &pair.d_ket[0],
-                                        col_center,
-                                        col_axis,
-                                    );
+                                    let ds_row =
+                                        first(&pair.d_bra[0], &pair.d_ket[0], row_center, row_axis);
+                                    let ds_col =
+                                        first(&pair.d_bra[0], &pair.d_ket[0], col_center, col_axis);
                                     let dh_row =
                                         first_vec(h0.d_bra, h0.d_ket, row_center, row_axis);
                                     let dh_col =
@@ -702,8 +775,7 @@ pub fn fixed_density_pulay_hessian(
                                         + 2.0
                                             * p
                                             * (dh_col * ds_row + ds_col * dh_row + overlap * d2h);
-                                    hessian
-                                        [(3 * row_atom + row_axis, 3 * col_atom + col_axis)] +=
+                                    hessian[(3 * row_atom + row_axis, 3 * col_atom + col_axis)] +=
                                         value;
                                 }
                             }
@@ -778,16 +850,28 @@ pub(crate) fn fixed_density_pulay_hessian_parts(
                     for row_axis in 0..3 {
                         for col_axis in 0..3 {
                             let d2s = second(
-                                &pair.h_bra_bra[0], &pair.h_bra_ket[0], &pair.h_ket_ket[0],
-                                row_center, col_center, row_axis, col_axis,
+                                &pair.h_bra_bra[0],
+                                &pair.h_bra_ket[0],
+                                &pair.h_ket_ket[0],
+                                row_center,
+                                col_center,
+                                row_axis,
+                                col_axis,
                             );
-                            let ds_row = first(&pair.d_bra[0], &pair.d_ket[0], row_center, row_axis);
-                            let ds_col = first(&pair.d_bra[0], &pair.d_ket[0], col_center, col_axis);
+                            let ds_row =
+                                first(&pair.d_bra[0], &pair.d_ket[0], row_center, row_axis);
+                            let ds_col =
+                                first(&pair.d_bra[0], &pair.d_ket[0], col_center, col_axis);
                             let dh_row = first_vec(h0.d_bra, h0.d_ket, row_center, row_axis);
                             let dh_col = first_vec(h0.d_bra, h0.d_ket, col_center, col_axis);
                             let d2h = second(
-                                &h0.h_bra_bra, &h0.h_bra_ket, &h0.h_ket_ket,
-                                row_center, col_center, row_axis, col_axis,
+                                &h0.h_bra_bra,
+                                &h0.h_bra_ket,
+                                &h0.h_ket_ket,
+                                row_center,
+                                col_center,
+                                row_axis,
+                                col_axis,
                             );
                             let (ri, ci) = (3 * row_atom + row_axis, 3 * col_atom + col_axis);
                             part_c_sab[(ri, ci)] += overlap_coeff * d2s;
@@ -858,8 +942,13 @@ pub(crate) fn fixed_density_pulay_hessian_csab_subparts(
                     for row_axis in 0..3 {
                         for col_axis in 0..3 {
                             let d2s = second(
-                                &pair.h_bra_bra[0], &pair.h_bra_ket[0], &pair.h_ket_ket[0],
-                                row_center, col_center, row_axis, col_axis,
+                                &pair.h_bra_bra[0],
+                                &pair.h_bra_ket[0],
+                                &pair.h_ket_ket[0],
+                                row_center,
+                                col_center,
+                                row_axis,
+                                col_axis,
                             );
                             let (ri, ci) = (3 * row_atom + row_axis, 3 * col_atom + col_axis);
                             sub_p2h0[(ri, ci)] += c_p2h0 * d2s;
@@ -943,16 +1032,28 @@ pub(crate) fn fixed_density_pulay_cn_h0_response(
                     for row_axis in 0..3 {
                         for col_axis in 0..3 {
                             let d2s = second(
-                                &pair.h_bra_bra[0], &pair.h_bra_ket[0], &pair.h_ket_ket[0],
-                                row_center, col_center, row_axis, col_axis,
+                                &pair.h_bra_bra[0],
+                                &pair.h_bra_ket[0],
+                                &pair.h_ket_ket[0],
+                                row_center,
+                                col_center,
+                                row_axis,
+                                col_axis,
                             );
-                            let ds_row = first(&pair.d_bra[0], &pair.d_ket[0], row_center, row_axis);
-                            let ds_col = first(&pair.d_bra[0], &pair.d_ket[0], col_center, col_axis);
+                            let ds_row =
+                                first(&pair.d_bra[0], &pair.d_ket[0], row_center, row_axis);
+                            let ds_col =
+                                first(&pair.d_bra[0], &pair.d_ket[0], col_center, col_axis);
                             let dh_row = first_vec(h0cn.d_bra, h0cn.d_ket, row_center, row_axis);
                             let dh_col = first_vec(h0cn.d_bra, h0cn.d_ket, col_center, col_axis);
                             let d2h = second(
-                                &h0cn.h_bra_bra, &h0cn.h_bra_ket, &h0cn.h_ket_ket,
-                                row_center, col_center, row_axis, col_axis,
+                                &h0cn.h_bra_bra,
+                                &h0cn.h_bra_ket,
+                                &h0cn.h_ket_ket,
+                                row_center,
+                                col_center,
+                                row_axis,
+                                col_axis,
                             );
                             let value = overlap_coeff_cn * d2s
                                 + 2.0 * p * (dh_col * ds_row + ds_col * dh_row + overlap * d2h);
@@ -1210,8 +1311,7 @@ pub fn fixed_density_scalar_overlap_hessian(
                     }
                     let active_cols = (0..ndof)
                         .filter_map(|col_coord| {
-                            let dscalar_col = shell_scalar_derivatives
-                                [(shell_mu_index, col_coord)]
+                            let dscalar_col = shell_scalar_derivatives[(shell_mu_index, col_coord)]
                                 + shell_scalar_derivatives[(shell_nu_index, col_coord)];
                             (dscalar_col.abs() > 1.0e-30).then_some((col_coord, dscalar_col))
                         })
@@ -1583,8 +1683,8 @@ pub fn shell_scalar_potential_third_derivatives(
                             for (yi, &ay) in atoms.iter().enumerate() {
                                 for (zi, &az) in atoms.iter().enumerate() {
                                     let value = signs[xi] * signs[yi] * signs[zi] * t_rel;
-                                    let idx = ((3 * ax + a) * ndof + (3 * ay + b)) * ndof
-                                        + (3 * az + c);
+                                    let idx =
+                                        ((3 * ax + a) * ndof + (3 * ay + b)) * ndof + (3 * az + c);
                                     out[i][idx] += value * shell_charges[j];
                                     out[j][idx] += value * shell_charges[i];
                                 }
@@ -3174,8 +3274,8 @@ pub fn fixed_density_pulay_third_cn_response(
                 contracted_pair_with_third_derivatives(&basis.aos[mu], &basis.aos[nu], rmu, rnu);
             let overlap = pair.moments[0];
             // CN-derivative of the h0 prefactor along cn_response: s_cn·(hscale·poly), field-for-field.
-            let h0 = h0_scale_third(system, params, shell_mu_index, shell_nu_index, basis)?
-                .scale(s_cn);
+            let h0 =
+                h0_scale_third(system, params, shell_mu_index, shell_nu_index, basis)?.scale(s_cn);
             // Only the `2·P·h0` part of `overlap_coeff = P(2h0 − V) − 2W` carries CN.
             let overlap_coeff = 2.0 * p * h0.value;
             let two_p = 2.0 * p;
@@ -3343,23 +3443,47 @@ pub(crate) fn pulay_density_path_geom_cross_ordered(
             let dof = |s: usize| 3 * atom_of(slot_center(s)) + s % 3;
             let s1 = |c: Center, ax: usize| first(&pair.d_bra[0], &pair.d_ket[0], c, ax);
             let s2 = |ca: Center, cb: Center, axa: usize, axb: usize| {
-                second(&pair.h_bra_bra[0], &pair.h_bra_ket[0], &pair.h_ket_ket[0], ca, cb, axa, axb)
+                second(
+                    &pair.h_bra_bra[0],
+                    &pair.h_bra_ket[0],
+                    &pair.h_ket_ket[0],
+                    ca,
+                    cb,
+                    axa,
+                    axb,
+                )
             };
             // (Overlap third selector kept for probe symmetry with h3; currently unused.)
             let _s3 = |ca: Center, cb: Center, cc: Center, axa: usize, axb: usize, axc: usize| {
                 third_select(
-                    &pair.t_bra_bra_bra[0], &pair.t_bra_bra_ket[0], &pair.t_bra_ket_ket[0],
-                    &pair.t_ket_ket_ket[0], [ca, cb, cc], [axa, axb, axc],
+                    &pair.t_bra_bra_bra[0],
+                    &pair.t_bra_bra_ket[0],
+                    &pair.t_bra_ket_ket[0],
+                    &pair.t_ket_ket_ket[0],
+                    [ca, cb, cc],
+                    [axa, axb, axc],
                 )
             };
             let h1 = |c: Center, ax: usize| first_vec(h0.d_bra, h0.d_ket, c, ax);
             let h2 = |ca: Center, cb: Center, axa: usize, axb: usize| {
-                second(&h0.h_bra_bra, &h0.h_bra_ket, &h0.h_ket_ket, ca, cb, axa, axb)
+                second(
+                    &h0.h_bra_bra,
+                    &h0.h_bra_ket,
+                    &h0.h_ket_ket,
+                    ca,
+                    cb,
+                    axa,
+                    axb,
+                )
             };
             let h3 = |ca: Center, cb: Center, cc: Center, axa: usize, axb: usize, axc: usize| {
                 third_select(
-                    &h0.t_bra_bra_bra, &h0.t_bra_bra_ket, &h0.t_bra_ket_ket,
-                    &h0.t_ket_ket_ket, [ca, cb, cc], [axa, axb, axc],
+                    &h0.t_bra_bra_bra,
+                    &h0.t_bra_bra_ket,
+                    &h0.t_bra_ket_ket,
+                    &h0.t_ket_ket_ket,
+                    [ca, cb, cc],
+                    [axa, axb, axc],
                 )
             };
             // ORDERED: c is the slab (displacement) index; (a,b) are the Hessian row/col. Loop all 3 slots
@@ -3382,8 +3506,12 @@ pub(crate) fn pulay_density_path_geom_cross_ordered(
                         //   P^(c) · [∂_c(2h0 − V)] · S_ab = P^(c)·(2·h0_c − V_geo_c)·S_ab.
                         // Here h0_c = ∂_c h0.value = h1(cc,axc); V_geo_c = ∂_c V = the AO-pair scalar-potential
                         // geometry derivative in slot c. Only the c-slot carries a geometry derivative.
-                        let vgeo_c = vgeo_shell[dof(ic)][shell_mu_index] + vgeo_shell[dof(ic)][shell_nu_index];
-                        if only_channel != Some(1) && only_channel != Some(2) && only_channel != Some(3) {
+                        let vgeo_c = vgeo_shell[dof(ic)][shell_mu_index]
+                            + vgeo_shell[dof(ic)][shell_nu_index];
+                        if only_channel != Some(1)
+                            && only_channel != Some(2)
+                            && only_channel != Some(3)
+                        {
                             let s_ab = s2(ca, cb, axa, axb);
                             let h0c = h1(cc, axc);
                             v += pc * (2.0 * h0c - vgeo_c) * s_ab;
@@ -3407,9 +3535,12 @@ pub(crate) fn pulay_density_path_geom_cross_ordered(
                             let h_abc = h3(ca, cb, cc, axa, axb, axc);
                             // ∂_c of (h0_a·S_b + h0_b·S_a + S·h0_ab):
                             v += two_p
-                                * (h_ac * s_b + h_a * s_bc
-                                    + h_bc * s_a + h_b * s_ac
-                                    + s_c * h_ab + overlap * h_abc);
+                                * (h_ac * s_b
+                                    + h_a * s_bc
+                                    + h_bc * s_a
+                                    + h_b * s_ac
+                                    + s_c * h_ab
+                                    + overlap * h_abc);
                         }
                         if v != 0.0 {
                             tensor[dof(ic)][(dof(ia), dof(ib))] += v;
@@ -3897,13 +4028,7 @@ pub fn fixed_density_pulay_fourth_derivative(
             };
             let h4 = |centers: [Center; 4], axes: [usize; 4]| {
                 fourth_select(
-                    &h0.q_bbbb,
-                    &h0.q_bbbk,
-                    &h0.q_bbkk,
-                    &h0.q_bkkk,
-                    &h0.q_kkkk,
-                    centers,
-                    axes,
+                    &h0.q_bbbb, &h0.q_bbbk, &h0.q_bbkk, &h0.q_bkkk, &h0.q_kkkk, centers, axes,
                 )
             };
 
@@ -3915,10 +4040,8 @@ pub fn fixed_density_pulay_fourth_derivative(
                 let (cd, axd) = (slot_center(l), l % 3);
                 let s_abcd = s4([ca, cb, cc, cd], [axa, axb, axc, axd]);
                 let h_abcd = h4([ca, cb, cc, cd], [axa, axb, axc, axd]);
-                let (s_a, s_b, s_c, s_d) =
-                    (s1(ca, axa), s1(cb, axb), s1(cc, axc), s1(cd, axd));
-                let (h_a, h_b, h_c, h_d) =
-                    (h1(ca, axa), h1(cb, axb), h1(cc, axc), h1(cd, axd));
+                let (s_a, s_b, s_c, s_d) = (s1(ca, axa), s1(cb, axb), s1(cc, axc), s1(cd, axd));
+                let (h_a, h_b, h_c, h_d) = (h1(ca, axa), h1(cb, axb), h1(cc, axc), h1(cd, axd));
                 let s_ab = s2(ca, cb, axa, axb);
                 let s_ac = s2(ca, cc, axa, axc);
                 let s_ad = s2(ca, cd, axa, axd);
@@ -4228,8 +4351,8 @@ pub(crate) fn cn_h0_cn_jets_fourth(
         let coeff_uuu = d.third - 3.0 * g;
         let a2 = g / r;
         let a3 = coeff_uuu / r;
-        let a4 = d.fourth - 6.0 * d.third / r + 15.0 * d.second / (r * r)
-            - 15.0 * d.first / (r * r * r);
+        let a4 =
+            d.fourth - 6.0 * d.third / r + 15.0 * d.second / (r * r) - 15.0 * d.first / (r * r * r);
         let delta = |x: usize, y: usize| if x == y { 1.0 } else { 0.0 };
         // 6 slots: 0..3 = atom i axes (σ=+1), 3..6 = atom j axes (σ=−1).
         let dof = |s: usize| {
@@ -4270,8 +4393,7 @@ pub(crate) fn cn_h0_cn_jets_fourth(
                                     + dce * u[a] * u[b])
                                 + a2 * (dab * dce + dac * dbe + dae * dbc);
                             let qidx = idx * ndof + dof(w);
-                            jet.fourth[qidx] +=
-                                sigma(s) * sigma(t) * sigma(q) * sigma(w) * qrel;
+                            jet.fourth[qidx] += sigma(s) * sigma(t) * sigma(q) * sigma(w) * qrel;
                         }
                     }
                 }
@@ -4427,14 +4549,14 @@ pub fn fixed_density_scalar_overlap_fourth_derivative(
                             let dscalar_bc =
                                 dscalar2[shell_mu][(b, c)] + dscalar2[shell_nu][(b, c)];
                             let c_center = center_of(c);
-                            let dds_ac = c_center.map(|cc| {
-                                second(hbb, hbk, hkk, row_center, cc, row_axis, c % 3)
-                            });
+                            let dds_ac = c_center
+                                .map(|cc| second(hbb, hbk, hkk, row_center, cc, row_axis, c % 3));
                             for d in 0..ndof {
                                 let dscalar_bd =
                                     dscalar2[shell_mu][(b, d)] + dscalar2[shell_nu][(b, d)];
                                 let idx3 = (b * ndof + c) * ndof + d;
-                                let dscalar_bcd = dscalar3[shell_mu][idx3] + dscalar3[shell_nu][idx3];
+                                let dscalar_bcd =
+                                    dscalar3[shell_mu][idx3] + dscalar3[shell_nu][idx3];
                                 let d_center = center_of(d);
                                 let mut t = ds_row * dscalar_bcd;
                                 if let Some(dc) = d_center {
@@ -4511,7 +4633,7 @@ fn direction_on_pair(v: &[f64], atom_bra: usize, atom_ket: usize) -> ([f64; 3], 
 /// `Σ_b v_b ∂f/∂R_b` for a two-centre quantity — the `2¹` centre assignments of
 /// [`first_vec`], weighted by the direction components of the owning atoms.
 #[inline]
-fn directional_first(d_bra: Vec3, d_ket: Vec3, va: &[f64; 3], vk: &[f64; 3]) -> f64 {
+pub(crate) fn directional_first(d_bra: Vec3, d_ket: Vec3, va: &[f64; 3], vk: &[f64; 3]) -> f64 {
     let (b, k) = (d_bra.to_array(), d_ket.to_array());
     let mut out = 0.0;
     for a in 0..3 {
@@ -4524,7 +4646,7 @@ fn directional_first(d_bra: Vec3, d_ket: Vec3, va: &[f64; 3], vk: &[f64; 3]) -> 
 /// `(bra,ket)`/`(ket,bra)` pair contributes `2·Σ_ab va_a vk_b h_bra_ket[a][b]` (the second
 /// assignment is the index relabelling of the first).
 #[inline]
-fn directional_second(
+pub(crate) fn directional_second(
     h_bra_bra: &[[f64; 3]; 3],
     h_bra_ket: &[[f64; 3]; 3],
     h_ket_ket: &[[f64; 3]; 3],
@@ -4547,7 +4669,7 @@ fn directional_second(
 /// bra/ket patterns with multiplicities `1, 3, 3, 1` (the number of ways to pick which of the
 /// three identical legs sit on the ket centre).
 #[inline]
-fn directional_third(
+pub(crate) fn directional_third(
     t_bbb: &Ten3,
     t_bbk: &Ten3,
     t_bkk: &Ten3,
@@ -4990,8 +5112,7 @@ pub(crate) fn directional_h0_bare_third_matrix(
                 &va,
                 &vk,
             );
-            out[(mu, nu)] =
-                self_avg * (g3 * s0 + 3.0 * g2 * s1 + 3.0 * g1 * s2 + scale.value * s3);
+            out[(mu, nu)] = self_avg * (g3 * s0 + 3.0 * g2 * s1 + 3.0 * g1 * s2 + scale.value * s3);
         }
     }
     Ok(out)
@@ -5180,12 +5301,7 @@ pub(crate) fn directional_h0_scc_scalar_third_matrix(
     let n = basis.len();
     let nsh = basis.shells.len();
     let ndof = 3 * system.atoms.len();
-    for (name, leg) in [
-        ("v_c", v_c),
-        ("v_cc", v_cc),
-        ("q_c", q_c),
-        ("q_cc", q_cc),
-    ] {
+    for (name, leg) in [("v_c", v_c), ("v_cc", v_cc), ("q_c", q_c), ("q_cc", q_cc)] {
         if leg.len() != nsh {
             return Err(Gfn1Error::InvalidInput(format!(
                 "directional SCC-scalar leg `{name}` has length {} but the basis has {nsh} shells",
@@ -5547,13 +5663,7 @@ pub(crate) fn directional_fixed_density_pulay_fourth(
             };
             let h4 = |centers: [Center; 4], axes: [usize; 4]| {
                 fourth_select(
-                    &h0.q_bbbb,
-                    &h0.q_bbbk,
-                    &h0.q_bbkk,
-                    &h0.q_bkkk,
-                    &h0.q_kkkk,
-                    centers,
-                    axes,
+                    &h0.q_bbbb, &h0.q_bbbk, &h0.q_bbkk, &h0.q_bkkk, &h0.q_kkkk, centers, axes,
                 )
             };
 
@@ -5854,10 +5964,7 @@ pub(crate) fn directional_fixed_density_cn_h0_fourth(
     let mut acc = 0.0;
     for atom in 0..system.atoms.len() {
         let (n, e) = (&cn[atom], &de[atom]);
-        acc += e.value * n.d4
-            + 4.0 * n.d3 * e.d1
-            + 5.0 * n.d2 * e.d2
-            + 2.0 * n.d1 * e.d3;
+        acc += e.value * n.d4 + 4.0 * n.d3 * e.d1 + 5.0 * n.d2 * e.d2 + 2.0 * n.d1 * e.d3;
     }
     Ok(acc)
 }
@@ -6013,7 +6120,15 @@ mod directional_fourth_tests {
         acc
     }
 
-    fn fixture(xyz: &str) -> (PeriodicSystem, Gfn1Parameters, ElectronicResult, f64, Vec<f64>) {
+    fn fixture(
+        xyz: &str,
+    ) -> (
+        PeriodicSystem,
+        Gfn1Parameters,
+        ElectronicResult,
+        f64,
+        Vec<f64>,
+    ) {
         let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
         let options = ElectronicOptions {
@@ -6243,8 +6358,10 @@ mod directional_second_tests {
                         d,
                     )
                     .unwrap(),
-                    crate::response::cpxtb::overlap_second_derivative_matrix(&f.system, basis, c, d)
-                        .unwrap(),
+                    crate::response::cpxtb::overlap_second_derivative_matrix(
+                        &f.system, basis, c, d,
+                    )
+                    .unwrap(),
                 ];
                 for (acc, block) in out.iter_mut().zip(&blocks) {
                     let dst = acc.as_mut_slice();
@@ -6307,7 +6424,9 @@ mod directional_second_tests {
         for ((name, want), got) in names.iter().zip(&reference).zip(&one_pass) {
             let scale = max_abs(want).max(1.0);
             let delta = want.max_abs_diff(got);
-            eprintln!("{label} / {name}: max |one-pass − double loop| {delta:.3e} (scale {scale:.3e})");
+            eprintln!(
+                "{label} / {name}: max |one-pass − double loop| {delta:.3e} (scale {scale:.3e})"
+            );
             assert!(
                 delta <= 1.0e-12 * scale,
                 "{label} / {name}: one-pass directional second differs from the ndof² double \

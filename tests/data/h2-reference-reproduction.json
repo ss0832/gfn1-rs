@@ -1,0 +1,48 @@
+{
+  "schema": "gfn1-rs-independent-h2-reproduction-v1",
+  "status": "pass",
+  "python_distribution_version": "0.6.0.dev1",
+  "reference_method": "FCI/cc-pVTZ",
+  "generator_versions": {
+    "numpy": "2.5.4",
+    "pyscf": "2.14.0",
+    "python": "3.12.15",
+    "scipy": "1.18.1"
+  },
+  "reference_cases": 23,
+  "maximum_reference_energy_difference_hartree": 4.085620730620576e-14,
+  "maximum_reference_gradient_difference_hartree_per_bohr": 6.987352918486067e-10,
+  "original_dataset_sha256": "f5de4342eda88551d2000db27e7f79fb15729c5e5ac70b5b61d1c065046ccd8b",
+  "regenerated_dataset_sha256": "8c89c0264ced7d1d68d50fb4fc85eb2ecc4e61fd155e106c2481c89354b5aed6",
+  "model_sha256": "17ddbf6f2c748007f7e8e31fe161105613f4264661d2046769614923de297c76",
+  "generator_sha256": "3f6a60cddcd40ada13588c98967f14adf7aca4f8a37fe486890eb30769842d0d",
+  "shape_alignment": "Each method uses only its mean training residual; no held-out value enters the alignment",
+  "training_residual_mean_hartree": [
+    0.1407080633240637,
+    4.824782108496795e-05
+  ],
+  "splits": {
+    "train": {
+      "cases": 10,
+      "baseline_rmse_hartree": 0.1415596120754521,
+      "model_rmse_hartree": 0.003950573787921074,
+      "baseline_shape_rmse_hartree": 0.015503699124523828,
+      "model_shape_rmse_hartree": 0.003950279154891412
+    },
+    "validation": {
+      "cases": 9,
+      "baseline_rmse_hartree": 0.13793697852635625,
+      "model_rmse_hartree": 0.003249667839046459,
+      "baseline_shape_rmse_hartree": 0.01052147141048869,
+      "model_shape_rmse_hartree": 0.00326639282911965
+    },
+    "extrapolation": {
+      "cases": 4,
+      "baseline_rmse_hartree": 0.17977387514672674,
+      "model_rmse_hartree": 0.05583826924187605,
+      "baseline_shape_rmse_hartree": 0.04453734366212454,
+      "model_shape_rmse_hartree": 0.05579470674705388
+    }
+  },
+  "scope": "Regenerated nonrelativistic finite-basis H2 FCI energies/analytic gradients and reevaluated the inherited independent embedded model; weights were not refitted"
+}

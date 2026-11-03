@@ -1,0 +1,75 @@
+{
+  "schema": "gfn1-rs-strain-skeleton-matched-benchmark-v1",
+  "electronic_temperature_kelvin": 300,
+  "threads": 2,
+  "memory_budget_bytes": 536870912,
+  "ao_cutoff_bohr": 20,
+  "nonzero_structural_ml": true,
+  "description": "Same SCC state for each mesh; three paired repetitions with alternating timing order. Baseline repeats the public single-k wrapper as the previous bulk pattern did. Every real/imaginary overlap/Fock derivative and coordination/shell-potential entry compared exactly. SCC time is excluded; assembly-only ratios are not whole-calculation speedups.",
+  "measurements": [
+    {
+      "mesh": [
+        2,
+        2,
+        2
+      ],
+      "retained_kpoints": 8,
+      "ao_basis_size": 13,
+      "baseline_single_k_loop_seconds": [
+        5.265377756,
+        4.546103217,
+        4.957696054
+      ],
+      "bulk_shared_geometry_seconds": [
+        0.541294584,
+        0.55275914,
+        0.598662749
+      ],
+      "baseline_median_seconds": 4.957696054,
+      "bulk_median_seconds": 0.55275914,
+      "median_ratio": 8.968998783086608,
+      "max_abs_entry_difference": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "mesh": [
+        4,
+        4,
+        4
+      ],
+      "retained_kpoints": 36,
+      "ao_basis_size": 13,
+      "baseline_single_k_loop_seconds": [
+        24.1230015,
+        30.019309214,
+        26.622330884
+      ],
+      "bulk_shared_geometry_seconds": [
+        0.946641003,
+        0.881967599,
+        0.878195003
+      ],
+      "baseline_median_seconds": 26.622330884,
+      "bulk_median_seconds": 0.881967599,
+      "median_ratio": 30.185157498059066,
+      "max_abs_entry_difference": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "benchmark_source_sha256": "cb8675cd0baacf80f4d9e9038d6dbb5227721bf635e28f649252ebe98a89728f",
+  "linked_rlib_sha256": "b5bd9a6916ed5dc99c6783717613ed33e9494fc3891de018fcf3d9db6e7168d5",
+  "measured_raw_json_sha256": "ef296a73e057bf93328c6361b3454a21a3af560fc8b96290e7d187d62d31bd4d",
+  "measured_benchmark_source_utf8": "use gfn1_rs::pbc::electromechanical::{strain_skeleton_at_k,strain_skeletons};\nuse gfn1_rs::pbc::hessian::KpointSkeleton;\nuse gfn1_rs::pbc::{run_pbc_scc,KMesh,PbcOptions};\nuse gfn1_rs::{ElectronicOptions,Gfn1Parameters,PeriodicSystem};\nuse std::time::Instant;\n\nfn compare(a:&[KpointSkeleton],b:&[KpointSkeleton])->f64 {\n    let mut error=0.0_f64;\n    assert_eq!(a.len(),b.len());\n    for (a,b) in a.iter().zip(b) {\n        assert_eq!(a.coordination,b.coordination);\n        assert_eq!(a.shell_potential,b.shell_potential);\n        for (x,y) in a.overlap.iter().chain(&a.fock).zip(b.overlap.iter().chain(&b.fock)) {\n            error=error.max(x.re.max_abs_diff(&y.re)).max(x.im.max_abs_diff(&y.im));\n        }\n    }\n    error\n}\nfn main()->gfn1_rs::Result<()> {\n    let context=gfn1_rs::resources::ResourceContext::new(\n        gfn1_rs::resources::ResourceLimits::from_megabytes(Some(2),Some(512))?)?;\n    context.run(||{\n        let system=PeriodicSystem::from_xyz_str(\"2\\nLattice=\\\"0 2.18 2.18 2.18 0 2.18 2.18 2.18 0\\\" pbc=\\\"T T T\\\"\\nSi 0 0 0\\nC 1.09 1.09 1.09\\n\",0.,false)?;\n        let params=Gfn1Parameters::builtin()?;\n        let mut model=gfn1_rs::ml::MlHamiltonian::zero(vec![6,14],vec![2.,4.,6.],9.);\n        for z in [6,14] {\n            let head=model.heads.get_mut(&z).unwrap();\n            for level in &mut head.levels {level.weights=vec![0.0003,-0.0002,0.0001,-0.0001,0.00015,-0.00005];}\n            head.correction.weights=vec![0.0001,0.0002,-0.0001,-0.0002,0.0001,-0.00005];\n        }\n        let options=ElectronicOptions{electronic_temperature:300.,energy_tolerance:1e-13,charge_tolerance:1e-11,\n            ml_model:Some(std::sync::Arc::new(model)),..Default::default()};\n        let mut measurements=Vec::new();\n        for mesh in [[2,2,2],[4,4,4]] {\n        let pbc=PbcOptions{kmesh:KMesh{size:mesh,gamma_centered:true,fold_time_reversal:true},ao_cutoff:20.,..Default::default()};\n        let state=run_pbc_scc(&system,&params,&options,&pbc)?;\n        let legacy=||state.kpoints.iter().map(|point|strain_skeleton_at_k(&system,&params,&state,&options,&pbc,point.fractional)).collect::<gfn1_rs::Result<Vec<_>>>();\n        let bulk=||strain_skeletons(&system,&params,&state,&options,&pbc);\n        let mut old_times=Vec::new();let mut new_times=Vec::new();let mut errors=Vec::new();\n        for repeat in 0..3 {\n            let (baseline,result,old_time,new_time)=if repeat%2==0 {\n                let start=Instant::now();let baseline=legacy()?;let old=start.elapsed().as_secs_f64();\n                let start=Instant::now();let result=bulk()?;let new=start.elapsed().as_secs_f64();\n                (baseline,result,old,new)\n            } else {\n                let start=Instant::now();let result=bulk()?;let new=start.elapsed().as_secs_f64();\n                let start=Instant::now();let baseline=legacy()?;let old=start.elapsed().as_secs_f64();\n                (baseline,result,old,new)\n            };\n            let error=compare(&baseline,&result);assert_eq!(error,0.,\"per-k summation order changed\");\n            old_times.push(old_time);new_times.push(new_time);errors.push(error);\n        }\n        let mut sorted_old=old_times.clone();let mut sorted_new=new_times.clone();sorted_old.sort_by(f64::total_cmp);sorted_new.sort_by(f64::total_cmp);\n        measurements.push(format!(\"{{\\\"mesh\\\":{mesh:?},\\\"retained_kpoints\\\":{},\\\"ao_basis_size\\\":{},\\\"baseline_single_k_loop_seconds\\\":{old_times:?},\\\"bulk_shared_geometry_seconds\\\":{new_times:?},\\\"baseline_median_seconds\\\":{},\\\"bulk_median_seconds\\\":{},\\\"median_ratio\\\":{},\\\"max_abs_entry_difference\\\":{errors:?}}}\",state.kpoints.len(),state.basis.len(),sorted_old[1],sorted_new[1],sorted_old[1]/sorted_new[1]));\n        }\n        println!(\"{{\\\"schema\\\":\\\"gfn1-rs-strain-skeleton-matched-benchmark-v1\\\",\\\"electronic_temperature_kelvin\\\":300,\\\"threads\\\":2,\\\"memory_budget_bytes\\\":536870912,\\\"ao_cutoff_bohr\\\":20,\\\"nonzero_structural_ml\\\":true,\\\"description\\\":\\\"Same SCC state for each mesh; three paired repetitions with alternating timing order. Baseline repeats the public single-k wrapper as the previous bulk pattern did. Every real/imaginary overlap/Fock derivative and coordination/shell-potential entry compared exactly. SCC time is excluded; assembly-only ratios are not whole-calculation speedups.\\\",\\\"measurements\\\":[{}]}}\",measurements.join(\",\"));\n        Ok(())\n    })\n}\n",
+  "reproduction_source": {
+    "path": "tests/profiling/strain_skeleton.rs",
+    "sha256": "5be9ff433eba57876fd178d479ee971ed1c678c04d93c4194d617cd6d015f74f",
+    "changes_after_measurement": "Rustfmt formatting only; no remeasurement. Historical source and linked-library hashes are retained unchanged.",
+    "cargo_command": "cargo test --offline --profile reltest --test profile_strain_skeleton"
+  }
+}

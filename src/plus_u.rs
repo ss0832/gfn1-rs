@@ -127,7 +127,11 @@ pub fn correlated_subspace_auto(basis: &BasisSet, all_d: bool) -> Vec<Correlated
         if let Some(existing) = out.iter_mut().find(|c| c.atom_index == shell.atom_index) {
             existing.aos.extend(aos);
         } else {
-            out.push(CorrelatedAtom { atom_index: shell.atom_index, aos, u: 0.0 });
+            out.push(CorrelatedAtom {
+                atom_index: shell.atom_index,
+                aos,
+                u: 0.0,
+            });
         }
     }
     out
@@ -252,7 +256,10 @@ fn build_vtilde_corr(
     pairs: &[IntersitePair],
 ) -> (Vec<usize>, Vec<f64>, f64) {
     let n = p.rows();
-    let mut corr_aos: Vec<usize> = subspace.iter().flat_map(|a| a.aos.iter().copied()).collect();
+    let mut corr_aos: Vec<usize> = subspace
+        .iter()
+        .flat_map(|a| a.aos.iter().copied())
+        .collect();
     corr_aos.sort_unstable();
     corr_aos.dedup();
     let c = corr_aos.len();
@@ -470,7 +477,10 @@ pub fn plus_u_param_derivatives(
     }
     // Correlated-AO index map and the dual population restricted to correlated AOs,
     // computed entry-wise (O(|corr|² N)) exactly as in `build_vtilde_corr`.
-    let mut corr_aos: Vec<usize> = subspace.iter().flat_map(|a| a.aos.iter().copied()).collect();
+    let mut corr_aos: Vec<usize> = subspace
+        .iter()
+        .flat_map(|a| a.aos.iter().copied())
+        .collect();
     corr_aos.sort_unstable();
     corr_aos.dedup();
     let c = corr_aos.len();
@@ -748,7 +758,10 @@ mod tests {
             u: 0.2,
         }];
         let (e, _) = onsite_plus_u(&p, &s, &subspace);
-        assert!(e.abs() < 1e-12, "integer-occupation FLL energy must vanish, got {e}");
+        assert!(
+            e.abs() < 1e-12,
+            "integer-occupation FLL energy must vanish, got {e}"
+        );
     }
 
     /// Combined +U+V: two correlated atoms (AOs {0,1} and {3,4}) with an
@@ -780,10 +793,22 @@ mod tests {
             ],
         );
         let subspace = vec![
-            CorrelatedAtom { atom_index: 0, aos: vec![0, 1], u: 0.18 },
-            CorrelatedAtom { atom_index: 1, aos: vec![3, 4], u: 0.12 },
+            CorrelatedAtom {
+                atom_index: 0,
+                aos: vec![0, 1],
+                u: 0.18,
+            },
+            CorrelatedAtom {
+                atom_index: 1,
+                aos: vec![3, 4],
+                u: 0.12,
+            },
         ];
-        let pairs = vec![IntersitePair { a: 0, b: 1, v: 0.06 }];
+        let pairs = vec![IntersitePair {
+            a: 0,
+            b: 1,
+            v: 0.06,
+        }];
 
         let (e0, g) = plus_u_v(&p, &s, &subspace, &pairs);
         let (e_u_only, _) = onsite_plus_u(&p, &s, &subspace);
@@ -837,10 +862,18 @@ mod tests {
                 0.15, 0.05, 0.10, 0.20, 0.80, //
             ],
         );
-        let subspace = vec![CorrelatedAtom { atom_index: 0, aos: vec![1, 2, 3], u: 0.1 }];
+        let subspace = vec![CorrelatedAtom {
+            atom_index: 0,
+            aos: vec![1, 2, 3],
+            u: 0.1,
+        }];
         let occ = subspace_occupations(&p, &s, &subspace);
         let expected = p[(1, 1)] + p[(2, 2)] + p[(3, 3)];
-        assert!((occ[0] - expected).abs() < 1e-12, "occ {} vs {expected}", occ[0]);
+        assert!(
+            (occ[0] - expected).abs() < 1e-12,
+            "occ {} vs {expected}",
+            occ[0]
+        );
     }
 
     /// Linear-response U = χ0⁻¹ − χ⁻¹ from synthetic central-difference responses:
@@ -905,7 +938,11 @@ mod tests {
         let chi0 = vec![vec![-1.0]];
         let chi = vec![vec![-1.0e-9]];
         let (u, v) = extract_uv_from_response(&chi0, &chi);
-        assert!(u[0].is_finite() && (0.0..=1.0).contains(&u[0]), "U {}", u[0]);
+        assert!(
+            u[0].is_finite() && (0.0..=1.0).contains(&u[0]),
+            "U {}",
+            u[0]
+        );
         assert!(v[0][0].is_finite());
         // A genuinely singular (all-zero) response → uncorrected (zero), not NaN.
         let zero_response = [vec![0.0]];
@@ -942,10 +979,22 @@ mod tests {
             ],
         );
         let subspace = vec![
-            CorrelatedAtom { atom_index: 0, aos: vec![0, 1], u: 0.18 },
-            CorrelatedAtom { atom_index: 1, aos: vec![3, 4], u: 0.12 },
+            CorrelatedAtom {
+                atom_index: 0,
+                aos: vec![0, 1],
+                u: 0.18,
+            },
+            CorrelatedAtom {
+                atom_index: 1,
+                aos: vec![3, 4],
+                u: 0.12,
+            },
         ];
-        let pairs = vec![IntersitePair { a: 0, b: 1, v: 0.06 }];
+        let pairs = vec![IntersitePair {
+            a: 0,
+            b: 1,
+            v: 0.06,
+        }];
         let q = plus_u_v_overlap_weight(&p, &s, &subspace, &pairs);
         let delta = sym(
             nn,
@@ -1007,10 +1056,22 @@ mod tests {
             ],
         );
         let subspace = vec![
-            CorrelatedAtom { atom_index: 0, aos: vec![0, 1], u: 0.18 },
-            CorrelatedAtom { atom_index: 1, aos: vec![3, 4], u: 0.12 },
+            CorrelatedAtom {
+                atom_index: 0,
+                aos: vec![0, 1],
+                u: 0.18,
+            },
+            CorrelatedAtom {
+                atom_index: 1,
+                aos: vec![3, 4],
+                u: 0.12,
+            },
         ];
-        let pairs = vec![IntersitePair { a: 0, b: 1, v: 0.06 }];
+        let pairs = vec![IntersitePair {
+            a: 0,
+            b: 1,
+            v: 0.06,
+        }];
         let (du, dv) = plus_u_param_derivatives(&p, &s, &subspace, &pairs);
         let eps = 1e-6;
         // ∂E/∂U_i for each correlated atom.

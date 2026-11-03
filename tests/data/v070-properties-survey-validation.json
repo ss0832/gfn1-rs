@@ -1,0 +1,209 @@
+{
+  "schema": "gfn1-rs-v070-properties-survey-validation-v1",
+  "package_version": "0.7.0",
+  "rust": {
+    "passed": 636,
+    "ignored": 50,
+    "groups": {
+      "library": [
+        540,
+        0,
+        48
+      ],
+      "excited_hessian": [
+        3,
+        0,
+        2
+      ],
+      "fragment": [
+        4,
+        0,
+        0
+      ],
+      "fourth_derivative": [
+        6,
+        0,
+        0
+      ],
+      "magnetic": [
+        16,
+        0,
+        0
+      ],
+      "smearing": [
+        5,
+        0,
+        0
+      ],
+      "td": [
+        17,
+        0,
+        0
+      ],
+      "third_derivative_contracted": [
+        5,
+        0,
+        0
+      ],
+      "training_cli": [
+        2,
+        0,
+        0
+      ],
+      "training_observables": [
+        3,
+        0,
+        0
+      ],
+      "vpt2_molecules": [
+        2,
+        0,
+        0
+      ],
+      "pbc_scc_solver": [
+        2,
+        0,
+        0
+      ],
+      "scf_accelerators": [
+        1,
+        0,
+        0
+      ],
+      "pbc_mechanical": [
+        6,
+        0,
+        0
+      ],
+      "pbc_spectra": [
+        9,
+        0,
+        0
+      ],
+      "pbc_electromechanical": [
+        6,
+        0,
+        0
+      ],
+      "property_training": [
+        5,
+        0,
+        0
+      ],
+      "crystal_cli": [
+        4,
+        0,
+        0
+      ]
+    },
+    "log_sha256": "2666e55f9a56bf7ed8b92822128a5c530ac25ca10ce37bbfcd5c6c595fd17d1a"
+  },
+  "installed_release_wheels": {
+    "windows": {
+      "passed": 99,
+      "seconds": 234.74,
+      "log_sha256": "c3f798311ea5b76827567239ddb1f6213a9616c3fbafebea81f7f445486176d0"
+    },
+    "linux": {
+      "passed": 99,
+      "seconds": 149.9,
+      "log_sha256": "f2b4294301b8bd68759a22286f2d63757671448b4dfd0eb83336d8d7710b37c9"
+    }
+  },
+  "wheel_sha256": {
+    "gfn1_rs_python-0.7.0-cp39-abi3-manylinux_2_39_x86_64.whl": "bbebcd25cbfb42e700de3d395d9c51f6d10b3a0aeeec8298e03a1a185cf6b270",
+    "gfn1_rs_python-0.7.0-cp39-abi3-win_amd64.whl": "2b12ebf804af042549ac46fe3b11f6d76162c567086025b47593fe1704cf17fc"
+  },
+  "final_wheel_tested_runtime_identity": {
+    "status": "pass",
+    "wheels": [
+      {
+        "file": "gfn1_rs_python-0.7.0-cp39-abi3-manylinux_2_39_x86_64.whl",
+        "tested_wheel_sha256": "e76a1f86c7150e1fcdd482069143c6642df331d33ad5bee9b8300905f7892247",
+        "final_wheel_sha256": "bbebcd25cbfb42e700de3d395d9c51f6d10b3a0aeeec8298e03a1a185cf6b270",
+        "runtime_payload_sha256": {
+          "gfn1_rs/__init__.py": "e0896126a0f3f19d78c1aa8db0e0846ccc18c8dad68662ce1b5cf96daaa1337e",
+          "gfn1_rs/_native.abi3.so": "720a828d2b6116c385971c2a1c889572aae3476b5c55694eb6542b67d40bfabf",
+          "gfn1_rs/ase.py": "09f759ec042f07d258fbd1ae1338c5bade119ecac0d524a6cdbed60d4553c500",
+          "gfn1_rs/cli.py": "cba9568155d0b62505b006f3778c678d4ab05f67aba62bc24e6d172c8d1d65a1",
+          "gfn1_rs/native.py": "7ba49e942f0c7199bd30f1c1c16c90a67a87a411cdfe1ecd701e64279b8c22ce",
+          "gfn1_rs/torch_interop.py": "48c265aa415beecbeb4aff9c42c672a80940d6d3b86342692477f10bcc885194",
+          "gfn1_rs/training.py": "ac232f190004df2675dc803f192cf6fb861880a0f0ab571b834ff6b4da35824b"
+        },
+        "exact_tested_runtime": true,
+        "final_readme_metadata": true
+      },
+      {
+        "file": "gfn1_rs_python-0.7.0-cp39-abi3-win_amd64.whl",
+        "tested_wheel_sha256": "a800acc1f765b46a375d707998de961a2bbbfaf67e572e9c7fccd4bba18c403a",
+        "final_wheel_sha256": "2b12ebf804af042549ac46fe3b11f6d76162c567086025b47593fe1704cf17fc",
+        "runtime_payload_sha256": {
+          "gfn1_rs/__init__.py": "e0896126a0f3f19d78c1aa8db0e0846ccc18c8dad68662ce1b5cf96daaa1337e",
+          "gfn1_rs/_native.pyd": "065255b2790d5f9de6ddd727dfed6a08884974dd53e34ff9e733db3a7e8bf31f",
+          "gfn1_rs/ase.py": "09f759ec042f07d258fbd1ae1338c5bade119ecac0d524a6cdbed60d4553c500",
+          "gfn1_rs/cli.py": "cba9568155d0b62505b006f3778c678d4ab05f67aba62bc24e6d172c8d1d65a1",
+          "gfn1_rs/native.py": "7ba49e942f0c7199bd30f1c1c16c90a67a87a411cdfe1ecd701e64279b8c22ce",
+          "gfn1_rs/torch_interop.py": "48c265aa415beecbeb4aff9c42c672a80940d6d3b86342692477f10bcc885194",
+          "gfn1_rs/training.py": "ac232f190004df2675dc803f192cf6fb861880a0f0ab571b834ff6b4da35824b"
+        },
+        "exact_tested_runtime": true,
+        "final_readme_metadata": true
+      }
+    ]
+  },
+  "warning_checks": {
+    "clippy": "all targets and features, warnings denied",
+    "clippy_log_sha256": "7113fc69f8354e6defbb56499d206d02766a8ffbc2250095834e54d2538cf096",
+    "rustfmt": "pass",
+    "forbidden_date_scan": "no matches",
+    "python_warnings": "errors"
+  },
+  "cargo_extracted_source_build": {
+    "status": "pass",
+    "log_sha256": "637ffe7e5cf405b2a999c8403d075ea348997a8c9de9b56fc78ef85df4f619e3"
+  },
+  "documented_python_keyword_calls": 185,
+  "cli_operations": 21,
+  "organized_api_documentation_sha256": {
+    "docs/api-overview.md": "eefa2d557187e13c342265aa5022e066de5f8b4ac1359be619a2d485c8479124",
+    "docs/rust-api.md": "94def5d4ad373a89c23fd7a5a661928c46ebde4761c6b989be38393c6ad8d217",
+    "docs/python-api.md": "0c80100bfe73a4f891c69765f9df9aad6c70b0721b7295cf03e45b686aff11a7",
+    "docs/README.md": "879d68e006a6e2bfe02c5105d35bf955359dddb97566a2d923d4f990f5f2587d",
+    "README.md": "a6e2d38701dd7a417dc71cfaaf6cf09c284de7380b0f65463b7960cf16b23510",
+    "CHANGELOG.md": "e751795bbc8cd1eec46efe589737a720898969c2f935aa86ded972daa465cc6e",
+    "tests/README.md": "803f20d8ce9d427eada1b41e92e74206f2824ff57e0837d4377715c96a438a70"
+  },
+  "sourced_crystal_readonly_regression_sha256": "0d3d3e12850627b324f6ea0818a096c2b445ab881d36bf7424f82c38153cda54",
+  "one_off_helper_policy": "Report-only and fixture-capture helpers are excluded; reusable physical drivers, readonly regression tests, attributed inputs and measured receipts remain distributed.",
+  "scientific_execution_evidence_sha256": {
+    "tests/data/real-crystal-survey-inputs.json": "94f13b11baa81a6aaca3b81a083cd52ab23a6460c2dac2227ec2df12b609f915",
+    "tests/data/real-crystal-property-survey.json": "0d0d8a3c2b226249ec80bf65d0c0fa74d7b0949fcf94e3e3ae4d6a5cb54497a2",
+    "tests/data/real-crystal-cli-validation.json": "59f65a463fd6b4c29ee3100a59bd7a16f399a5a075d617d11d8d804d7efc4433",
+    "tests/data/stda-trust-region-results.json": "dc8d4a40aceb25471bef01325e8d06fb0cc079bc4b7b3d9c531e916efe71cd0c",
+    "tests/data/stda-seam-angular-response.json": "9d07d182dcc68c8e8e753efeeabe60e5de1a93a50a949f1d5808785c0813a70c"
+  },
+  "native_binary_sha256": {
+    "gfn1-rs.exe": "60171ad9ace992719126a1434a5983f8a073392e52440787aedc0cd20a8f0c2d",
+    "gfn1-rs-train.exe": "20bc4391cf3b6ab92b7301bb11a4c950886b46e4752a44c3ef9465138ae5b51f"
+  },
+  "source_sha256": {
+    "Cargo.toml": "d5775ced530274397cfd8be84ddd30c815bc31d866f90d0d84c0a9f2e8923a15",
+    "Cargo.lock": "cf7f07002596cc600cb5ee570a440b226a6aa70d8eb139078252e6a09df8c55a",
+    "pyproject.toml": "c28ceadbc31b3bae8e94d5b6ba1774c90f1a7da8c184e4bce40e00d86c5b6f6a",
+    "src/cli/mod.rs": "f4f6cbdc21356abb07000f184d64b4e9abf98ca436bca5ac0346799f124f93da",
+    "src/cli/properties.rs": "da32c6a1b90108bd7d82bc01ca29fdab5606cdc09114298970549e5ec4fb38cf",
+    "src/cli/calculation.rs": "1b8a367b83c637233035121bf7c6cc1df7a783ec4aba4d3bf42ad195cddae8fa",
+    "src/python.rs": "8492e912b6a81c7da831bb9e3f0cb613c4aee202d54dead3079ebe92318813da",
+    "python/gfn1_rs/ase.py": "09f759ec042f07d258fbd1ae1338c5bade119ecac0d524a6cdbed60d4553c500"
+  },
+  "source_hash_scope": "Delivered-source fingerprints. Scientific receipts preserve the actual older frozen physical-extension hashes; final CLI wrappers do not relabel those numerical measurements.",
+  "scope": [
+    "Twenty property families executed on attributed CIF structures or explicitly model-relaxed descendants",
+    "Published handbook structures are distinguished from the Skinner experimental ZnS sample",
+    "Full2x2x2 diamond QHA completed with five16atom phonon Hessians; sampling and fit convergence not asserted",
+    "ZnS metallic Berry rejection, NaCl virtual-band cutoff sensitivity and all failed trials are retained",
+    "Original signed sTDA has an approach-dependent frontier-projector limit; six new energy searches remain unconverged",
+    "No smoothing extension was substituted for the original sTDA model",
+    "Earlier validation records retain actual measured versions/hashes; ignored tests are not passes"
+  ]
+}

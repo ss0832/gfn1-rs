@@ -1,0 +1,838 @@
+{
+  "conditions": [
+    {
+      "ao_cutoff_bohr": 12.0,
+      "atomic_numbers": [
+        1,
+        1
+      ],
+      "band_kpoints": [],
+      "basis_nprim": 0,
+      "cell_bohr": [
+        [
+          9.448630623128851,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          9.448630623128851,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          9.448630623128851
+        ]
+      ],
+      "charge": 0.0,
+      "charge_order": 3,
+      "cp_controls": {
+        "absolute_tolerance": null,
+        "max_iterations": null,
+        "relative_tolerance": null
+      },
+      "eigen_tolerance": 1e-12,
+      "electronic_temperature_kelvin": 300.0,
+      "enable_dispersion": true,
+      "energy_definition": "mermin_free",
+      "ewald": {
+        "k_split": null,
+        "real_cutoff_bohr": 40.0,
+        "reciprocal_cutoff_inverse_bohr": 0.0,
+        "short_range_cutoff_bohr": 10.0
+      },
+      "fold_time_reversal": false,
+      "gamma_centered": true,
+      "hamiltonian": "HamiltonianOptions { integral_cutoff: 30.0, integral_screening: 0.0, coordination_cutoff: 30.0, enable_cn_hamiltonian: true }",
+      "id": "periodic-fit",
+      "kmesh": [
+        1,
+        1,
+        1
+      ],
+      "masses_amu": [],
+      "mixing": 0.4,
+      "periodic_axes": [
+        true,
+        true,
+        true
+      ],
+      "positions_bohr": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.4172945934693275,
+          0.18897261246257702,
+          0.0
+        ]
+      ],
+      "requested_scc_charge_tolerance_e": 1e-10,
+      "requested_scc_energy_tolerance_hartree": 1e-12,
+      "scc_accelerator": "Auto",
+      "scc_broyden": true,
+      "scc_charge_tolerance_e": 1e-10,
+      "scc_energy_tolerance_hartree": 1e-12,
+      "scc_max_iterations": 250,
+      "split": "train",
+      "targets": [
+        {
+          "mask": null,
+          "observable": "elastic_clamped",
+          "scale": 1.036461436096606e-6,
+          "unit": "hartree/bohr^3",
+          "values": [
+            [
+              0.0011001589253681126,
+              0.00002264190062420456,
+              1.79215185969916e-6,
+              8.1957102204902225e-25,
+              -2.5937921058397278e-23,
+              0.0001574437020144437
+            ],
+            [
+              0.00002264190062420456,
+              -0.00005063621674856667,
+              -3.718491547924277e-8,
+              -7.673600931459696e-25,
+              -1.6507689226440196e-26,
+              3.7895102231030198e-6
+            ],
+            [
+              1.79215185969916e-6,
+              -3.718491547924277e-8,
+              -0.000050696096484877,
+              1.130619185773643e-23,
+              2.5774207243098207e-23,
+              2.421540427374706e-7
+            ],
+            [
+              8.1957102204902225e-25,
+              -7.628247988909277e-25,
+              1.1301656563481388e-23,
+              -1.204425843573986e-7,
+              -6.94293538705453e-8,
+              -6.910531119158908e-24
+            ],
+            [
+              -9.886166359079593e-24,
+              -1.6507689226440196e-26,
+              9.722452543780522e-24,
+              -6.94293538705453e-8,
+              -6.411437577409513e-7,
+              9.024573497503387e-25
+            ],
+            [
+              0.0001574437020144437,
+              3.7895102231030198e-6,
+              2.421540427374706e-7,
+              -1.493640846881775e-23,
+              9.001897026228177e-25,
+              0.00002008127406741146
+            ]
+          ],
+          "weight": 1.0
+        },
+        {
+          "mask": null,
+          "observable": "dielectric_electronic",
+          "scale": 0.000024003427062220725,
+          "unit": "dimensionless",
+          "values": [
+            [
+              1.059822466420272,
+              0.007648426462157732,
+              1.0603720052623813e-31
+            ],
+            [
+              0.00764842646215773,
+              1.0009779010580415,
+              3.3421915941425365e-32
+            ],
+            [
+              1.0843713491356785e-31,
+              3.291841595590453e-32,
+              1.0
+            ]
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "ao_cutoff_bohr": 12.0,
+      "atomic_numbers": [
+        1,
+        1
+      ],
+      "band_kpoints": [],
+      "basis_nprim": 0,
+      "cell_bohr": [
+        [
+          9.448630623128851,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          9.448630623128851,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          9.448630623128851
+        ]
+      ],
+      "charge": 0.0,
+      "charge_order": 3,
+      "cp_controls": {
+        "absolute_tolerance": null,
+        "max_iterations": null,
+        "relative_tolerance": null
+      },
+      "eigen_tolerance": 1e-12,
+      "electronic_temperature_kelvin": 300.0,
+      "enable_dispersion": true,
+      "energy_definition": "mermin_free",
+      "ewald": {
+        "k_split": null,
+        "real_cutoff_bohr": 40.0,
+        "reciprocal_cutoff_inverse_bohr": 0.0,
+        "short_range_cutoff_bohr": 10.0
+      },
+      "fold_time_reversal": false,
+      "gamma_centered": true,
+      "hamiltonian": "HamiltonianOptions { integral_cutoff: 30.0, integral_screening: 0.0, coordination_cutoff: 30.0, enable_cn_hamiltonian: true }",
+      "id": "periodic-held-out",
+      "kmesh": [
+        1,
+        1,
+        1
+      ],
+      "masses_amu": [],
+      "mixing": 0.4,
+      "periodic_axes": [
+        true,
+        true,
+        true
+      ],
+      "positions_bohr": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.5684726834393892,
+          0.18897261246257702,
+          0.0
+        ]
+      ],
+      "requested_scc_charge_tolerance_e": 1e-10,
+      "requested_scc_energy_tolerance_hartree": 1e-12,
+      "scc_accelerator": "Auto",
+      "scc_broyden": true,
+      "scc_charge_tolerance_e": 1e-10,
+      "scc_energy_tolerance_hartree": 1e-12,
+      "scc_max_iterations": 250,
+      "split": "validation",
+      "targets": [
+        {
+          "mask": null,
+          "observable": "elastic_clamped",
+          "scale": 1.036461436096606e-6,
+          "unit": "hartree/bohr^3",
+          "values": [
+            [
+              0.0005049034836521131,
+              0.000011839346162068038,
+              3.3419905871660902e-6,
+              1.5351397306667507e-26,
+              1.235147801195285e-23,
+              0.00007183605105659315
+            ],
+            [
+              0.000011839346162068038,
+              -0.000053530849367360554,
+              -5.399898978782884e-8,
+              6.936351738236719e-25,
+              1.4448402949710573e-25,
+              2.304340032532482e-6
+            ],
+            [
+              3.3419905871660902e-6,
+              -5.399898978782884e-8,
+              -0.00005336825370782532,
+              -2.360538020755789e-23,
+              1.6996594499752028e-23,
+              4.083518426393755e-7
+            ],
+            [
+              1.5351397306667507e-26,
+              6.9556573827007495e-25,
+              -2.360731077200429e-23,
+              -1.527102864927183e-7,
+              -7.919619940441027e-8,
+              -2.3991446415417547e-24
+            ],
+            [
+              1.2278974591632384e-23,
+              1.4448402949710573e-25,
+              1.7069097920072494e-23,
+              -7.919619940441196e-8,
+              -8.149831592830126e-7,
+              2.164921016639467e-25
+            ],
+            [
+              0.00007183605105659315,
+              2.3043400325324784e-6,
+              4.083518426393755e-7,
+              -2.3628929313815214e-24,
+              2.1552681944074517e-25,
+              7.511640602081062e-6
+            ]
+          ],
+          "weight": 1.0
+        },
+        {
+          "mask": null,
+          "observable": "dielectric_electronic",
+          "scale": 0.000024003427062220725,
+          "unit": "dimensionless",
+          "values": [
+            [
+              1.0768025610928145,
+              0.008761378754926306,
+              1.4955268492523904e-31
+            ],
+            [
+              0.008761378754926306,
+              1.0009995266350287,
+              1.776149395012294e-31
+            ],
+            [
+              1.4927988657892638e-31,
+              1.6995935138639669e-31,
+              1.0
+            ]
+          ],
+          "weight": 1.0
+        }
+      ]
+    }
+  ],
+  "dataset_license_spdx": "GPL-3.0-or-later",
+  "dataset_provenance": "Synthetic periodic clamped-C/electronic-dielectric targets; fixed cells and 300 K; no independent accuracy claim",
+  "dataset_sha256": null,
+  "epochs": [
+    {
+      "accepted": true,
+      "backtracks": 0,
+      "epoch": 1,
+      "gradient_norm": 2858.516441555631,
+      "learning_rate_used": 6.996636335285802e-8,
+      "objective": 0.5100563307526792,
+      "regularization": 0.0,
+      "rejected_trial_errors": [],
+      "train": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000050617756272242076,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.00001714712871574788,
+            "weighted_scaled_loss": 0.2551563118849582
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 4.357684813268998e-6,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 7.40036396009383e-7,
+            "weighted_scaled_loss": 0.2549000188677209
+          }
+        },
+        "loss": 0.5100563307526792
+      },
+      "validation": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.00005549625394829505,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.0000187387482056777,
+            "weighted_scaled_loss": 0.30472259031545634
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 3.1558277652771324e-6,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 5.343328071766429e-7,
+            "weighted_scaled_loss": 0.13288849675353914
+          }
+        },
+        "loss": 0.4376110870689955
+      }
+    },
+    {
+      "accepted": true,
+      "backtracks": 0,
+      "epoch": 2,
+      "gradient_norm": 2041.002019521898,
+      "learning_rate_used": 9.799108383383655e-8,
+      "objective": 0.18356162903931947,
+      "regularization": 0.0,
+      "rejected_trial_errors": [],
+      "train": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000030373622547097412,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.000010289282878770271,
+            "weighted_scaled_loss": 0.09187423052573175
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 2.613518227412206e-6,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 4.4383645527377914e-7,
+            "weighted_scaled_loss": 0.09168739851358772
+          }
+        },
+        "loss": 0.18356162903931947
+      },
+      "validation": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000033301075153646664,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.000011244370868778145,
+            "weighted_scaled_loss": 0.10972202719856528
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 1.8941899953665593e-6,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 3.207168731410143e-7,
+            "weighted_scaled_loss": 0.047874839040139346
+          }
+        },
+        "loss": 0.15759686623870459
+      }
+    },
+    {
+      "accepted": true,
+      "backtracks": 0,
+      "epoch": 3,
+      "gradient_norm": 1224.0510916987496,
+      "learning_rate_used": 1.6339187257489238e-7,
+      "objective": 0.02038861414286096,
+      "regularization": 0.0,
+      "rejected_trial_errors": [],
+      "train": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000010125443254960231,
+            "native_unit": "dimensionless",
+            "rmse_native": 3.430066640246967e-6,
+            "weighted_scaled_loss": 0.010210067556574113
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 8.707899619524433e-7,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 1.478805407594291e-7,
+            "weighted_scaled_loss": 0.010178546586286844
+          }
+        },
+        "loss": 0.02038861414286096
+      },
+      "validation": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.00001110138509474723,
+            "native_unit": "dimensionless",
+            "rmse_native": 3.7484702933619748e-6,
+            "weighted_scaled_loss": 0.012193591655256266
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 6.316267874554487e-7,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 1.0694451878540784e-7,
+            "weighted_scaled_loss": 0.005323297891743872
+          }
+        },
+        "loss": 0.017516889547000137
+      }
+    },
+    {
+      "accepted": true,
+      "backtracks": 0,
+      "epoch": 4,
+      "gradient_norm": 407.8094219144265,
+      "learning_rate_used": 4.904251575677607e-7,
+      "objective": 0.02038088694452148,
+      "regularization": 0.0,
+      "rejected_trial_errors": [],
+      "train": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000010126258424891788,
+            "native_unit": "dimensionless",
+            "rmse_native": 3.4303427690854072e-6,
+            "weighted_scaled_loss": 0.010211711494066049
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 8.703886440865685e-7,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 1.4781245010722393e-7,
+            "weighted_scaled_loss": 0.01016917545045543
+          }
+        },
+        "loss": 0.02038088694452148
+      },
+      "validation": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.000011102330874646071,
+            "native_unit": "dimensionless",
+            "rmse_native": 3.7487896370439915e-6,
+            "weighted_scaled_loss": 0.012195669362704943
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 6.318558778565034e-7,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 1.0698323751685987e-7,
+            "weighted_scaled_loss": 0.005327153136587539
+          }
+        },
+        "loss": 0.017522822499292486
+      }
+    },
+    {
+      "accepted": true,
+      "backtracks": 1,
+      "epoch": 5,
+      "gradient_norm": 407.5775758895714,
+      "learning_rate_used": 2.453520652644882e-7,
+      "objective": 5.594498828192501e-44,
+      "regularization": 0.0,
+      "rejected_trial_errors": [],
+      "train": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.0,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.0,
+            "weighted_scaled_loss": 0.0
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 1.4709062448783663e-27,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 3.4669592674771106e-28,
+            "weighted_scaled_loss": 5.594498828192501e-44
+          }
+        },
+        "loss": 5.594498828192501e-44
+      },
+      "validation": {
+        "by_property": {
+          "dielectric_electronic": {
+            "components": 9,
+            "maximum_absolute_error_native": 0.0,
+            "native_unit": "dimensionless",
+            "rmse_native": 0.0,
+            "weighted_scaled_loss": 0.0
+          },
+          "elastic_clamped": {
+            "components": 36,
+            "maximum_absolute_error_native": 6.277398838819791e-26,
+            "native_unit": "hartree/bohr^3",
+            "rmse_native": 2.092211054198524e-26,
+            "weighted_scaled_loss": 2.0373924545527696e-40
+          }
+        },
+        "loss": 2.0373924545527696e-40
+      }
+    }
+  ],
+  "final_model_canonical_sha256": "750edf85d4c8c67676f2a55136e42765a878b925f18ed61d762e7ac1b234da2c",
+  "final_train": {
+    "by_property": {
+      "dielectric_electronic": {
+        "components": 9,
+        "maximum_absolute_error_native": 0.0,
+        "native_unit": "dimensionless",
+        "rmse_native": 0.0,
+        "weighted_scaled_loss": 0.0
+      },
+      "elastic_clamped": {
+        "components": 36,
+        "maximum_absolute_error_native": 1.4709062448783663e-27,
+        "native_unit": "hartree/bohr^3",
+        "rmse_native": 3.4669592674771106e-28,
+        "weighted_scaled_loss": 5.594498828192501e-44
+      }
+    },
+    "loss": 5.594498828192501e-44
+  },
+  "final_validation": {
+    "by_property": {
+      "dielectric_electronic": {
+        "components": 9,
+        "maximum_absolute_error_native": 0.0,
+        "native_unit": "dimensionless",
+        "rmse_native": 0.0,
+        "weighted_scaled_loss": 0.0
+      },
+      "elastic_clamped": {
+        "components": 36,
+        "maximum_absolute_error_native": 6.277398838819791e-26,
+        "native_unit": "hartree/bohr^3",
+        "rmse_native": 2.092211054198524e-26,
+        "weighted_scaled_loss": 2.0373924545527696e-40
+      }
+    },
+    "loss": 2.0373924545527696e-40
+  },
+  "gradient_method": "central model-parameter difference of analytic physical-property losses",
+  "independent_reference": false,
+  "initial_model_canonical_sha256": "6bf8497be3a644e5e23e6ed2354bd787d1ec8b569e5efc6d517d50a3d0a7c9b3",
+  "initial_train": {
+    "by_property": {
+      "dielectric_electronic": {
+        "components": 9,
+        "maximum_absolute_error_native": 0.00007085732166967063,
+        "native_unit": "dimensionless",
+        "rmse_native": 0.000024003427062220725,
+        "weighted_scaled_loss": 0.5
+      },
+      "elastic_clamped": {
+        "components": 36,
+        "maximum_absolute_error_native": 6.103178206989237e-6,
+        "native_unit": "hartree/bohr^3",
+        "rmse_native": 1.036461436096606e-6,
+        "weighted_scaled_loss": 0.49999999999999983
+      }
+    },
+    "loss": 0.9999999999999997
+  },
+  "initial_training_provenance": "nonzero user warm-start test model",
+  "initial_validation": {
+    "by_property": {
+      "dielectric_electronic": {
+        "components": 9,
+        "maximum_absolute_error_native": 0.0000776864365201746,
+        "native_unit": "dimensionless",
+        "rmse_native": 0.000026231438553984428,
+        "weighted_scaled_loss": 0.5971283858997498
+      },
+      "elastic_clamped": {
+        "components": 36,
+        "maximum_absolute_error_native": 4.416534446984857e-6,
+        "native_unit": "hartree/bohr^3",
+        "rmse_native": 7.477913583728716e-7,
+        "weighted_scaled_loss": 0.2602702880992262
+      }
+    },
+    "loss": 0.857398673998976
+  },
+  "insensitive_selected_parameters": [],
+  "loss_definition": "sum over targets of weight/(2*Nselected) * sum(((prediction-reference)/scale)^2), plus initial-coordinate L2 regularization",
+  "model_license_spdx": "GPL-3.0-or-later",
+  "observable_registry": [
+    {
+      "backend": "Ground",
+      "name": "energy",
+      "output_pointer": "/energy_hartree",
+      "periodic_only": false,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree"
+    },
+    {
+      "backend": "Ground",
+      "name": "forces",
+      "output_pointer": "/forces_hartree_per_bohr",
+      "periodic_only": false,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr"
+    },
+    {
+      "backend": "Ground",
+      "name": "stress",
+      "output_pointer": "/stress_hartree_per_bohr3",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr^3"
+    },
+    {
+      "backend": "Hessian",
+      "name": "hessian",
+      "output_pointer": "/hessian_hartree_per_bohr2",
+      "periodic_only": false,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr^2"
+    },
+    {
+      "backend": "Hessian",
+      "name": "phonon_eigenvalues",
+      "output_pointer": "/phonon_eigenvalues_hartree_per_bohr2_amu",
+      "periodic_only": false,
+      "phonon_scope": "Gamma mass-weighted 3N eigenvalues, including signed unstable branches; no acoustic projection",
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr^2/amu"
+    },
+    {
+      "backend": "Hessian",
+      "name": "phonon_wavenumbers",
+      "output_pointer": "/phonon_wavenumbers_cm1",
+      "periodic_only": false,
+      "phonon_scope": "Gamma mass-weighted 3N eigenvalues, including signed unstable branches; no acoustic projection",
+      "physical_derivatives": "analytic",
+      "unit": "cm^-1"
+    },
+    {
+      "backend": "Elastic",
+      "name": "elastic_clamped",
+      "output_pointer": "/clamped_stiffness_hartree_per_bohr3",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr^3"
+    },
+    {
+      "backend": "Elastic",
+      "name": "elastic_relaxed",
+      "output_pointer": "/relaxed_stiffness_hartree_per_bohr3",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree/bohr^3"
+    },
+    {
+      "backend": "Berry",
+      "name": "born_effective_charges",
+      "output_pointer": "/born_effective_charges",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "e"
+    },
+    {
+      "backend": "Berry",
+      "name": "piezoelectric_clamped",
+      "output_pointer": "/clamped_piezoelectric_au",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "e/bohr^2"
+    },
+    {
+      "backend": "Dielectric",
+      "name": "dielectric_electronic",
+      "output_pointer": "/electronic_relative_dielectric",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "dimensionless"
+    },
+    {
+      "backend": "Coupled",
+      "name": "piezoelectric_relaxed",
+      "output_pointer": "/relaxed_piezoelectric_au",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "e/bohr^2"
+    },
+    {
+      "backend": "Coupled",
+      "name": "piezoelectric_strain",
+      "output_pointer": "/piezoelectric_strain_au",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "e*bohr/hartree"
+    },
+    {
+      "backend": "Coupled",
+      "name": "dielectric_static_fixed_strain",
+      "output_pointer": "/static_dielectric_fixed_strain",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "dimensionless"
+    },
+    {
+      "backend": "Coupled",
+      "name": "dielectric_static_free_stress",
+      "output_pointer": "/static_dielectric_free_stress",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "dimensionless"
+    },
+    {
+      "backend": "Bands",
+      "name": "band_energies",
+      "output_pointer": "/energies_hartree",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree"
+    },
+    {
+      "backend": "Bands",
+      "name": "band_gap",
+      "output_pointer": "/sampled_gap/indirect_gap_hartree",
+      "periodic_only": true,
+      "phonon_scope": null,
+      "physical_derivatives": "analytic",
+      "unit": "hartree"
+    }
+  ],
+  "optimizer_settings": {
+    "gradient_tolerance": 1e-8,
+    "learning_rate": 0.05,
+    "loss_tolerance": 1e-12,
+    "max_epochs": 12,
+    "maximum_backtracks": 16,
+    "maximum_parameter_step": 0.0002,
+    "parameter_difference_step": 2e-6,
+    "regularization_to_initial": 0.0
+  },
+  "package_version": "0.7.0",
+  "parameter_difference_step": 2e-6,
+  "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+  "physical_derivatives": "analytic Rust backends; no finite nuclear, strain or field differences",
+  "reference_method": "same native analytic ML Hamiltonian with a changed radial coordinate",
+  "regularization_to_initial": 0.0,
+  "schema": "gfn1-rs-property-training-report-v1",
+  "selected_parameters": [
+    {
+      "final": 0.0037000000000000006,
+      "initial": 0.003,
+      "parameter": "1:0:1"
+    }
+  ],
+  "termination": "loss_tolerance",
+  "validation_policy": "explicit held-out split; never used in optimizer gradients, line search or target alignment"
+}

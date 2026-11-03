@@ -1,0 +1,220 @@
+{
+  "schema": "gfn1-rs-secondary-basis-numeric-review-v1",
+  "bse_version": "0.12",
+  "basis_data": [
+    {
+      "name": "cc-pvdz",
+      "version": "1",
+      "revision_description": "Data from ccRepo/Grant Hill",
+      "sha256": "5fc9e8be59eaa465e4c793176306f30892b0098ba0c57e377c42a52e13695f30"
+    },
+    {
+      "name": "cc-pvdz-pp",
+      "version": "0",
+      "revision_description": "Data from the original Basis Set Exchange",
+      "sha256": "ab86a715eb54f54358ec2682ca5cdb50d733abd40b84f35911ef9c29ea08f5c9"
+    },
+    {
+      "name": "cc-pvtz",
+      "version": "1",
+      "revision_description": "Data from ccRepo/Grant Hill",
+      "sha256": "9c8609cebffc0dfcb2fe419c18703c7158689e219d43ae52810967cb415a80ef"
+    },
+    {
+      "name": "cc-pvtz-pp",
+      "version": "0",
+      "revision_description": "Data from the original Basis Set Exchange",
+      "sha256": "94b7c90598b0c85e7b0a65dbc2da2b95d4793edffa484c46b450354d08e1234b"
+    },
+    {
+      "name": "cc-pvqz",
+      "version": "1",
+      "revision_description": "Data from ccRepo/Grant Hill",
+      "sha256": "5970f590095b206b8d82ab67d7461bb5ffedaa8d3ebe350bdac91f0511d2c867"
+    },
+    {
+      "name": "cc-pvqz-pp",
+      "version": "0",
+      "revision_description": "Data from the original Basis Set Exchange",
+      "sha256": "085dfc55a69bde944833ae75736122a651b7909f7d3ef62341f8fa4ff190ea26"
+    },
+    {
+      "name": "cc-pv5z",
+      "version": "1",
+      "revision_description": "Data from ccRepo/Grant Hill",
+      "sha256": "bce0ba243028496cc0bb0f822854e530159801fd89e4fb0e1cf0187755884e10"
+    },
+    {
+      "name": "cc-pv5z-pp",
+      "version": "0",
+      "revision_description": "Data from the original Basis Set Exchange",
+      "sha256": "c84cc35fd61434c86308c1bdd351bba060a05babc656ddaf4a6376f0363588b0"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/secondary_bases/gfn1-xtb-cc-pvdz.txt",
+      "sha256": "a9fdd57e2cd5befe7fff923832491272be995c8e2f1c21868b7391c8f9a54fba",
+      "matched_contractions": 178,
+      "primary_hydrogen_contractions": 2,
+      "cc_pvdz_fallbacks": [],
+      "unmatched_contractions": [],
+      "provided_file_sha256": "12a84071fe80d19f67b7ce1d106a635c724903f23015650123c363d28d769996",
+      "numeric_body_sha256": "265d02fe16f0a5b4a6be1a69233a1642f1baedd3bb05669b1f515e1e1e39a001"
+    },
+    {
+      "path": "src/secondary_bases/gfn1-xtb-cc-pvtz.txt",
+      "sha256": "58d724f03342eb4aaf8f3e0399926a23054e224f6eafb798fca78d67c2ae710f",
+      "matched_contractions": 171,
+      "primary_hydrogen_contractions": 2,
+      "cc_pvdz_fallbacks": [
+        {
+          "z": 10,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 13,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 14,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 15,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 16,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 17,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 18,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        }
+      ],
+      "unmatched_contractions": [],
+      "provided_file_sha256": "c0f96c7fd230b992e9d6d0bd6dfea33eda233ab6241ce8af3572ea56a426f98f",
+      "numeric_body_sha256": "1fc3b9077e390473f4a354385ae6b9962ffa041e28cc0a04c2eee5a28007160d"
+    },
+    {
+      "path": "src/secondary_bases/gfn1-xtb-cc-pvqz.txt",
+      "sha256": "1879fc1dcc7a313196003bbf9558440bd424d76027dcbbee54718003b0d60144",
+      "matched_contractions": 171,
+      "primary_hydrogen_contractions": 2,
+      "cc_pvdz_fallbacks": [
+        {
+          "z": 10,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 13,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 14,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 15,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 16,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 17,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 18,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        }
+      ],
+      "unmatched_contractions": [],
+      "provided_file_sha256": "cd5d85e5e7479a454f72f2e6931cff5c43a47eb9f3160331fcc5188652e9944d",
+      "numeric_body_sha256": "b7b9d9e9ed85db2e146ff41d1a6a22c5c4b69bd31a6db3b85adc595aaef88543"
+    },
+    {
+      "path": "src/secondary_bases/gfn1-xtb-cc-pv5z.txt",
+      "sha256": "5b17461c256beff52974c01a483761af3cda86b0cdf125b37bf2ee0d8ec8b6c8",
+      "matched_contractions": 171,
+      "primary_hydrogen_contractions": 2,
+      "cc_pvdz_fallbacks": [
+        {
+          "z": 10,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 13,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 14,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 15,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 16,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 17,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        },
+        {
+          "z": 18,
+          "l": 2,
+          "source": "cc-pvdz version 1"
+        }
+      ],
+      "unmatched_contractions": [],
+      "provided_file_sha256": "72f47a0f65a776d2041b8b0393dd0e37b7cd3216472f473706e82b02c3fbd69b",
+      "numeric_body_sha256": "95bf43d61fa5412e581ae2dbe981e82b9b882f2b62c51781fd41dc8c7fdb21b2"
+    }
+  ],
+  "hydrogen_reconstruction": {
+    "method": "GFN1 H 1s STO-4G and 2s STO-3G; subtract analytic same-centre projection onto 1s; retained native unnormalized contraction span",
+    "zeta": [
+      1.20794,
+      1.993207
+    ],
+    "overlap": 0.9826096455014511,
+    "sto_source_sha256": "3838acce516a64703f9a4a778183a7a98b3624c4cec8144be13bbfb12dae80f4"
+  },
+  "status": "pass",
+  "scope": "Independent complete numerical provenance reconstruction at the distributed eight-decimal precision; original numerical bodies preserved byte-for-byte. This does not recover the unrecorded original BSE release or certify a publisher SI comparison.",
+  "license": {
+    "bse_distribution": "BSD-3-Clause",
+    "gfN1_hydrogen_parameters_and_STO_tables": "LGPL-3.0-or-later",
+    "bse_license_sha256": "14b5a1c21a9e0966e295b9e3d66c0cee9475ffe5931e74d063c3713e2ae9a496"
+  }
+}

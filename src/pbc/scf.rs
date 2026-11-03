@@ -17,19 +17,19 @@ use crate::basis::{BasisOptions, BasisSet};
 use crate::coulomb::{coulomb_energy_potential_from_matrix, ShellChargeModel};
 use crate::dispersion::dispersion_energy;
 use crate::electronic::{
-    resolve_spin_channels, validate_electron_count, BroydenMixer, ElectronicOptions,
-    ElectronicResult, SpinChannels,
+    resolve_spin_channels, validate_electron_count, BroydenMixer, CdiisMixer, ElectronicOptions,
+    ElectronicResult, SccAccelerator, SpinChannels,
 };
 use crate::error::{Gfn1Error, Result};
 use crate::field::{electric_field_energy, electric_shell_potential, mulliken_dipole};
 use crate::halogen::halogen_energy;
 use crate::integrals::IntegralMatrices;
+use crate::linalg::LowdinOrthogonalizer;
 use crate::linalg::Matrix;
 use crate::math::Vec3;
 use crate::model::KPoint;
 use crate::params::Gfn1Parameters;
 use crate::pbc::bloch::BlochBuilder;
-use crate::linalg::LowdinOrthogonalizer;
 use crate::pbc::complex::{
     embedded_overlap_orthogonalizer, hermitian_generalized_eigen_with_orthogonalizer,
     weighted_density, CMatrix,
@@ -42,10 +42,37 @@ use crate::system::PeriodicSystem;
 
 const BOLTZMANN_HARTREE_PER_K: f64 = crate::constants::KB_HARTREE_PER_K;
 
+#[path = "scc_solver.rs"]
+mod solver;
+
+/// Actual work performed by the periodic SCC driver (trial maps included).
+#[derive(Clone, Debug, Default)]
+pub struct PbcSccDiagnostics {
+    pub map_evaluations: usize,
+    pub newton_directions: usize,
+    pub newton_accepted: usize,
+    pub merit_gradient_accepted: usize,
+    pub backtracks: usize,
+    pub automatic_switches: usize,
+    pub final_charge_rms: f64,
+}
+impl PbcSccDiagnostics {
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({"map_evaluations":self.map_evaluations,
+            "newton_directions":self.newton_directions,"newton_accepted":self.newton_accepted,
+            "merit_gradient_accepted":self.merit_gradient_accepted,"backtracks":self.backtracks,
+            "automatic_switches":self.automatic_switches,"final_charge_rms":self.final_charge_rms})
+    }
+}
+
 /// Rich result of a periodic SCC calculation, carrying everything the gradient
 /// module needs (per-k densities, Bloch blocks, Ewald matrix).
 #[derive(Clone, Debug)]
 pub struct PbcSccResult {
+    pub calculation_id: Option<String>,
+    pub method_citations: Vec<&'static str>,
+    pub ml_parameters: Option<crate::ml::AtomicParameterView>,
+    pub ml_correction_energy: f64,
     pub basis: BasisSet,
     pub bloch: BlochBuilder,
     pub gamma: Matrix,
@@ -66,6 +93,7 @@ pub struct PbcSccResult {
     pub electronic_energy: f64,
     pub isotropic_scc_energy: f64,
     pub third_order_energy: f64,
+    pub higher_order_energy: f64,
     pub repulsion_energy: f64,
     pub dispersion_energy: f64,
     pub halogen_energy: f64,
@@ -91,6 +119,7 @@ pub struct PbcSccResult {
     pub nelec: f64,
     pub iterations: usize,
     pub converged: bool,
+    pub scc_diagnostics: PbcSccDiagnostics,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -144,13 +173,43 @@ pub fn run_pbc_scc_with_guess(
     pbc: &PbcOptions,
     guess: Option<&PbcSccGuess>,
 ) -> Result<PbcSccResult> {
+    crate::resources::preflight_scf(
+        system,
+        params,
+        options,
+        pbc.kmesh.size.into_iter().product(),
+    )?;
+    let span=options.logger.as_ref().map(|logger|logger.begin("periodic_scf",serde_json::json!({"atoms":system.atoms.len(),"kmesh":pbc.kmesh.size,"electronic_temperature_K":options.electronic_temperature,"resources":{"threads":crate::resources::effective_threads(),"workspace_budget_bytes":crate::resources::current().memory_budget_bytes}}))).transpose()?;
+    let mut result = run_pbc_scc_with_guess_impl(system, params, options, pbc, guess);
+    if let Ok(value) = &mut result {
+        value.calculation_id = span.as_ref().map(|s| s.id().to_string());
+    }
+    crate::logging::finish(
+        span,
+        result,
+        |s| serde_json::json!({"converged":s.converged,"iterations":s.iterations,"kpoints":s.kpoints.len(),"total_free_hartree":s.total_free,"scc_diagnostics":s.scc_diagnostics.as_json()}),
+    )
+}
+fn run_pbc_scc_with_guess_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &ElectronicOptions,
+    pbc: &PbcOptions,
+    guess: Option<&PbcSccGuess>,
+) -> Result<PbcSccResult> {
+    crate::ml::validate_scalar_options(options)?;
+    if options.solvation.is_some() {
+        return Err(Gfn1Error::InvalidInput(
+            "molecular ALPB/GBSA cannot be applied to a periodic kernel".into(),
+        ));
+    }
     let _profile = crate::profile::scope("pbc.scf.total");
     if system.lattice.is_none() {
         return Err(Gfn1Error::InvalidInput(
             "run_pbc_scc requires a periodic system with a lattice".to_string(),
         ));
     }
-    let basis = BasisSet::build(
+    let mut basis = BasisSet::build(
         system,
         params,
         BasisOptions {
@@ -162,6 +221,17 @@ pub fn run_pbc_scc_with_guess(
             "cannot run periodic GFN1 SCC for an empty basis".to_string(),
         ));
     }
+    let ml_parameters = options
+        .ml_model
+        .as_ref()
+        .map(|m| m.evaluate(system))
+        .transpose()?;
+    if let Some(view) = &ml_parameters {
+        crate::ml::apply_parameter_view(&mut basis, view);
+    }
+    let ml_correction_energy = ml_parameters
+        .as_ref()
+        .map_or(0., |v| v.correction_energy_hartree);
     let charge = options.charge.unwrap_or(system.charge);
     let nelec = basis.total_reference_electrons - charge;
     let n = basis.len();
@@ -211,8 +281,7 @@ pub fn run_pbc_scc_with_guess(
     // path produced (same embedded `S(k)`, same `eigen_tolerance`).
     let orth_k: Vec<LowdinOrthogonalizer> = {
         let _p = crate::profile::scope("pbc.scf.overlap_orthogonalizer");
-        hs_k
-            .iter()
+        hs_k.iter()
             .map(|(_, sk)| embedded_overlap_orthogonalizer(sk, options.eigen_tolerance))
             .collect::<Result<Vec<_>>>()?
     };
@@ -298,6 +367,24 @@ pub fn run_pbc_scc_with_guess(
     // Joint SCF vector: `[shell charges (nsh) | packed moments ranks 1..=L]` when multipole is on.
     let mix_len = if multipole_on { nsh + moment_len } else { nsh };
     let mut broyden = BroydenMixer::new(mix_len, options.scc_broyden_size.max(2), mixing);
+    let mut cdiis = CdiisMixer::new(options.scc_broyden_size.max(2));
+    let accelerator = match options.scc_accelerator {
+        SccAccelerator::Auto | SccAccelerator::Broyden if !options.scc_broyden => {
+            SccAccelerator::Linear
+        }
+        other => other,
+    };
+    let newton_supported = !multipole_on && spin_channels.is_none_or(|s| s.alpha == s.beta);
+    if accelerator == SccAccelerator::Newton && !newton_supported {
+        return Err(Gfn1Error::InvalidInput(
+            "periodic charge Newton currently requires scalar SCC without joint multipole or constrained-spin variables; use auto/broyden/cdiis/linear for these models".into()));
+    }
+    let mut newton_active = accelerator == SccAccelerator::Newton;
+    let mut diagnostics = PbcSccDiagnostics::default();
+    let mut pending_state = None;
+    let mut best_rms = f64::INFINITY;
+    let mut best_q = Vec::new();
+    let mut stagnation = 0usize;
     let mut v_mixed = vec![0.0; mix_len];
     if let Some(guess) = guess {
         if guess.shell_charges.len() == nsh && trusted_charge_vector(&guess.shell_charges) {
@@ -316,6 +403,7 @@ pub fn run_pbc_scc_with_guess(
             );
         }
     }
+    solver::total_charge(&mut v_mixed[0..nsh], charge);
     let mut converged = false;
     let mut iterations = 0;
     let mut last_energy: Option<f64> = None;
@@ -387,8 +475,11 @@ pub fn run_pbc_scc_with_guess(
             None
         };
 
-        let state = {
+        let state = if let Some(state) = pending_state.take() {
+            state
+        } else {
             let _p = crate::profile::scope("pbc.scf.step");
+            diagnostics.map_evaluations += 1;
             scc_step(
                 &basis,
                 &hs_k,
@@ -400,10 +491,20 @@ pub fn run_pbc_scc_with_guess(
                 kt,
                 options.eigen_tolerance,
                 mp_fock.as_ref(),
+                newton_active,
             )?
         };
         let new_q = state.shell_charges.clone();
         final_rms = charge_rms(&new_q, &q);
+        if final_rms < 0.8 * best_rms {
+            stagnation = 0;
+        } else {
+            stagnation += 1;
+        }
+        if final_rms < best_rms {
+            best_rms = final_rms;
+            best_q = q.clone();
+        }
 
         // Output vector `[shell charges | packed moments]` from the reference-cell (T=0) density,
         // and the multipole energy `E_mp = ½ Σ_A Σ_l M·V` at the output density (periodic field).
@@ -478,16 +579,22 @@ pub fn run_pbc_scc_with_guess(
             .as_ref()
             .map(|v| electric_field_energy(v, &new_q))
             .unwrap_or(0.0);
+        // Evaluate the variational energy at the OUTPUT density/charges, rather
+        // than combining output band energy with the previous input Coulomb energy.
+        let out_scc = coulomb_energy_potential_from_matrix(&basis, &shell_model, &new_q, &gamma)?;
         let scc_energy = state.band_h0_energy
-            + scc.second_order
-            + scc.third_order
-            + scc.higher_order // 4th+ on-site charge orders (0 unless charge_order > 3)
+            + out_scc.second_order
+            + out_scc.third_order
+            + out_scc.higher_order
             + field_energy
             + mp_energy
             + state.entropy;
         let energy_error = last_energy
             .map(|e| (scc_energy - e).abs())
             .unwrap_or(f64::INFINITY);
+        if let Some(logger) = &options.logger {
+            logger.event(crate::LogLevel::Info,"periodic_scf_iteration",serde_json::json!({"iteration":iterations,"scc_free_energy_hartree":scc_energy,"energy_change_hartree":if energy_error.is_finite(){Some(energy_error)}else{None},"charge_rms":final_rms,"kpoints":kpoints.len(),"accelerator":if newton_active{"newton"}else{match accelerator{SccAccelerator::Auto|SccAccelerator::Broyden=>"broyden",SccAccelerator::Linear=>"linear",SccAccelerator::Cdiis=>"cdiis",SccAccelerator::Newton=>"newton"}},"map_evaluations":diagnostics.map_evaluations}))?;
+        }
 
         if energy_error < options.energy_tolerance && final_rms < options.charge_tolerance {
             converged = true;
@@ -497,14 +604,91 @@ pub fn run_pbc_scc_with_guess(
         }
 
         let residual: Vec<f64> = v_out.iter().zip(&v_mixed).map(|(nw, ol)| nw - ol).collect();
-        v_mixed = if options.scc_broyden {
-            broyden
-                .next(&v_mixed, &residual)
-                .filter(|c| trusted_charge_vector(&c[0..nsh]))
-                .unwrap_or_else(|| damped_charge_step(&v_mixed, &residual, mixing))
+        if accelerator == SccAccelerator::Auto
+            && newton_supported
+            && !newton_active
+            && iter >= 8
+            && (stagnation >= 8 || final_rms > 4. * best_rms || iter >= 40)
+        {
+            newton_active = true;
+            diagnostics.automatic_switches += 1;
+            v_mixed = best_q.clone();
+            if let Some(logger) = &options.logger {
+                logger.event(crate::LogLevel::Info,"periodic_scf_solver_switch",serde_json::json!({"from":"broyden","to":"newton","iteration":iter,"best_charge_rms":best_rms,"electronic_temperature_K":options.electronic_temperature}))?;
+            }
+        } else if newton_active {
+            let trial = solver::globalized_step(
+                &basis,
+                &shell_model,
+                &gamma,
+                &hs_k,
+                &kpoints,
+                &state,
+                &q,
+                &residual,
+                kt,
+                charge,
+                &mut diagnostics,
+                |trial_q| {
+                    let coulomb = coulomb_energy_potential_from_matrix(
+                        &basis,
+                        &shell_model,
+                        trial_q,
+                        &gamma,
+                    )?;
+                    let potential = combine_shell_potential(
+                        &coulomb.shell_potential,
+                        external_shell_potential.as_deref(),
+                    );
+                    scc_step(
+                        &basis,
+                        &hs_k,
+                        &orth_k,
+                        &kpoints,
+                        &potential,
+                        nelec,
+                        spin_channels,
+                        kt,
+                        options.eigen_tolerance,
+                        None,
+                        true,
+                    )
+                },
+            );
+            match trial {
+                Ok(Some((q, next))) => {
+                    v_mixed = q;
+                    pending_state = Some(next);
+                }
+                Ok(None) => {
+                    v_mixed = damped_charge_step(&v_mixed, &residual, mixing.min(0.02));
+                }
+                Err(error) if accelerator == SccAccelerator::Auto => {
+                    if let Some(logger) = &options.logger {
+                        logger.event(
+                            crate::LogLevel::Info,
+                            "periodic_scf_newton_unavailable",
+                            serde_json::json!({"reason":error.to_string()}),
+                        )?;
+                    }
+                    newton_active = false;
+                    stagnation = 0;
+                    broyden = BroydenMixer::new(mix_len, options.scc_broyden_size.max(2), mixing);
+                    v_mixed = damped_charge_step(&v_mixed, &residual, mixing.min(0.02));
+                }
+                Err(error) => return Err(error),
+            }
         } else {
-            damped_charge_step(&v_mixed, &residual, mixing)
-        };
+            let candidate = match accelerator {
+                SccAccelerator::Linear => None,
+                SccAccelerator::Cdiis => cdiis.next(&v_mixed, &v_out, &residual),
+                _ => broyden.next(&v_mixed, &residual),
+            };
+            v_mixed = candidate
+                .filter(|c| trusted_charge_vector(&c[0..nsh]))
+                .unwrap_or_else(|| damped_charge_step(&v_mixed, &residual, mixing));
+        }
+        solver::total_charge(&mut v_mixed[0..nsh], charge);
         last_energy = Some(scc_energy);
         final_state = Some(state);
         final_mp_energy = mp_energy;
@@ -539,11 +723,17 @@ pub fn run_pbc_scc_with_guess(
         + dispersion
         + halogen
         + external_field_energy
-        + final_mp_energy; // dipole-rank mDFTB2 multipole correction (0 unless options.multipole)
+        + final_mp_energy // dipole-rank mDFTB2 multipole correction (0 unless options.multipole)
+        + ml_correction_energy;
     let total_free = total_internal + state.entropy;
     let coordination_numbers = bloch.coordination_numbers.clone();
 
+    diagnostics.final_charge_rms = final_rms;
     Ok(PbcSccResult {
+        calculation_id: None,
+        method_citations: crate::citations::electronic_citations(options, true),
+        ml_parameters,
+        ml_correction_energy,
         basis,
         bloch,
         gamma,
@@ -561,6 +751,7 @@ pub fn run_pbc_scc_with_guess(
         electronic_energy: state.band_h0_energy,
         isotropic_scc_energy: scc.second_order,
         third_order_energy: scc.third_order,
+        higher_order_energy: scc.higher_order,
         repulsion_energy: repulsion,
         dispersion_energy: dispersion,
         halogen_energy: halogen,
@@ -576,6 +767,7 @@ pub fn run_pbc_scc_with_guess(
         nelec,
         iterations,
         converged,
+        scc_diagnostics: diagnostics,
     })
 }
 
@@ -637,6 +829,12 @@ pub fn pbc_electronic_result(
     }
 
     Ok(ElectronicResult {
+        calculation_id: scf.calculation_id.clone(),
+        ml_parameters: scf.ml_parameters,
+        ml_correction_energy: scf.ml_correction_energy,
+        solvation: None,
+        solvation_energy: Default::default(),
+        method_citations: scf.method_citations,
         basis,
         integrals,
         h0,
@@ -658,9 +856,7 @@ pub fn pbc_electronic_result(
         third_order_energy: scf.third_order_energy,
         dispersion_energy: scf.dispersion_energy,
         halogen_energy: scf.halogen_energy,
-        // The PBC SCC rejects charge_order>3, lr_exchange, spin_polarization,
-        // and plus_u, so only the periodic multipole term carries over.
-        higher_order_energy: 0.0,
+        higher_order_energy: scf.higher_order_energy,
         multipole_energy: scf.multipole_energy,
         exchange_energy: 0.0,
         spin_polarization_energy: 0.0,
@@ -685,6 +881,7 @@ struct SccState {
     band_h0_energy: f64,
     entropy: f64,
     fermi_level: f64,
+    response: Option<(Vec<crate::pbc::complex::KEigen>, Vec<Vec<f64>>)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -699,6 +896,7 @@ fn scc_step(
     kt: f64,
     eigen_tol: f64,
     moment_fock: Option<&Matrix>,
+    capture_response: bool,
 ) -> Result<SccState> {
     let n = basis.len();
     // AO-resolved potential.
@@ -759,6 +957,7 @@ fn scc_step(
         band_h0_energy,
         entropy: occ.entropy,
         fermi_level: occ.fermi_level,
+        response: capture_response.then_some((eig_per_k, occ.occupations)),
     })
 }
 
@@ -775,7 +974,7 @@ pub(crate) fn fock_at_k(h0k: &CMatrix, sk: &CMatrix, vao: &[f64]) -> CMatrix {
     f
 }
 
-fn mulliken_shell_charges(
+pub(crate) fn mulliken_shell_charges(
     basis: &BasisSet,
     hs_k: &[(CMatrix, CMatrix)],
     density_k: &[CMatrix],
@@ -915,10 +1114,79 @@ fn fermi1(eps: f64, mu: f64, kt: f64) -> f64 {
 }
 
 #[derive(Clone, Debug)]
-struct PhysicalOccupation {
-    occupations: Vec<Vec<f64>>,
-    fermi_level: f64,
-    entropy: f64,
+pub(crate) struct PhysicalOccupation {
+    pub(crate) occupations: Vec<Vec<f64>>,
+    pub(crate) fermi_level: f64,
+    pub(crate) entropy: f64,
+}
+
+/// Global max-one physical-state occupations for native complex spinors.
+/// At zero temperature an exactly degenerate partially filled energy group is
+/// an equal-occupation ensemble, preserving time reversal and basis covariance.
+pub(crate) fn spinor_occupations(
+    bands: &[Vec<f64>],
+    weights: &[f64],
+    electrons: f64,
+    kt: f64,
+) -> Result<PhysicalOccupation> {
+    if bands.is_empty()
+        || bands.len() != weights.len()
+        || !electrons.is_finite()
+        || electrons < 0.
+        || !kt.is_finite()
+        || kt < 0.
+        || weights.iter().any(|w| !w.is_finite() || *w <= 0.)
+        || (weights.iter().sum::<f64>() - 1.).abs() > 1e-10
+        || bands
+            .iter()
+            .any(|v| v.is_empty() || v.iter().any(|e| !e.is_finite()))
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "invalid physical spinor bands/weights/electron count/temperature".into(),
+        ));
+    }
+    let capacity: f64 = bands
+        .iter()
+        .zip(weights)
+        .map(|(v, w)| v.len() as f64 * w)
+        .sum();
+    if electrons > capacity + 1e-10 {
+        return Err(Gfn1Error::InvalidInput(
+            "spinor electron count exceeds physical band capacity".into(),
+        ));
+    }
+    if kt > 0. {
+        return Ok(physical_fermi_occupations(bands, weights, electrons, kt));
+    }
+    let mut levels: Vec<_> = bands
+        .iter()
+        .enumerate()
+        .flat_map(|(k, v)| v.iter().enumerate().map(move |(a, &e)| (e, k, a)))
+        .collect();
+    levels.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut occupations: Vec<_> = bands.iter().map(|v| vec![0.; v.len()]).collect();
+    let mut remaining = electrons;
+    let mut fermi = levels[0].0;
+    let mut start = 0;
+    while start < levels.len() && remaining > 1e-14 {
+        let mut end = start + 1;
+        while end < levels.len() && (levels[end].0 - levels[start].0).abs() < 1e-10 {
+            end += 1;
+        }
+        let capacity: f64 = levels[start..end].iter().map(|&(_, k, _)| weights[k]).sum();
+        let fill = (remaining / capacity).clamp(0., 1.);
+        for &(e, k, a) in &levels[start..end] {
+            occupations[k][a] = fill;
+            fermi = e;
+        }
+        remaining -= fill * capacity;
+        start = end;
+    }
+    Ok(PhysicalOccupation {
+        occupations,
+        fermi_level: fermi,
+        entropy: 0.,
+    })
 }
 
 fn global_spin_occupations(

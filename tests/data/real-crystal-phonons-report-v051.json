@@ -1,0 +1,2131 @@
+{
+  "cases": [
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "rock_salt",
+      "electronic_temperature_K": 300.0,
+      "id": "nacl",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 1.2459043562465522e-11,
+      "max_hermiticity_error": 5.421010862427522e-20,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": true,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 5.421010862427522e-20,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 1.3486842740202033e-18,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.3521006019384597e-16,
+                  "force_wave_eigenvalue": -1.3386137591982576e-16,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.344213340535291e-16,
+                  "force_wave_eigenvalue": 7.357700183275493e-16,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0004844674152133838,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.2459043562465522e-11,
+                  "force_wave_eigenvalue": 0.00048446742767242735,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.0967429683927128e-12,
+                  "force_wave_eigenvalue": 0.00048446741831012675,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0006713719393922438,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.909884243626094e-12,
+                  "force_wave_eigenvalue": 0.0006713719354823596,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 9.829590483581563e-13,
+                  "force_wave_eigenvalue": 0.0006713719384092848,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            5.969795085054176e-6,
+            7.663598834200839e-6,
+            9.843866932940898e-6,
+            113.14531175436144,
+            113.14531175436179,
+            133.1943706423515
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 2.710505431213761e-20,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.00007678866876741425,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.959914744883832e-12,
+                  "force_wave_eigenvalue": 0.00007678867472732899,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.401262312021763e-12,
+                  "force_wave_eigenvalue": 0.00007678867016867656,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0003759912120656408,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.470967908988074e-12,
+                  "force_wave_eigenvalue": 0.0003759912195366087,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.8670934481650192e-12,
+                  "force_wave_eigenvalue": 0.00037599121393273427,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0006241097764487541,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.2134354895828046e-12,
+                  "force_wave_eigenvalue": 0.0006241097786621896,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.36713533060207e-13,
+                  "force_wave_eigenvalue": 0.0006241097771854676,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            45.04564881050399,
+            62.92498110814312,
+            62.92498110814562,
+            99.67657908645155,
+            99.67657908645239,
+            128.42062232471199
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 2.211772431870429e-17,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 3.0996255909188086e-15,
+      "residual_gradient_max_hartree_per_bohr": 3.755028684110991e-16,
+      "scc_converged": true,
+      "seconds": 25.210766958,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.6402,
+        "license_spdx": "CC0-1.0",
+        "prototype": "rocksalt",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -13.891827007827231
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "rock_salt",
+      "electronic_temperature_K": 300.0,
+      "id": "mgo",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 5.311669279330772e-10,
+      "max_hermiticity_error": 2.168404344971009e-19,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": true,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 2.168404344971009e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -3.5821030474254006e-18,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.746702945848352e-15,
+                  "force_wave_eigenvalue": -3.7502850488957775e-15,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.4354955668491056e-15,
+                  "force_wave_eigenvalue": 2.4319134638016803e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0012235613023451957,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.311669279330772e-10,
+                  "force_wave_eigenvalue": 0.0012235618335121237,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.3283095240054776e-10,
+                  "force_wave_eigenvalue": 0.0012235614351761481,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.007417594057005324,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.5867172813442973e-10,
+                  "force_wave_eigenvalue": 0.007417594315677052,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.476358685447714e-11,
+                  "force_wave_eigenvalue": 0.0074175941217689105,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            -9.729114508089408e-6,
+            0.000019333802630323508,
+            0.000020525531456885608,
+            179.81136746568404,
+            179.81136746574805,
+            442.72679590670776
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 2.168404344971009e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0008125681331878333,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.3486363501652443e-11,
+                  "force_wave_eigenvalue": 0.0008125681466741968,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.3312556272507843e-12,
+                  "force_wave_eigenvalue": 0.000812568136519089,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0019747959918046346,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.0254323692254763e-10,
+                  "force_wave_eigenvalue": 0.0019747958892613977,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.5697587287265566e-11,
+                  "force_wave_eigenvalue": 0.0019747959661070473,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.007599470122403794,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.549815567021163e-10,
+                  "force_wave_eigenvalue": 0.0075994698674222375,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 8.926563568184553e-11,
+                  "force_wave_eigenvalue": 0.0075994700331381585,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            146.53257130585106,
+            146.53257130586044,
+            228.4364465468981,
+            228.43644654692733,
+            309.7648155584693,
+            448.1216570978783
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 6.245004513516506e-17,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 1.5704668468452532e-15,
+      "residual_gradient_max_hartree_per_bohr": 4.999945574325457e-13,
+      "scc_converged": true,
+      "seconds": 19.894963422,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 4.212,
+        "license_spdx": "CC0-1.0",
+        "prototype": "rocksalt",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -15.905103691345285
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "diamond",
+      "electronic_temperature_K": 300.0,
+      "id": "diamond",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 4.814267720587573e-9,
+      "max_hermiticity_error": 1.3877787807814457e-17,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.3877787807814457e-17,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -4.084329779455548e-17,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.0557604370903948e-14,
+                  "force_wave_eigenvalue": 1.0516761073109393e-14,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.919753073979326e-15,
+                  "force_wave_eigenvalue": 4.87890977618477e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.06680387470262285,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.814267720587573e-9,
+                  "force_wave_eigenvalue": 0.06680387951689057,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.203432131724469e-9,
+                  "force_wave_eigenvalue": 0.06680387590605498,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.15558781452111276,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.11451309187305e-9,
+                  "force_wave_eigenvalue": 0.15558781140659966,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.787898936850723e-10,
+                  "force_wave_eigenvalue": 0.15558781374232286,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            -0.00003285221661776651,
+            -0.00001228985733071833,
+            0.00008187603470102958,
+            1328.633210065986,
+            2027.6456840198541,
+            2027.6456840198553
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 3.469446951953614e-18,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.003038279131177651,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.90771827291281e-10,
+                  "force_wave_eigenvalue": 0.003038279721949478,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4772443641605792e-10,
+                  "force_wave_eigenvalue": 0.0030382792789020873,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.05281464531496789,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.1267856359651347e-9,
+                  "force_wave_eigenvalue": 0.052814642188182256,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.935025956278373e-10,
+                  "force_wave_eigenvalue": 0.0528146446214653,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.14436176791328892,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.96367069774206e-9,
+                  "force_wave_eigenvalue": 0.14436177087695962,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.407549573734684e-10,
+                  "force_wave_eigenvalue": 0.14436176865404388,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            283.34666975809625,
+            283.3466697580971,
+            784.110779458401,
+            1181.3578217686438,
+            1953.1265033489083,
+            1953.1265033489099
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 5.273559366969494e-16,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 1.915134717478395e-15,
+      "residual_gradient_max_hartree_per_bohr": 0.014230423551794873,
+      "scc_converged": true,
+      "seconds": 21.480390974,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 3.567,
+        "license_spdx": "CC0-1.0",
+        "prototype": "diamond",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -11.441248701964383
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "diamond",
+      "electronic_temperature_K": 300.0,
+      "id": "silicon",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 1.203017064438372e-9,
+      "max_hermiticity_error": 8.673617379884035e-19,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 8.673617379884035e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 7.754507147033271e-17,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.1150773182637221e-15,
+                  "force_wave_eigenvalue": 1.1926223897340549e-15,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.8740188390035754e-15,
+                  "force_wave_eigenvalue": 1.951563910473908e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.011806989947211344,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.230112168687963e-10,
+                  "force_wave_eigenvalue": 0.011806990670222561,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.8079563887662964e-10,
+                  "force_wave_eigenvalue": 0.011806990128006983,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.013957756644529345,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.962646383583792e-10,
+                  "force_wave_eigenvalue": 0.013957757240793983,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4905926840058648e-10,
+                  "force_wave_eigenvalue": 0.013957756793588613,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            0.00004526696501567724,
+            0.0000673817783940552,
+            0.00007232302450031578,
+            558.5651993253329,
+            607.3123158097159,
+            607.3123158097162
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 8.673617379884035e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0006695501858069021,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.330475202543818e-12,
+                  "force_wave_eigenvalue": 0.0006695501931373773,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.8804077218936843e-12,
+                  "force_wave_eigenvalue": 0.0006695501876873098,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.007977715889097622,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.203017064438372e-9,
+                  "force_wave_eigenvalue": 0.007977717092114686,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.836515038631918e-10,
+                  "force_wave_eigenvalue": 0.007977716472749126,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.013633452151815864,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 8.059105657126642e-10,
+                  "force_wave_eigenvalue": 0.01363345295772643,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.0152900355452363e-10,
+                  "force_wave_eigenvalue": 0.013633452353344868,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            133.01353783096934,
+            133.0135378309767,
+            273.8277774372885,
+            459.138340482429,
+            600.2154861525416,
+            600.2154861525421
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 1.061650767297806e-15,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 6.4384261810879195e-15,
+      "residual_gradient_max_hartree_per_bohr": 0.028863499464537427,
+      "scc_converged": true,
+      "seconds": 70.031698925,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.431,
+        "license_spdx": "CC0-1.0",
+        "prototype": "diamond",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -10.227101281160506
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "zinc_blende",
+      "electronic_temperature_K": 300.0,
+      "id": "zns",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 3.729702200945886e-9,
+      "max_hermiticity_error": 2.168404344971009e-19,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 2.168404344971009e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -5.0288418545457126e-18,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.7155342730683066e-15,
+                  "force_wave_eigenvalue": 2.710505431213761e-15,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.3802159376135642e-15,
+                  "force_wave_eigenvalue": -2.3852447794681098e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0016446294133608613,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.7541600312066807e-10,
+                  "force_wave_eigenvalue": 0.0016446295887768644,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.384107638553958e-11,
+                  "force_wave_eigenvalue": 0.0016446294572019377,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0031528110483404885,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.7908694796217595e-10,
+                  "force_wave_eigenvalue": 0.0031528112274274364,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.609524003815202e-11,
+                  "force_wave_eigenvalue": 0.0031528110944357285,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            -0.000011527583227900543,
+            4.922434137506422e-6,
+            9.495505638001771e-6,
+            208.46747390476898,
+            208.46747390477154,
+            288.637828924206
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 3,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.0842021724855044e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.00010722420248219567,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.0155066420718856e-12,
+                  "force_wave_eigenvalue": -0.00010722420849770231,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4865129526614451e-12,
+                  "force_wave_eigenvalue": -0.00010722420396870862,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0015830203232695295,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.729702200945886e-9,
+                  "force_wave_eigenvalue": 0.0015830165935673286,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.683270478298332e-10,
+                  "force_wave_eigenvalue": 0.0015830201549424817,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0020512807850023387,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.7729995163001666e-10,
+                  "force_wave_eigenvalue": 0.0020512809623022903,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.4337598262972344e-11,
+                  "force_wave_eigenvalue": 0.002051280829339937,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            -53.22929199902645,
+            -53.229291999020894,
+            -36.0508122370249,
+            204.5255280319093,
+            232.81814962521995,
+            232.81814962522438
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 2.7321894746634712e-17,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 8.905636644795933e-15,
+      "residual_gradient_max_hartree_per_bohr": 0.027120314077553224,
+      "scc_converged": true,
+      "seconds": 26.411454022,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 5.409,
+        "license_spdx": "CC0-1.0",
+        "prototype": "zincblende",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -13.071971821364048
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "zinc_blende",
+      "electronic_temperature_K": 300.0,
+      "id": "sic",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 4.1228502660473065e-9,
+      "max_hermiticity_error": 1.734723475976807e-18,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 2,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.734723475976807e-18,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 4.493171107043479e-17,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.9993826310934343e-15,
+                  "force_wave_eigenvalue": -2.9544509200229996e-15,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.2375541008044896e-15,
+                  "force_wave_eigenvalue": -1.1926223897340549e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.009975097950986916,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.929925176266667e-9,
+                  "force_wave_eigenvalue": 0.009975099880912093,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.824411165699205e-10,
+                  "force_wave_eigenvalue": 0.009975098433428033,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.027612587926422554,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.240053754125725e-10,
+                  "force_wave_eigenvalue": 0.02761258780241718,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.132282280771115e-11,
+                  "force_wave_eigenvalue": 0.02761258789509973,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            0.00003445726128355665,
+            0.00006643506329256548,
+            0.00006959264778723612,
+            513.4082721011433,
+            854.1965897173552,
+            854.1965897173586
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 0,
+          "q_fractional": [
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.734723475976807e-18,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0017564846761811113,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.759282803608935e-12,
+                  "force_wave_eigenvalue": 0.0017564846694218285,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.720477709951651e-12,
+                  "force_wave_eigenvalue": 0.0017564846744606336,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.01975138671394084,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.1228502660473065e-9,
+                  "force_wave_eigenvalue": 0.019751390836791106,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.0308026272831672e-9,
+                  "force_wave_eigenvalue": 0.019751387744743467,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 3
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.030850357323911885,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.668757317196405e-10,
+                  "force_wave_eigenvalue": 0.030850357990787617,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.6663739485500706e-10,
+                  "force_wave_eigenvalue": 0.03085035749054928,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 5
+            }
+          ],
+          "wavenumbers_cm1": [
+            215.44005931431758,
+            215.44005931431872,
+            427.8279001917206,
+            722.4421449834831,
+            902.8890304183423,
+            902.889030418345
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 1.3461454173580023e-15,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 3.6685932069957516e-14,
+      "residual_gradient_max_hartree_per_bohr": 0.0034197494272415235,
+      "scc_converged": true,
+      "seconds": 54.529938478,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 4.3596,
+        "license_spdx": "CC0-1.0",
+        "prototype": "zincblende",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 6,
+      "total_free_hartree": -11.150405190769593
+    },
+    {
+      "ao_cutoff_bohr": 80.0,
+      "crystal_class": "perovskite",
+      "electronic_temperature_K": 300.0,
+      "id": "srtio3",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 8.09360943868076e-6,
+      "max_hermiticity_error": 3.469446951953614e-18,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": true,
+      "primitive_atoms": 5,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 12,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 3.469446951953614e-18,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.21531026498590333,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 8.09360943868076e-6,
+                  "force_wave_eigenvalue": -0.21530217137646465,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.0234966364440776e-6,
+                  "force_wave_eigenvalue": -0.2153082414892669,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.006540879929711303,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.018888762764237e-10,
+                  "force_wave_eigenvalue": -0.006540879727822427,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 5.0751822015804304e-11,
+                  "force_wave_eigenvalue": -0.006540879878959481,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 7
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 3.8858642316550503e-17,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.484521755538847e-16,
+                  "force_wave_eigenvalue": 6.873108178704352e-16,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.5906324924961808e-15,
+                  "force_wave_eigenvalue": 1.6294911348127313e-15,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 14
+            }
+          ],
+          "wavenumbers_cm1": [
+            -2385.265051670144,
+            -2385.265051669851,
+            -1874.8666802331632,
+            -1413.3890819049445,
+            -1069.2023903304291,
+            -1069.2023903304037,
+            -547.0266390984744,
+            -415.74053038703755,
+            -415.7405303869862,
+            -306.28181662253695,
+            -161.74807229531405,
+            -161.74807229523466,
+            -0.00012893317473670852,
+            0.00001695928648625032,
+            0.00003204410076021801
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 11,
+          "q_fractional": [
+            0.5,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 2.168404344971009e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.15893165482186272,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.241050433811955e-6,
+                  "force_wave_eigenvalue": -0.1589274137714289,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.06028479579523e-6,
+                  "force_wave_eigenvalue": -0.15893059453706693,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.00292098168614875,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.431556661748602e-10,
+                  "force_wave_eigenvalue": -0.0029209814429930836,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.068310047166459e-11,
+                  "force_wave_eigenvalue": -0.0029209816254656493,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 7
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0011786768373531933,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.056543256343969e-11,
+                  "force_wave_eigenvalue": 0.0011786768067877608,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 7.604263789831589e-12,
+                  "force_wave_eigenvalue": 0.0011786768297489295,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 14
+            }
+          ],
+          "wavenumbers_cm1": [
+            -2049.3185914679434,
+            -2049.3185914677406,
+            -880.950502623248,
+            -705.704020680449,
+            -481.96603119174074,
+            -481.9660311917345,
+            -407.2748036492828,
+            -277.82331840568685,
+            -277.82331840568514,
+            -213.13071135124986,
+            -78.30986296685089,
+            142.32409066591606,
+            142.32409066603904,
+            176.48250189132253,
+            176.4825018913252
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 1.1074474670635936e-14,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 8.215650382226158e-14,
+      "residual_gradient_max_hartree_per_bohr": 4.376133896373402e-14,
+      "scc_converged": true,
+      "seconds": 429.281333005,
+      "source": {
+        "experimental_cif_claim": false,
+        "kind": "independently_constructed_ideal_prototype",
+        "lattice_parameter_angstrom": 3.905,
+        "license_spdx": "CC0-1.0",
+        "prototype": "cubic Pm-3m perovskite",
+        "reference": "C. Kittel, Introduction to Solid State Physics, 8th edition, Wiley (2005), ISBN 9780471415268; ideal prototypes at declared representative lattice parameters"
+      },
+      "status": "pass",
+      "supercell_atoms": 10,
+      "total_free_hartree": -32.20624568130175
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "spinel",
+      "electronic_temperature_K": 300.0,
+      "id": "na2moo4",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 1.4970951006665345e-9,
+      "max_hermiticity_error": 1.0842021724855044e-19,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 14,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 5,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.0842021724855044e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.0005028848225282063,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.6232506441435368e-11,
+                  "force_wave_eigenvalue": -0.0005028848062956999,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.0340159598167835e-12,
+                  "force_wave_eigenvalue": -0.0005028848184941904,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0011321767070922167,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.5511662227195586e-11,
+                  "force_wave_eigenvalue": 0.001132176732603879,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.590325507538353e-12,
+                  "force_wave_eigenvalue": 0.0011321767136825422,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 21
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.017121032571819655,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4970951006665345e-9,
+                  "force_wave_eigenvalue": 0.017121034068914756,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.739407290759278e-10,
+                  "force_wave_eigenvalue": 0.017121032945760385,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 41
+            }
+          ],
+          "wavenumbers_cm1": [
+            -115.27590529698091,
+            -72.74438530096042,
+            -72.7443678598846,
+            -28.538634099610103,
+            -28.53856395986579,
+            -0.00003251588717409065,
+            0.00003854183276579306,
+            0.00004185338428470341,
+            53.54472362448463,
+            66.21070240992466,
+            76.32506652425171,
+            76.32507903848466,
+            77.27479716876604,
+            77.27480548619229,
+            121.6642332732817,
+            130.8976716759284,
+            132.31512540588506,
+            132.31514455209478,
+            136.16623181304016,
+            136.16624707993708,
+            152.61628586036824,
+            172.9662561202368,
+            172.9662897474983,
+            191.76136854551245,
+            245.259571669496,
+            245.25959733442662,
+            250.11549401146922,
+            259.43920794828654,
+            259.43922188422783,
+            332.4288525464566,
+            332.4288597806183,
+            337.30450591255834,
+            343.93400843101335,
+            343.93401001997455,
+            660.2260090420301,
+            664.0369816606864,
+            666.5680035212456,
+            666.5680237776511,
+            667.6427235823834,
+            672.3973292490232,
+            672.6191737707946,
+            672.6191905863512
+          ]
+        },
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 3,
+          "q_fractional": [
+            0.5,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 1.0842021724855044e-19,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.0005030080593097881,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.6505815702942683e-11,
+                  "force_wave_eigenvalue": -0.0005030080428039724,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.129340424284533e-12,
+                  "force_wave_eigenvalue": -0.0005030080551804477,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.0010339266788913974,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.4224082985992443e-11,
+                  "force_wave_eigenvalue": 0.0010339267131154804,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 8.542606075648274e-12,
+                  "force_wave_eigenvalue": 0.0010339266874340035,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 21
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.018831904498314872,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.2184390926761601e-9,
+                  "force_wave_eigenvalue": 0.018831905716753965,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.0086256749828344e-10,
+                  "force_wave_eigenvalue": 0.01883190479917744,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 41
+            }
+          ],
+          "wavenumbers_cm1": [
+            -115.29002916858076,
+            -70.13204099431921,
+            -70.13203398586808,
+            30.595208939745795,
+            30.595214568532676,
+            50.50140939713463,
+            50.501449184624676,
+            60.17364727753128,
+            60.173676341653014,
+            62.54319482993811,
+            87.57718668007524,
+            96.28366711791384,
+            96.2836736697133,
+            116.22429385152337,
+            116.22429652191889,
+            135.24252342785897,
+            137.57942683602684,
+            140.41361017553524,
+            141.27930287398934,
+            149.8649879895166,
+            149.8649946517939,
+            165.29097757504323,
+            183.23682987512436,
+            183.23684019169795,
+            259.0817279696362,
+            259.08174196125253,
+            261.313894024673,
+            261.31390962325577,
+            300.40037067750796,
+            318.5413299759276,
+            318.5413323497287,
+            327.8916493636668,
+            331.2596075275188,
+            331.25960777705654,
+            658.8541782886248,
+            661.2179774307656,
+            668.8444950084504,
+            668.8445133742364,
+            671.2328644466427,
+            671.232883475099,
+            678.7874514513265,
+            705.4258966530322
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 9.193763372133956e-16,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 7.355227538141662e-15,
+      "residual_gradient_max_hartree_per_bohr": 0.016821147766202048,
+      "scc_converged": true,
+      "seconds": 132.944913505,
+      "source": {
+        "cod_id": "2240655",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "A. D. Fortes, Acta Cryst. E 71, 592-596 (2015), DOI 10.1107/S2056989015008774",
+        "removed_dummy_sites_in_asymmetric_unit": 0,
+        "reported_measurement_temperature_K": 298,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/spacegroup-builder/cif/2240655.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "265e0870e626161589697f2d094a545c87c65b37b081a848b8d65aac27080309",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2240655.cif"
+      },
+      "status": "pass",
+      "supercell_atoms": 28,
+      "total_free_hartree": -86.61471410121337
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "molecular_crystal",
+      "electronic_temperature_K": 300.0,
+      "id": "benzene",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 1.4475477234654477e-6,
+      "max_hermiticity_error": 0.0,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 48,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 44,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 0.0,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.1640963390672079,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.0954552881470292e-7,
+                  "force_wave_eigenvalue": -0.1640962295216791,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.9741952640181e-8,
+                  "force_wave_eigenvalue": -0.16409638880916055,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.012883728846422384,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 4.542094939746777e-9,
+                  "force_wave_eigenvalue": 0.012883724304327444,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.6542749595459547e-10,
+                  "force_wave_eigenvalue": 0.01288372911184988,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 72
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 1.478666017492442,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4475477234654477e-6,
+                  "force_wave_eigenvalue": 1.4786674650401654,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 3.36460900252078e-7,
+                  "force_wave_eigenvalue": 1.4786663539533422,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 143
+            }
+          ],
+          "wavenumbers_cm1": [
+            -2082.3499817151633,
+            -2082.1589033344376,
+            -2082.010264169439,
+            -2081.7888708006294,
+            -2042.583154984223,
+            -2042.4761226067571,
+            -2042.3036111447218,
+            -2042.271245600484,
+            -1745.049830289003,
+            -1744.6905230942348,
+            -1744.6491652877776,
+            -1744.3781100234714,
+            -1742.08167070577,
+            -1741.9329143675407,
+            -1741.8212697924214,
+            -1741.7372391832123,
+            -1676.9341844524356,
+            -1676.8641964448352,
+            -1676.8074037619158,
+            -1676.7550377837733,
+            -1645.2103571433552,
+            -1645.1341653831748,
+            -1644.9030008940465,
+            -1644.8162740060754,
+            -1312.1650459664404,
+            -1311.9682816305472,
+            -1311.847824555113,
+            -1310.8669884240169,
+            -1299.8140419045392,
+            -1298.9993346309182,
+            -1298.9504086857316,
+            -1298.4975289636388,
+            -662.7851309593439,
+            -662.25673880088,
+            -659.8674823342105,
+            -659.3978111578222,
+            -570.9184600062413,
+            -570.0687306081232,
+            -569.8028896320957,
+            -569.2788364947638,
+            -161.19665239749546,
+            -159.53908488793928,
+            -157.93594116304035,
+            -157.50395415199955,
+            -0.000051549824236467975,
+            -0.000051549824236467975,
+            0.00003691405466043281,
+            35.255730936613276,
+            38.76313570479596,
+            41.50550909255023,
+            44.046360057412464,
+            50.63082869630313,
+            62.20023145462249,
+            67.57534661629323,
+            75.07019828261637,
+            80.38244351965864,
+            128.68482277232184,
+            129.47603382656746,
+            131.00002000584706,
+            131.17857959980984,
+            248.61728701505962,
+            248.96885786067733,
+            249.48109026227158,
+            249.5462734227231,
+            389.70775840408015,
+            389.8305877818037,
+            390.0324951929701,
+            390.1929344852124,
+            480.21655604235826,
+            480.46370800043684,
+            480.68074306831153,
+            480.8192550293763,
+            583.478778798182,
+            583.8900308503838,
+            584.6642242476892,
+            585.1958277177115,
+            659.2856245331132,
+            659.6739143971439,
+            661.5739713086786,
+            661.8366641556648,
+            681.7392606528543,
+            682.3086639850069,
+            682.7976210974585,
+            682.9096606159151,
+            709.6571775806617,
+            709.6732940091999,
+            710.1055463975641,
+            710.471173307766,
+            908.0111034309809,
+            909.1963952036917,
+            909.2314093217935,
+            909.8954412509036,
+            1005.8943492960096,
+            1006.2948611621413,
+            1006.4139443295413,
+            1007.3334699546436,
+            1109.8093512968435,
+            1110.5172200459672,
+            1110.9882594321857,
+            1111.1714259728885,
+            1298.2378362393304,
+            1298.823444398324,
+            1298.9368667254473,
+            1299.1851709815144,
+            1369.1167293724993,
+            1369.332088231164,
+            1369.5143212909497,
+            1369.89599396855,
+            1472.7722400852226,
+            1472.7978756834723,
+            1472.8931410598373,
+            1473.0896865771308,
+            1563.6287444814575,
+            1564.0578977482523,
+            1564.1548748208409,
+            1564.1733721840565,
+            1681.8174525488753,
+            1681.8533605195091,
+            1681.9851403577313,
+            1682.225936220236,
+            4152.85088157588,
+            4152.939195655931,
+            4153.039955651428,
+            4153.396290895717,
+            4153.56102154469,
+            4153.622479906942,
+            4153.6423166541435,
+            4153.801047665859,
+            5591.862220601039,
+            5591.956042998806,
+            5591.974638481101,
+            5591.98461172533,
+            5592.0291824135375,
+            5592.053397061196,
+            5592.0846902732565,
+            5592.09510966176,
+            6250.482044442609,
+            6250.485002392058,
+            6250.567655412931,
+            6250.620942585013,
+            6250.627191481629,
+            6250.663121541233,
+            6250.772217462904,
+            6250.853540570371
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 1.0988486426929522e-15,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 5.342948306008566e-15,
+      "residual_gradient_max_hartree_per_bohr": 0.2266974033031436,
+      "scc_converged": true,
+      "seconds": 93.378189718,
+      "source": {
+        "cod_id": "2100348",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "A. Budzianowski and A. Katrusiak, Crystalline benzene I revisited, Acta Cryst. B 62, 94-101 (2006)",
+        "removed_dummy_sites_in_asymmetric_unit": 0,
+        "reported_measurement_temperature_K": 296.0,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/2100348-benzene.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "ee896345d0b6e4d04f95689f796e61373a3ff8774353602df551a7fbbe4ec822",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2100348.cif"
+      },
+      "status": "pass",
+      "supercell_atoms": 48,
+      "total_free_hartree": -62.89571807478344
+    },
+    {
+      "ao_cutoff_bohr": 24.0,
+      "crystal_class": "organometallic_complex_crystal",
+      "electronic_temperature_K": 300.0,
+      "id": "ferrocene_adduct",
+      "max_force_wave_fd_error_hartree_per_bohr2_amu": 0.000048194624105546424,
+      "max_hermiticity_error": 0.0,
+      "max_q_minus_q_conjugacy_error": 0.0,
+      "model_stationary_at_1e_minus_5_hartree_per_bohr": false,
+      "primitive_atoms": 110,
+      "q_results": [
+        {
+          "backend": "analytic commensurate supercell CP-SCC",
+          "imaginary_modes_below_minus_1_cm1": 94,
+          "q_fractional": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_hermiticity_error": 0.0,
+          "selected_modes": [
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": -0.07752209040469735,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 6.51507075510871e-8,
+                  "force_wave_eigenvalue": -0.0775220252539898,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 8.438242923847206e-9,
+                  "force_wave_eigenvalue": -0.07752209884294027,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 0
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.00967138116285756,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 1.4839659346829737e-8,
+                  "force_wave_eigenvalue": 0.009671396002516907,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 2.8873035478119147e-8,
+                  "force_wave_eigenvalue": 0.009671410035893039,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 165
+            },
+            {
+              "analytic_eigenvalue_hartree_per_bohr2_amu": 0.8886807172804477,
+              "comparisons": [
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 0.00002693334931935798,
+                  "force_wave_eigenvalue": 0.8887076506297671,
+                  "step_bohr": 0.002
+                },
+                {
+                  "absolute_error_hartree_per_bohr2_amu": 0.000048194624105546424,
+                  "force_wave_eigenvalue": 0.8887289119045533,
+                  "step_bohr": 0.001
+                }
+              ],
+              "mode": 329
+            }
+          ],
+          "wavenumbers_cm1": [
+            -1431.2549933809814,
+            -1431.1922863940983,
+            -1409.1934610237877,
+            -1409.165848430147,
+            -1241.1023375140653,
+            -1240.6818232330404,
+            -1228.0138859909284,
+            -1225.1191775319678,
+            -1207.655940851941,
+            -1206.3560062818976,
+            -1175.2665504505742,
+            -1173.1900524308353,
+            -1147.1548114427137,
+            -1147.0218831206118,
+            -1143.8821656707971,
+            -1141.5844895923572,
+            -1133.970866193745,
+            -1133.261617698207,
+            -1132.9779274240693,
+            -1131.4810949497485,
+            -1120.006428295009,
+            -1119.9553798177292,
+            -1105.391536791203,
+            -1104.8366253531647,
+            -1097.9006514966502,
+            -1097.2196763229963,
+            -1096.171236024948,
+            -1095.8796816297827,
+            -1085.4891903672815,
+            -1084.2107268971595,
+            -1079.0049679621852,
+            -1077.9783739096652,
+            -1077.9380174910243,
+            -1077.6771312804021,
+            -1074.8971113218488,
+            -1071.8953348887514,
+            -1071.6383902534308,
+            -1071.3822500919407,
+            -1068.7365987003075,
+            -1068.531131419135,
+            -1063.084429622181,
+            -1062.732277494028,
+            -1051.4487277785718,
+            -1050.9471571351955,
+            -1025.8670178397724,
+            -1025.8350269152793,
+            -1025.5699296423961,
+            -1024.773389221101,
+            -999.7254225763205,
+            -997.0138399442488,
+            -866.7288794722343,
+            -866.3818771376658,
+            -810.639375980195,
+            -810.4212627368648,
+            -776.0849448581896,
+            -773.5294615011704,
+            -755.8233061233938,
+            -754.9750105446692,
+            -750.0366806413491,
+            -749.995251777582,
+            -688.8234448457769,
+            -687.0974905228095,
+            -673.8695014402643,
+            -673.7634161015906,
+            -661.6705332857855,
+            -661.4167949147396,
+            -651.9466831670171,
+            -651.9078064324437,
+            -649.5665344333764,
+            -647.4545011509746,
+            -639.6943441455121,
+            -639.5456980923976,
+            -633.9605486390271,
+            -633.6402447914422,
+            -632.2167351185595,
+            -631.1671420705793,
+            -595.0460999844812,
+            -594.0398018792649,
+            -593.968074122747,
+            -591.9996557081728,
+            -495.6954837597002,
+            -493.9892209497159,
+            -472.9076561399077,
+            -469.62968706716805,
+            -442.99666331614094,
+            -442.5910144025689,
+            -398.02855817907636,
+            -395.9051945657389,
+            -373.9880785400867,
+            -370.20350287921457,
+            -350.86033758504135,
+            -349.87187583008415,
+            -265.9188862744763,
+            -263.50977860448654,
+            -0.000038568606164265017,
+            -0.000038568606164265017,
+            -0.000028483703324180486,
+            18.395175875406995,
+            22.01460209245641,
+            34.01446637275614,
+            36.369673567072475,
+            38.065383190872375,
+            39.579040675939126,
+            43.84985604701663,
+            48.582411470563095,
+            53.09989502481746,
+            54.74714535261438,
+            55.75401185711855,
+            58.19147815548195,
+            63.64494288599069,
+            68.69698761892077,
+            79.95893969585185,
+            89.49036204245455,
+            89.49427828338115,
+            95.18098794630146,
+            95.69144709395846,
+            100.8330453752199,
+            100.88654621022692,
+            124.29106791188507,
+            126.41999428143703,
+            149.2507457032345,
+            151.102598484219,
+            159.3011672575899,
+            163.48656625034897,
+            175.03458109115758,
+            176.01806624231722,
+            181.27400069626015,
+            181.3347834219819,
+            201.54315189659584,
+            202.41264808632658,
+            216.408059669056,
+            216.43821211765942,
+            222.65063187593114,
+            223.05366053052563,
+            235.62944652831408,
+            236.25494127154042,
+            276.6549142522312,
+            278.08363827697303,
+            283.6710241294581,
+            284.1579875971384,
+            289.28507503407394,
+            289.37105385139745,
+            334.032634542215,
+            334.9939916729081,
+            337.9580398169051,
+            338.4752049964728,
+            355.0321501546621,
+            355.20403107098775,
+            387.8186733758601,
+            388.60591383494074,
+            432.05894916496106,
+            432.7251983637787,
+            437.3494407997273,
+            437.3912788008684,
+            447.064456803495,
+            447.20599401156505,
+            448.9694118966492,
+            449.30433154389266,
+            453.81143546491876,
+            453.81474591831187,
+            455.4483723008227,
+            455.82255094387034,
+            473.8936843685856,
+            474.97564065354004,
+            505.3018351097968,
+            505.5318553462751,
+            512.7685003051471,
+            512.9049477749678,
+            515.1784989547848,
+            515.2039767386808,
+            535.3787274734483,
+            535.710754340709,
+            536.8521549186962,
+            538.0417900416684,
+            543.5452654789452,
+            543.5659369264563,
+            559.8480688655343,
+            559.8914056213308,
+            563.8116206731172,
+            564.0297503241601,
+            570.0338540421844,
+            570.1322641794542,
+            612.8259206739112,
+            612.9898971163777,
+            622.5618679715985,
+            622.7008212831728,
+            646.9852229990115,
+            647.2125437362009,
+            681.7113602317678,
+            681.7274501983015,
+            687.3196869673901,
+            687.5005727849314,
+            719.5591631991075,
+            719.9769579222852,
+            721.6109814897281,
+            721.6131209128105,
+            739.42185509017,
+            740.650876079078,
+            778.0811719234799,
+            779.0761415167102,
+            791.9186732739857,
+            792.1481810293425,
+            821.1264614032051,
+            823.001728407524,
+            826.450721900815,
+            826.8124615285666,
+            839.2638107004736,
+            839.5996084553925,
+            848.6108027345464,
+            849.0428599840243,
+            850.8005472651256,
+            851.8469825508344,
+            867.0321701086046,
+            867.0695801227632,
+            867.9552512819596,
+            868.1396690078287,
+            869.7815577707621,
+            869.8077787432774,
+            876.3117011275447,
+            876.3676019284297,
+            887.7225577673782,
+            888.8499262789935,
+            979.9674879236078,
+            980.5978384088722,
+            1015.8457545729202,
+            1016.1554892669516,
+            1039.8749418242949,
+            1040.0598936098172,
+            1073.8351896788133,
+            1075.7249207833727,
+            1098.1823345493585,
+            1098.5880861481685,
+            1144.5391055490122,
+            1160.849192031022,
+            1181.882150882184,
+            1181.9399379120175,
+            1208.4662605993447,
+            1208.7656977665035,
+            1224.5370433624494,
+            1224.755307561543,
+            1243.7854588462217,
+            1243.8028258843792,
+            1297.2783584536803,
+            1297.3958445013939,
+            1314.3116399375706,
+            1314.5008165412412,
+            1321.220762835868,
+            1321.2961704942695,
+            1343.0593616321369,
+            1343.3051080071923,
+            1356.4428735394981,
+            1356.6107168886776,
+            1368.9816672513405,
+            1369.060741432569,
+            1382.3624633757975,
+            1382.4716990338484,
+            1389.9275549390563,
+            1389.9837438651439,
+            1397.7227050511733,
+            1397.8392371106875,
+            1400.1072808525291,
+            1400.2302460949193,
+            1414.7986395770445,
+            1414.8252166793513,
+            1420.7652211156915,
+            1420.912841432138,
+            1429.1090585673799,
+            1429.1817147047893,
+            1461.3734106721101,
+            1461.4370462335537,
+            1578.5767977709602,
+            1578.6047806907127,
+            1582.6891146790529,
+            1582.7229391675,
+            1635.5235689665603,
+            1635.536217063545,
+            1643.960217244246,
+            1644.049334718952,
+            3896.342474400566,
+            3896.645064741312,
+            4634.244472211243,
+            4634.256188638789,
+            4669.92851724208,
+            4669.976776095252,
+            4670.85735847948,
+            4670.89175321908,
+            4678.9240028533695,
+            4679.030875931486,
+            4686.693989538857,
+            4686.702803960368,
+            4691.279317389913,
+            4691.308409000659,
+            4722.156617890636,
+            4722.238441598972,
+            4722.417502722077,
+            4722.434171824907,
+            4724.329296363804,
+            4724.329924698183,
+            4730.946198429617,
+            4731.063559635647,
+            4742.0232004949385,
+            4742.026899285758,
+            4744.264088805266,
+            4744.28583174445,
+            4744.360728263448,
+            4744.997013534103,
+            4746.690133354586,
+            4746.704192580484,
+            4753.391662494146,
+            4753.407053991609,
+            4757.3474130847435,
+            4757.369140921647,
+            4761.783069567059,
+            4762.031783083479,
+            4778.9661501011715,
+            4778.98611473093,
+            4784.110331917278,
+            4784.12250380057,
+            4793.446299841721,
+            4793.451025866132,
+            4793.761820626783,
+            4793.984114729162,
+            4808.200647510932,
+            4808.202646303316,
+            4819.206939708967,
+            4819.217653802613,
+            4827.326188774953,
+            4827.413706189997,
+            4845.929028798974,
+            4845.930215934467
+          ]
+        }
+      ],
+      "raw_acoustic_mass_weighted_contraction": 1.6140128106635968e-15,
+      "raw_hessian_asymmetry_hartree_per_bohr2": 4.1799896877137144e-14,
+      "residual_gradient_max_hartree_per_bohr": 0.1385533109402861,
+      "scc_converged": true,
+      "seconds": 891.594906694,
+      "source": {
+        "cod_id": "2009668",
+        "kind": "experimental_cod_geometry_via_pinned_cod_tools_snapshot",
+        "license_spdx": "LicenseRef-COD-Public-Domain",
+        "measurement_pressure": "not specified in the selected snapshot fields; no ambient-pressure assumption",
+        "public_domain_policy_reference": "https://doi.org/10.1093/nar/gkr900",
+        "reference": "C. Glidewell, C. M. Zakaria and G. Ferguson, Acta Cryst. C 50, 678-681 (1994), DOI 10.1107/S0108270194002180",
+        "removed_dummy_sites_in_asymmetric_unit": 2,
+        "reported_measurement_temperature_K": 293,
+        "snapshot_commit": "0060d4652a5a262fbda2276801f1244060d67128",
+        "snapshot_path": "tests/inputs/2009668-with-dummy-atom.cif",
+        "snapshot_repository": "https://github.com/cod-developers/cod-tools",
+        "source_hash_convention": "SHA-256 of source text after CRLF to LF normalization",
+        "source_sha256_lf": "4bb5ddb99533ec40a52ba2ad7289ef9adc00fd84a28d01e8215358672cb5e0bb",
+        "transformation": "Cell/site fields only; dummy centroids removed; reported symmetry expanded; spglib primitive reduction without idealization at 1e-5 angstrom; wrapped coordinates; no H completion or geometry relaxation",
+        "url": "https://www.crystallography.net/cod/2009668.cif"
+      },
+      "status": "validation_fail",
+      "supercell_atoms": 110,
+      "total_free_hartree": -165.10586789876413
+    }
+  ],
+  "controls": {
+    "ao_cutoff_bohr": "explicit per-fixture value; diffuse Sr requires a longer converged AO sum",
+    "charge_tolerance": 1e-9,
+    "electronic_temperature_K": 300.0,
+    "energy_tolerance": 1e-11,
+    "max_scc": 600,
+    "mixing": 0.25
+  },
+  "dataset_sha256": "5696b9c532a945de55d32770a60dd6d2ae70f07ba2b4e6af52c8cc95765870f7",
+  "density_response_backend": "native-complex max-two scalar matrix-function response with one shared shell-space LU",
+  "dispersion_hessian_backend": "exact reduced (R,CN) two-body D3 chain; no full-Cartesian C6 pair-jet table",
+  "executed_cases": 10,
+  "imaginary_mode_interpretation": "Unrelaxed input structures; preserve negative frequencies and report residual forces rather than assuming GFN1 minima",
+  "model": "standard scalar periodic GFN1; no fitted crystal force constants",
+  "package_version": "0.5.1",
+  "parameter_sha256": "7bb10b1f6d81726bce3c3bd0640e3755ffa8cae64d553513ca084fd3e52196f9",
+  "passed_cases": 9,
+  "proposed_thresholds": {
+    "force_wave_error_hartree_per_bohr2_amu": 0.00002,
+    "hermiticity": 1e-10,
+    "q_minus_q_conjugacy": 1e-10,
+    "raw_acoustic_contraction": 1e-6,
+    "raw_hessian_asymmetry": 1e-6
+  },
+  "sampling": "Gamma analytic supercells; only explicitly commensurate q",
+  "schema": "gfn1-rs-crystal-phonon-report-v1",
+  "scope": "ten_real_crystal_gate",
+  "source_fingerprints": {
+    "driver_sha256": "bd22f99b9ae154a2c190948be7dc6afee30c191168d3e6f2ffc14de0bc679e45",
+    "hessian_sha256": "01b86feaec96607df019105cb9265b14deab05cd15bd93e9f6dbb04f67189d26",
+    "native_response_sha256": "7e5b67bd47b6eea2e569cf8785480750790549f9c0f371b0df2b5ff8ddf3a25c",
+    "reduced_d3_hessian_sha256": "dcf9f85c08860ba7b7014c51b3b6dc77c00ee37626f6f404061f0cf7e4974a31"
+  },
+  "status": "fail"
+}

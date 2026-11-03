@@ -11,43 +11,89 @@ Convention used below:
 
 ---
 
+## v0.7.0 scope and further research work
+
+Native sTDA vertical spectra and local isolated-root derivatives do not imply
+a globally smooth excited-state PES. Its fixed occupied/virtual orbital model
+has a direction-dependent limit at final frontier degeneracy. The ordinary
+signed-sheet ethylene searches now find independently audited force-zero
+saddles, but did not establish a smooth minimum. A separately defined
+uncoupled upper-envelope crossing has converged
+KKT stationarity and positive tangent curvature; its individual-sheet force
+remains nonzero. These outcomes and complete checks are distinguished in
+[stda-pes.md](stda-pes.md).
+
+Version `0.7.0` covers the implemented features in `scope.md`. Local regression
+tests do not establish completion of the broader revision-2 research plan:
+
+- The original exporter did not record its BSE version. All 720 inherited
+  contractions have now been independently reconstructed against BSE 0.12
+  and the GFN1 hydrogen functions, without changing their numerical bodies.
+  Several higher-zeta files retain lower-zeta polarization subsets, so they
+  are not complete Dunning bases or a certified published-SI reconstruction.
+  See `tests/data/secondary-basis-provenance.json` and
+  `third_party/upstream-byte-review.json` for separate parameter/source checks.
+- SOC requires explicit zeta values and provenance. The current synthetic
+  angular-momentum/force/response gates do not certify an adopted literature
+  parameter set or the requested heme/metal-complex literature benchmarks.
+- M0/M1 remains closed-shell. Solvent total derivatives stop at the analytic
+  gradient; solvated Hessian/FC3/FC4 and solvated VPT2 are rejected. Composite
+  solvent/SOC/spin/magnetic/ML derivatives are not inferred from separate gates.
+- VPT2/GVPT2 is PES-only; Watson/Coriolis terms and anharmonic intensities are
+  outside its implementation. The complete requested five-molecule comparison
+  has not been established by the H2/water molecular tests.
+- A primitive-cell arbitrary-q Sternheimer backend, periodic ML analytic FC3,
+  ML FC4 remains
+  separate unfinished work.
+
+The pinned official xtb `v6.7.1` binary has two independently investigated
+reference limitations. Its tblite frontend's energy was unchanged when
+`--etemp` was swept over 0/100/300/600 K; spin comparisons therefore use 300 K,
+matching the observed default ensemble without energy offsets. Water-dimer
+and zwitterionic-glycine analytic gradients disagree with the same reference's
+energy finite differences at transverse zero-overlap pairs. The missing
+`H0*dS` contribution predicts that difference. Direct gradient parity remains
+a failed comparison; independent reference-energy derivative audits are
+reported separately, with two steps for each of ten molecule/solvent cases.
+The complete raw comparison counts, fixed binary/archive hashes, source
+fingerprints and temperature sweep are retained in
+[`tests/data/xtb-validation-report.json`](../tests/data/xtb-validation-report.json).
+
+## Structural ML boundary coverage
+
+The independent radial Hamiltonian supports molecular energies, analytic
+forces, static scalar response, and canonical analytic Hessian/FC3, including
+fractional thermal occupations and degenerate occupation blocks.
+Gamma/k-point **periodic energies, analytic forces, stress and DFPT Hessians**
+include periodic descriptor images and the full first/second structural and
+electronic response chains. Commensurate finite-q ML phonons use analytic
+supercell response. Periodic **analytic** ML FC3 and ML TDA excited-state
+gradients remain rejected; a seminumerical derivative of the ML periodic
+Hessian is available through the existing fallback. ML FC4,
+spin/SOC/magnetic/solvent composite models are also rejected. Model-specific
+training domains and held-out/extrapolation measurements are in
+[parameters.md](parameters.md#independent-structural-ml-models).
+
 ## Finite temperature / Fermi smearing
 
-### Analytic FC3 (dense / vector / block) — *rejected*
+### Analytic molecular FC3 and FC4 — **smearing supported**
 
-`third_derivative_analytic`, `_dense`, `_vector`, `_block` reject fractional
-occupations. The closed-form response-derivative algebra assumes integer (0/2)
-occupations; with smearing it would silently return wrong numbers.
+The standard `third_derivative_analytic{,_dense,_vector,_block}` and
+`fourth_derivative` entry points select the analytic canonical free-energy
+backend at positive electronic temperature. `QuarticReference` and
+`CubicReference` retain the same temperature and electron count. Degenerate
+fractionally occupied blocks use analytic occupation-matrix response; they do
+not require a symmetry-breaking displacement or a finite-difference fallback.
+The explicit `third_derivative::finite_t` APIs remain available. Their block
+indices are Cartesian DOFs, whereas the standard molecular FC3 block API takes
+atom indices.
 
-> `analytic third derivative with fractional (Fermi-smeared) occupations is not yet supported; use third_derivative_seminumerical_* until the finite-temperature analytic path lands`
->
-> — `src/third_derivative/mod.rs`
-
-**Workarounds:** `third_derivative_seminumerical_*` (full smearing support), or
-`third_derivative::finite_t::directional_third_finite_t` for the directional
-contraction.
-
-### Analytic FC4 — *rejected*
-
-`QuarticReference::build` — and therefore `directional_fourth_derivative`,
-`directional_fourth_with_reference`, `fourth_derivative_analytic_dense` and
-`fourth_derivative_analytic_block` — rejects fractional occupations.
-
-> `analytic fourth derivative with fractional (Fermi-smeared) occupations is not yet supported; use directional_fourth_seminumerical until the finite-temperature analytic path lands`
->
-> — `src/fourth_derivative/assemble.rs`
-
-**Workarounds.** There are now two, and the analytic one is easy to miss because
-of where it lives:
-
-- `third_derivative::finite_t::directional_fourth_finite_t`,
-  `fourth_derivative_finite_t_dense` and `_block` are the **analytic**
-  finite-temperature quartic. They sit in the `third_derivative::finite_t`
-  module beside the finite-T FC3 — *not* under `fourth_derivative` — because
-  they extend the same occupation-agnostic product-rule chain. Rust-only (no
-  Python binding).
-- `directional_fourth_seminumerical` (central FD of the analytic third
-  derivative) remains the verification reference and the front-end fallback.
+Memory budgets are checked before building the reference. The thermal
+`CubicReference` stores complete orbital and occupation response matrices, so
+its workspace is larger than the occupied-space zero-temperature reference.
+ML supports thermal FC3; ML FC4 and options capped below the requested
+derivative order remain explicit errors. CN-disabled FC4 is also rejected.
+Seminumerical routines remain independent verification routes.
 
 ### ~~Exactly degenerate + fractionally occupied second order~~ — **resolved**
 
@@ -103,66 +149,27 @@ every dot convention tried failed the T_d gate (frame-included dots stuck at
 order). The resolvent form has no such freedom to fix. The reasoning survives in
 comments in `src/response/charge_space.rs`.
 
-**The fix stops at second order — see the next entry.**
+### Exactly degenerate fractional third-order response — resolved in v0.7.0 development
 
-### Exactly degenerate + fractionally occupied third-order **response** — *rejected*
+The third-order electronic response now uses a fixed-frame spectral resolvent
+with confluent Fermi divided differences. It includes the overlap derivatives,
+the canonical chemical-potential response through third order, and the screened
+shell-charge response. No orbital eigenvector derivative is assigned inside a
+degenerate block. Molecular analytic free-energy FC3 and FC4 therefore support
+exactly degenerate fractional occupations.
 
-The resolvent form above closed the **second**-order channel. The third-order
-*response* chain did **not** move with it:
-`ChargeSpaceContext::solve_third_order_directional` is still written in the frame
-algebra (its ingredient recursion is built from `frame(U, M) = UᵀM + MU` and
-`u_second`), which is precisely the formulation whose in-block second order
-depends on the arbitrary within-block eigenbasis. Measured on T_d Ni(CO)₄ at
-3000 K, that chain lands at `3.5e3`.
+The Ni(CO)4 regression at 3000 K compares every density, energy-weighted-density
+and shell-charge component against displaced second responses. Halving the step
+from 0.004 to 0.002 reduces the respective maximum errors from
+7.27e-7 / 8.21e-7 / 1.18e-6 to 1.81e-7 / 2.06e-7 / 2.96e-7.
+The HF audit at 30000 K checks all 1554 nuclear components through order four
+against three-step finite differences; its quartic maximum error falls from
+1.06e-5 to 2.65e-6 to 6.62e-7 before extrapolation.
 
-Since v0.5.0 it is **guarded** rather than silent — `solve_third_order_directional`
-rejects up front:
-
-> `third-order finite-temperature response: orbitals {p} and {q} are exactly degenerate (gap {…}) with fractional occupation — the third-order assembly is still frame-based and the frame is not defined inside such a block (the second order takes the frame-free resolvent form instead); break the symmetry or use a seminumerical path`
->
-> — `src/response/charge_space.rs` (`solve_third_order_directional`)
-
-It fires only at finite temperature, for a fractionally occupied pair with an
-orbital gap below `1e-10`.
-
-**Which entry points actually inherit it — the FC4 ones, not the FC3 ones.** This
-is the part that is easy to get backwards:
-
-- **Rejected:** `directional_fourth_finite_t`, `fourth_derivative_finite_t_dense`
-  and `_block`. They are the only production callers of
-  `solve_third_order_directional` (through `directional_fourth_with_reference`).
-- **Not affected — and *not* a limitation:** `directional_third_finite_t`,
-  `third_derivative_finite_t_dense` and `_block`. They never reach the frame-based
-  third-order chain; they use only `solve_second_order`, which *is* the frame-free
-  resolvent form, so exact degeneracy is the confluent limit of a smooth
-  expression rather than a special case. Verified directly on an exactly
-  degenerate, fractionally occupied NiO reference (minimum level spacing
-  `1.1e-16`) at 3000 K against a central FD of the smeared analytic Hessian
-  contracted `vv`:
-
-  | `h` | `\|analytic − FD\|` | ratio |
-  | --- | --- | --- |
-  | `2e-3` | `1.24e-9` | — |
-  | `1e-3` | `3.10e-10` | 4.00 |
-  | `5e-4` | `7.77e-11` | 4.00 |
-
-  A clean `O(h²)` ladder onto the analytic value — the residual is FD truncation,
-  not a missing term.
-
-**Workaround for the FC4 case:** break the symmetry (a near-degenerate reference,
-gap ≥ `1e-10`, is fully supported and gated at `5.5e-9`), or use
-`directional_fourth_seminumerical`. The fix is to rewrite the third-order chain in
-the same resolvent form — the second-order case is the worked precedent.
-
-> **Stale rustdoc, tracked here so it is not mistaken for behaviour.**
-> `src/third_derivative/finite_t.rs` still tells
-> `directional_third_finite_t`'s reader that exactly degenerate blocks "are
-> rejected by the second-order solver's guard", and `src/python.rs` repeats it.
-> That guard was removed when the resolvent form landed; the measurements above
-> are the current behaviour. Likewise `tests/smearing.rs`'s
-> `exactly_degenerate_smeared_third_is_rejected` still asserts the FC3 path
-> errors, and therefore **fails** — it pins a guard the codebase deliberately
-> replaced.
+The zero-temperature occupied/virtual gap requirement remains. Periodic
+analytic FC4 is not implemented. Only a small-spectrum divided-difference table
+is cached (at most about 11 MiB at 48 orbitals); larger spectra calculate weights
+on demand instead of allocating an unrestricted fourth-power table.
 
 ### Analytic polarizability — *rejected*
 
@@ -303,29 +310,20 @@ about a minute. The cap still applies to
   `8·n⁴`-byte nested-list expansion — applied to `|dofs|` in block mode, so a
   small block of a large molecule is fine.
 
-### `enable_cn_hamiltonian = false` is not supported at fourth order — *silent*
+### `enable_cn_hamiltonian = false` at fourth order — *rejected*
 
-Turning the coordination-number Hamiltonian off is honoured by the SCC, the
-gradient and the Hessian, but the analytic quartic only honours it in **some** of
-its stages. `QuarticReference::build` has exactly two guards —
-`terms::require_order(…, 4, …)` and the fractional-occupation rejection — and
-neither looks at this flag, so nothing errors.
+Both strict and finite-temperature analytic FC4 front ends reject this
+combination through `terms::require_order`, before SCF:
 
-| FC4 stage | honours `include_cn_h0`? |
-| --- | --- |
-| second-order legs (`cn_block`) | yes |
-| stage 4, CN response | yes (returns `0.0`) |
-| stage 5, response | yes |
-| **stage 2, frozen density** | **no** — CN/H0 blocks built unconditionally |
-| **stage 3, Hessian path** | **no** — same |
+> `{context}: analytic order-{order} derivatives with enable_cn_hamiltonian=false are not implemented`
 
-The result is the quartic of *neither* energy expression: a finite, plausible
-number assembled from two different Hamiltonians. The `T = 0` equality against the
-seminumerical reference widens from `~3e-15` to `~2e-5` when the flag is cleared.
-
-**Workaround:** leave `enable_cn_hamiltonian = true` (the default, and the actual
-GFN1 model) for any fourth-derivative work. There is no reason to clear it except
-for term-isolation experiments, and those should use the seminumerical route.
+The quartic frozen-density stages retain CN-dependent blocks. Disabling CN in
+only the other stages would mix different Hamiltonians. Earlier versions
+silently returned such a value (a recorded water discrepancy was about `2e-5`).
+The default CN-enabled model is supported. Gradient, Hessian and FC3 capability
+checks are unaffected. Directional, dense and block entry points in both FC4
+families are checked by
+`cn_disabled_quartics_are_rejected_by_strict_and_finite_temperature_drivers`.
 
 ### The *Γ* analytic FC3 entry points are Γ-only — but an analytic k-point FC3 exists
 
@@ -348,30 +346,24 @@ reproduces the Γ path to `~1e-17` relative.
 
 So the remaining limitation is narrow: the *Γ-named* entry points stay Γ-only
 (they are the cheaper specialisation, not a subset of the k-point path's
-coverage), and the seminumerical
-`pbc_kpoint_third_derivative_seminumerical_dense/_vector` remains the route for
-Fermi-smeared cells and for option sets the term registry caps below analytic
-order 3.
+coverage). The seminumerical
+`pbc_kpoint_third_derivative_seminumerical_dense/_vector` remains an independent
+reference and supports option sets capped below analytic order 3 when their
+analytic Hessian is available.
 
-### The analytic periodic FC3 carries a `~1e-7` residual, and no smearing
+### Analytic periodic FC3 smearing and reference-motion residual — **resolved**
 
-Two separate caveats, and they apply to **both** the Γ
-(`pbc_gamma_third_analytic_*`) and the k-point (`pbc_kpoint_third_analytic_*`)
-entry points — the k-point path reuses the Γ assembly, so it inherits the Γ
-assembly's open residual exactly:
+Both Γ (`pbc_gamma_third_analytic_*`) and k-mesh
+(`pbc_kpoint_third_analytic_*`) APIs support canonical fractional occupations,
+including exact degeneracy. A k-mesh uses one globally conserved electron count
+and chemical potential. No finite differences enter those drivers.
 
-- **Accuracy.** The assembly agrees with the Richardson-extrapolated
-  seminumerical reference to `~1e-7` absolute (`8.5e-8` diamond, `8.0e-8` BN on
-  a `~10⁻³` Eh/Bohr³ scale). That residual is `h`-independent — a genuinely
-  missing term, not FD truncation — and is localised to the band/Pulay block
-  (CN and the two SCC2 blocks close exactly). It is ~1500x smaller than the
-  residual the assembly had before the density path was added, but it has not
-  been driven to zero; if you need better than `1e-7` absolute on the cubic
-  force constants, use the seminumerical route. Tracked in `docs/pbc.md` §2c.
-- **Integer occupations only.** Fermi-smeared periodic systems are rejected (at
-  *every* k-point, for the k-point path). The molecular FC3 has a native
-  finite-temperature path (`third_derivative_finite_t_*`); the periodic one does
-  not.
+The earlier `~1e-7` diamond/BN residual came from missing CN/SCC frozen-cache and
+reference-motion chains. After correcting these, the T=0 directional recheck
+differs by `9.9e-16` / `5.5e-16` from Richardson-extrapolated Hessian differences.
+All 216 components of each H2/HF/B2 finite-temperature fixture are below
+`8.5e-11` at Γ and `7.2e-12` on the k-mesh. The independently reconverged FD
+checks retain both temperatures and canonical electron count; see [pbc.md](pbc.md).
 
 The CLI rejects the molecular flag on periodic input:
 
@@ -397,19 +389,19 @@ fails fast:
 Before v0.5.0 the analytic Hessian **silently dropped** these terms and returned
 the Hessian of a different energy expression.
 
-### FC4 has no CLI front end
+### FC4 front ends and remaining boundaries
 
-No CLI flag. It **does** have Python bindings as of v0.5.0 —
+The CLI exposes `--fourth-derivative` for molecular FC4. Python provides
 `fourth_derivative_directional`, `fourth_derivative_directional_seminumerical`,
 `fourth_derivative` (dense) and `fourth_derivative_block`, gated by
 `tests/python/test_v050_derivatives.py`. The dense and block bindings go through
 `check_fourth_dense_size`, so they carry the `n⁴`-expansion cap described above
 (applied to `|dofs|` in block mode); the directional binding does not.
 
-What is still Rust-only on the quartic side is the **finite-temperature** FC4
-(`third_derivative::finite_t::directional_fourth_finite_t`,
-`fourth_derivative_finite_t_dense` / `_block`) — see the note below the FC4
-rejection entry.
+The standard Python/ASE and CLI quartic APIs select analytic canonical response
+at positive electronic temperature, including exact fractional degeneracy. The
+explicit `third_derivative::finite_t` names remain available in Rust. Periodic
+FC4, ML FC4 and CN-disabled FC4 remain unavailable and return explicit errors.
 
 The periodic derivative entry points *do* have Python bindings — seminumerical
 Γ FC3 (`third_derivative_periodic`, `third_derivative_periodic_vector`), analytic
@@ -456,21 +448,11 @@ states (zero transition charge) are accidentally immune.
 Until v0.5.0 the **default** `TdaGradientMethod::SemiNumerical` inherited this
 exactly; it now phase-aligns internally.
 
-### Integer occupations only — *rejected*
+### Thermal occupations and periodic sampling
 
-Every TDA path needs a gapped closed shell at `T = 0`:
-
-> `TD-GFN1 requires a positive occupied-virtual gap (gapped closed shell)`
-
-> `PBC TDA analytic gradient requires integer (gapped) occupations`
-
-> `k-point TD-GFN1 requires an integer closed-shell band filling (gapped insulator)`
-
-> `k-point TD-GFN1 found no positive-gap occupied->virtual transitions (metallic or non-integer occupations are not supported)`
-
-### Semi-numerical gradients are non-periodic — *rejected*
-
-> `solve_tda_gradient_seminumerical is non-periodic; use solve_tda_gradient (finite difference) for periodic (Gamma-point) systems`
+Molecular and Γ-point TDA support fractional canonical occupations. The
+off-Γ TDA k-mesh backend requires gapped integer bands. The optical
+TD-DFPT k-mesh route supports fractional bands at momentum transfer q=0.
 
 ### Root tracking near degeneracies
 
@@ -594,18 +576,25 @@ system errors here, raise `ao_cutoff` before suspecting the physics.
   molecules. Official GFN1-xTB has `s9 = 0`, so stock GFN1 is unaffected.
 - **Open-shell magnetic properties** (spin-Zeeman, NMR shieldings) are not
   implemented; the closed-shell magnetics are complete.
-- **Length-gauge orbital-current** optical-rotation `G`-tensor and MCD vanish
-  identically in the GFN1 point-charge model (`dq/dB = 0`). The
-  `lao_dipole_matrix` integrals are the route to the orbital-current versions.
-- **Variable-cell relaxation** is not native; drive the lattice externally from
-  `pbc_stress` (e.g. an ASE cell filter).
+- **Optical MCD/Faraday response** requires frequency-dependent complex
+  response and is not supplied by the legacy `mcd_tensor` static API. Its
+  `d alpha/dB` vanishes at zero field for a time-reversal-symmetric closed
+  shell, including a length-gauge dipole model. Raw LAO integrals alone do not
+  provide the frequency-dependent response.
+- **Variable-cell relaxation** is available through `pbc_relax`, native
+  `relax_periodic` and ASE `get_relax_periodic`; the older
+  `optimize_geometry` / `optimize_native` retains its fixed-cell behavior.
+  See [mechanical-properties.md](mechanical-properties.md). Convergence of
+  forces/stress does not certify positive phonon curvatures.
 - **Relaxed-ion Grüneisen** is not implemented (frozen-ion only).
-- **PBC external field** is the reference-cell dipole-coupling approximation (a
-  finite field is a sawtooth site potential, not a Berry-phase enthalpy). The bulk
-  **polarization** itself is implemented — `pbc_berry_polarization`, see
-  [pbc.md](pbc.md#7-berry-phase-bulk-polarization) — but only the polarization:
-  there is no analytic `dP/dR` (Born-charge) entry point and no finite-field Berry
-  enthalpy, and the spin-restricted quantum is `2 e R / V`, not `e R / V`.
+- **PBC external-field SCC** retains its reference-cell site-potential model.
+  The separate analytic bulk dielectric response differentiates the discrete
+  Berry electric enthalpy. Analytic Born charges and proper piezoelectricity
+  are available for scalar/structural-ML 3D insulators at their requested
+  temperature; appreciably fractional occupations are rejected. It is not a
+  nonlinear finite-field SCC driver for thermal metals. The spin-restricted
+  polarization quantum is `2 e R / V`; see
+  [electromechanical.md](electromechanical.md).
 - The dipole and polarizability use GFN1 point-charge (monopole) electrostatics,
   so intra-atomic polarization is absent — treat absolute intensities as
   qualitative.
@@ -630,3 +619,24 @@ system errors here, raise `ao_cutoff` before suspecting the physics.
 - **Stiff experimental combinations** (high-order multipoles + long-range exchange
   on transition-metal complexes) can still fail to converge. That is a
   model/numerical limit, not a flag bug.
+
+### PH3 high-rank 0 K convergence — resolved
+
+The former joint charge/moment mixer oscillated on asymmetric PH3 at rank 4,
+then changed the requested 0 K to 3000 K. High-rank, non-solvated 0 K models
+now minimize the unchanged restricted, integer-occupation energy directly over
+orbital rotations. The quadratic multipole response enters the Newton step;
+unit-amplitude response evaluation avoids cancellation in small Krylov vectors.
+Near machine energy resolution, a step must reduce the physical gradient.
+
+This functional can have a non-Aufbau orbital minimum: globally refilling its
+lowest Fock eigenvalues discards the minimum. Canonicalization therefore acts
+within equal-occupation subspaces and retains their occupations and density.
+Returned energies are sorted with the occupation labels attached. This is a
+restricted determinant minimum, not a fractional-occupation ensemble result.
+The actual temperature, full Cartesian gradient differences and stationary
+Pulay relation are recorded in `tests/data/multipole-rank4-ph3-diagnostic.json`.
+High-rank nuclear derivatives remain implemented through gradients only;
+chemical accuracy and finite-temperature ensemble behavior require separate
+validation. The earlier 3000 K fallback measurements remain historical failures.
+

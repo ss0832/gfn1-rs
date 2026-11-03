@@ -48,6 +48,9 @@ Example
 See ``docs/python-api.md`` for the full method list.
 """
 
+import functools
+import inspect
+import logging
 import os
 
 from ._native import (  # noqa: F401
@@ -58,10 +61,82 @@ from ._native import (  # noqa: F401
     HESSIAN_HARTREE_PER_BOHR2_TO_EV_PER_ANGSTROM2,
     MAX_FOURTH_DERIVATIVE_NDOF,
     CalculationResult,
-    Gfn1NativeCalculator,
+    Gfn1NativeCalculator as _RawCalculator,
+    _ResourceContext,
     OptimizationResult,
     roundtrip_param_file,
 )
+from .training import create_ml_model, train_ml_model
+
+
+class Gfn1NativeCalculator:
+    """Rust calculator with optional ``threads`` and workspace ``memory_mb``.
+
+    Every property executes inside the same reusable Rust resource scope.
+    Memory is an estimated calculation-workspace budget, not a process RSS cap.
+    Other constructor and method arguments retain the native signatures.
+    """
+
+    def __init__(self, *args, threads=None, memory_mb=None,
+                 cp_tolerance=None, cp_relative_tolerance=None, cp_max_iter=None, **kwargs):
+        self._resources = _ResourceContext(threads=threads, memory_mb=memory_mb,
+            cp_tolerance=cp_tolerance, cp_relative_tolerance=cp_relative_tolerance,cp_max_iter=cp_max_iter)
+        self._raw = self._resources.run(lambda: _RawCalculator(*args, **kwargs))
+        self._resource_info = {"threads": threads, "memory_budget_bytes": self._resources.info()[1]}
+        if threads is not None or memory_mb is not None:
+            message = f"gfn1-rs resources: threads={threads or 'rayon default'}, workspace_memory_mb={memory_mb or 'method default'}"
+            logging.getLogger("gfn1_rs").info(message)
+            if kwargs.get("log_console", False):
+                print(message, file=__import__("sys").stderr)
+        if any(value is not None for value in self._resources.cp_info()):
+            message=f"gfn1-rs CP settings: {self.cp_settings()}"
+            logging.getLogger("gfn1_rs").info(message)
+            if kwargs.get("log_console",False):
+                print(message,file=__import__("sys").stderr)
+
+    def resource_limits(self):
+        """Return the selected worker count and workspace budget in bytes."""
+        return dict(self._resource_info)
+
+    def cp_settings(self):
+        """Return configured CP residual tolerances and iterative limit."""
+        absolute,relative,iterations=self._resources.cp_info()
+        return {"absolute_tolerance":absolute,"relative_tolerance":relative,"max_iterations":iterations}
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def __dir__(self):
+        return sorted(set(super().__dir__()) | set(dir(self._raw)))
+
+
+def _resource_method(name, raw_method):
+    @functools.wraps(raw_method)
+    def scoped(self, *args, **kwargs):
+        return self._resources.run(lambda: getattr(self._raw, name)(*args, **kwargs))
+    try:
+        scoped.__signature__ = inspect.signature(raw_method)
+    except (TypeError, ValueError):
+        pass
+    return scoped
+
+
+for _name in dir(_RawCalculator):
+    if not _name.startswith("_") and callable(getattr(_RawCalculator, _name)):
+        setattr(Gfn1NativeCalculator, _name, _resource_method(_name, getattr(_RawCalculator, _name)))
+
+try:
+    _signature = inspect.signature(_RawCalculator)
+    Gfn1NativeCalculator.__signature__ = _signature.replace(parameters=[
+        *_signature.parameters.values(),
+        inspect.Parameter("threads", inspect.Parameter.KEYWORD_ONLY, default=None),
+        inspect.Parameter("memory_mb", inspect.Parameter.KEYWORD_ONLY, default=None),
+        inspect.Parameter("cp_tolerance", inspect.Parameter.KEYWORD_ONLY, default=None),
+        inspect.Parameter("cp_relative_tolerance", inspect.Parameter.KEYWORD_ONLY, default=None),
+        inspect.Parameter("cp_max_iter", inspect.Parameter.KEYWORD_ONLY, default=None),
+    ])
+except (TypeError, ValueError):
+    pass
 
 
 def default_param_path() -> str:
@@ -88,4 +163,6 @@ __all__ = [
     "OptimizationResult",
     "roundtrip_param_file",
     "default_param_path",
+    "create_ml_model",
+    "train_ml_model",
 ]

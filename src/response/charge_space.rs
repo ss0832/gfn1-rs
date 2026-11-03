@@ -29,6 +29,8 @@
 //! occupations is rejected at build time (singular response — use Fermi
 //! smearing), mirroring the CPXTB guard.
 
+mod dk_third;
+
 use crate::basis::BasisSet;
 use crate::error::{Gfn1Error, Result};
 use crate::linalg::{lowdin_solve_generalized, matrix_vector_product, DenseLu, Matrix};
@@ -87,8 +89,11 @@ pub struct ChargeSpaceContext {
     /// second-order density/energy-weighted response instead of the
     /// coefficient/rotation algebra. Equality-gated against the frame path on
     /// non-degenerate finite-T systems; the only form valid inside exactly
-    /// degenerate fractionally occupied blocks.
+    /// degenerate blocks, including the zero-temperature spectral projector.
     dk_second: bool,
+    /// Immutable spectral weights shared by repeated directional solves.
+    dk_tables_cache: std::sync::OnceLock<DkTables>,
+    dk_third_cache: std::sync::OnceLock<Option<dk_third::ThermalWeightCache>>,
 }
 
 /// One perturbation's first-order data cached for second-order solves: the
@@ -161,7 +166,9 @@ pub struct ThirdOrderBundle {
     pub density: Matrix,
     pub energy_weighted: Matrix,
     pub shell_charges: Vec<f64>,
-    /// Occupation third response `f^{(vvv)}` (zero at integer occupations).
+    /// Occupation third response (zero at integer occupations). In the spectral
+    /// branch this is the diagonal of the occupation matrix in the fixed symmetric
+    /// orthonormal frame; individual labels inside degenerate blocks are not unique.
     pub occupation_response: Vec<f64>,
 }
 
@@ -169,22 +176,177 @@ pub struct ThirdOrderBundle {
 /// confluent (derivative) limit.
 const DK_CONFLUENT_EPS: f64 = 1.0e-9;
 
+/// Directional Fock response in a smooth orbital frame that diagonalizes
+/// distinct energy blocks while preserving the symmetric metric gauge inside
+/// each degenerate block. The second rotation differentiates the full
+/// first-order block matrix, including its off-diagonal elements.
+pub(crate) fn directional_fock_frame(
+    first: &FirstOrderField,
+    second: Option<&SecondOrderField>,
+    energies: &[f64],
+    block_tolerance: f64,
+) -> Result<(Matrix, Option<(Matrix, Matrix)>)> {
+    let n = energies.len();
+    let mut f1 = first.h_tilde.clone();
+    for i in 0..n {
+        for j in 0..n {
+            f1[(i, j)] +=
+                energies[i] * first.u_rotation[(i, j)] + energies[j] * first.u_rotation[(j, i)];
+        }
+    }
+    let Some(second) = second else {
+        return Ok((f1, None));
+    };
+    let transport = f1.matmul(&first.u_rotation)?;
+    let mut f2 = Matrix::zeros(n, n);
+    let mut u2 = Matrix::zeros(n, n);
+    for i in 0..n {
+        for j in 0..n {
+            let gap = energies[j] - energies[i];
+            let derivative = second.h_dot[(i, j)] + transport[(i, j)] + transport[(j, i)];
+            if gap.abs() < block_tolerance {
+                u2[(i, j)] = -0.5 * second.s_dot[(i, j)];
+                f2[(i, j)] = derivative - 0.5 * (energies[i] + energies[j]) * second.s_dot[(i, j)];
+            } else {
+                u2[(i, j)] = (derivative - energies[j] * second.s_dot[(i, j)]) / gap;
+            }
+        }
+    }
+    Ok((f1, Some((f2, u2))))
+}
+
+/// Transport complete near-degenerate orbital blocks instead of
+/// dividing by splittings which can be at the SCC residual scale.
+/// Returns the first orbital rotation and Fock derivative, followed by the
+/// second orbital rotation and Fock derivative when a second field is supplied.
+pub(crate) fn directional_block_frame(
+    response: &FirstOrderField,
+    second: Option<&SecondOrderField>,
+    e: &[f64],
+    blocks: &[usize],
+) -> Result<(Matrix, Matrix, Option<(Matrix, Matrix)>)> {
+    let n = e.len();
+    let mut u = Matrix::zeros(n, n);
+    let h = &response.h_tilde;
+    let s = &response.s_tilde;
+    for i in 0..n {
+        for j in 0..n {
+            u[(i, j)] = if blocks[i] == blocks[j] {
+                -0.5 * s[(i, j)]
+            } else {
+                (h[(i, j)] - e[j] * s[(i, j)]) / (e[j] - e[i])
+            };
+        }
+    }
+    let mut fock = Matrix::zeros(n, n);
+    for i in 0..n {
+        for j in 0..n {
+            if blocks[i] == blocks[j] {
+                fock[(i, j)] = h[(i, j)] - 0.5 * (e[i] + e[j]) * s[(i, j)];
+            }
+        }
+    }
+    let Some(second) = second else {
+        return Ok((u, fock, None));
+    };
+    let ut = u.transpose();
+    let su = s.matmul(&u)?;
+    let hu = h.matmul(&u)?;
+    let utu = ut.matmul(&u)?;
+    let mut eu = u.clone();
+    for i in 0..n {
+        for j in 0..n {
+            eu[(i, j)] *= e[i];
+        }
+    }
+    let uteu = ut.matmul(&eu)?;
+    let mut u2 = Matrix::zeros(n, n);
+    let mut f2 = Matrix::zeros(n, n);
+    for i in 0..n {
+        for j in 0..n {
+            let metric =
+                second.s_dot_fixed[(i, j)] + 2. * (su[(i, j)] + su[(j, i)] + utu[(i, j)]);
+            let known =
+                second.h_dot_fixed[(i, j)] + 2. * (hu[(i, j)] + hu[(j, i)] + uteu[(i, j)]);
+            if blocks[i] == blocks[j] {
+                u2[(i, j)] = -0.5 * metric;
+                f2[(i, j)] = known - 0.5 * (e[i] + e[j]) * metric;
+            } else {
+                u2[(i, j)] = (known - e[j] * metric) / (e[j] - e[i]);
+            }
+        }
+    }
+    Ok((u, fock, Some((u2, f2))))
+}
+
 /// Reference-spectrum divided differences of the grand-canonical Fermi
 /// function, for the Daleckii–Krein (resolvent) response forms.
-struct DkTables {
+pub(crate) struct DkTables {
     eps: Vec<f64>,
     f: Vec<f64>,
-    fp: Vec<f64>,
+    pub(crate) fp: Vec<f64>,
     fpp: Vec<f64>,
     f1: Matrix,
     fp1: Matrix,
 }
 
 impl DkTables {
+    pub(crate) fn new(energies: &[f64], occupations: &[f64], kt: f64) -> Self {
+        let n = energies.len();
+        let eps = energies.to_vec();
+        let f = occupations.to_vec();
+        let fp: Vec<_> = f
+            .iter()
+            .map(|&value| {
+                if kt > 0. {
+                    -(value * (1. - 0.5 * value)).max(0.) / kt
+                } else {
+                    0.
+                }
+            })
+            .collect();
+        let fpp: Vec<_> = f
+            .iter()
+            .zip(&fp)
+            .map(|(&value, &slope)| {
+                if kt > 0. {
+                    -slope * (1. - value) / kt
+                } else {
+                    0.
+                }
+            })
+            .collect();
+        let mut f1 = Matrix::zeros(n, n);
+        let mut fp1 = Matrix::zeros(n, n);
+        for p in 0..n {
+            for q in 0..n {
+                let delta = eps[p] - eps[q];
+                if delta.abs() > DK_CONFLUENT_EPS {
+                    f1[(p, q)] = (f[p] - f[q]) / delta;
+                    fp1[(p, q)] = (fp[p] - fp[q]) / delta;
+                } else {
+                    f1[(p, q)] = fp[p];
+                    fp1[(p, q)] = fpp[p];
+                }
+            }
+        }
+        Self {
+            eps,
+            f,
+            fp,
+            fpp,
+            f1,
+            fp1,
+        }
+    }
     /// Second divided difference `f^{[2]}(ε_p, ε_r, ε_q)` with both confluent
     /// branches: `p ≈ q` (pinched) and the fully confluent `p ≈ r ≈ q`.
     #[inline]
-    fn f2(&self, p: usize, r: usize, q: usize) -> f64 {
+    pub(crate) fn f1(&self, p: usize, q: usize) -> f64 {
+        self.f1[(p,q)]
+    }
+
+    pub(crate) fn f2(&self, p: usize, r: usize, q: usize) -> f64 {
         let dpq = self.eps[p] - self.eps[q];
         if dpq.abs() > DK_CONFLUENT_EPS {
             return (self.f1[(p, r)] - self.f1[(r, q)]) / dpq;
@@ -386,12 +548,21 @@ impl ChargeSpaceContext {
             kernel_q_atom,
             kernel_q2_atom,
             dk_second: false,
+            dk_tables_cache: std::sync::OnceLock::new(),
+            dk_third_cache: std::sync::OnceLock::new(),
         };
-        // Exactly degenerate fractionally occupied orbitals make the
-        // coefficient/rotation algebra basis-dependent (the in-block second
-        // order is not a function of the arbitrary intra-block eigenbasis).
-        // The resolvent form is; switch to it exactly there.
-        ctx.dk_second = !ctx.fractional_degenerate_blocks().is_empty();
+        // Orbital-energy derivatives inside a degenerate block are matrices,
+        // including at integer occupation. A diagonal-energy frame chain is
+        // not covariant there. The resolvent formula has the correct projector
+        // limit when kt=0 and remains invariant under in-block rotations.
+        let rotation_block_tolerance = if ctx.finite_t { 1e-10 } else { 1e-6 };
+        ctx.dk_second = !ctx.fractional_degenerate_blocks().is_empty()
+            || (0..ctx.orbital_energies.len()).any(|p| {
+                (p + 1..ctx.orbital_energies.len()).any(|q| {
+                    (ctx.orbital_energies[p] - ctx.orbital_energies[q]).abs()
+                        < rotation_block_tolerance
+                })
+            });
         Ok(ctx)
     }
 
@@ -412,6 +583,31 @@ impl ChargeSpaceContext {
     #[inline]
     pub fn is_finite_temperature(&self) -> bool {
         self.finite_t
+    }
+
+    fn solve_screened_charges(&self, rhs: &[f64]) -> Result<Vec<f64>> {
+        let q = self.dielectric.solve_vec(rhs)?;
+        let cp = crate::resources::current_cp();
+        if cp.absolute_tolerance.is_some() || cp.relative_tolerance.is_some() {
+            let screening =
+                matrix_vector_product(&self.chi0, &matrix_vector_product(&self.kernel, &q)?)?;
+            let residual = q
+                .iter()
+                .zip(rhs)
+                .zip(screening)
+                .map(|((&x, &b), s)| (x - b - s).abs())
+                .fold(0., f64::max);
+            let scale = q
+                .iter()
+                .chain(rhs)
+                .map(|x| x.abs())
+                .fold(1e-12_f64, f64::max);
+            let target = cp.residual_target(0., 1e-9, scale);
+            if !residual.is_finite() || residual > target {
+                return Err(Gfn1Error::LinearAlgebra(format!("molecular charge-space CP residual {residual:e} exceeds configured tolerance {target:e}")));
+            }
+        }
+        Ok(q)
     }
 
     fn helper(&self) -> ResponseHelper<'_> {
@@ -448,7 +644,7 @@ impl ChargeSpaceContext {
 
         // Screened charges via the factored dielectric, then one exact
         // evaluation at the total (skeleton + screening) perturbation.
-        let shell_charges = self.dielectric.solve_vec(&q_bare)?;
+        let shell_charges = self.solve_screened_charges(&q_bare)?;
         let screened_potential = matrix_vector_product(&self.kernel, &shell_charges)?;
         let response_fock =
             scalar_response_fock_matrix(&self.basis, &self.overlap, &screened_potential)?;
@@ -568,41 +764,12 @@ impl ChargeSpaceContext {
     /// against the reference orbital energies — no frame rotation `U`, no
     /// gauge choice, and no in-block special case: degeneracies are the
     /// confluent limits of the same smooth divided differences.
-    fn dk_tables(&self) -> DkTables {
-        let n = self.orbital_energies.len();
-        let eps = self.orbital_energies.clone();
-        let f = self.occupations.clone();
-        let fp: Vec<f64> = f
-            .iter()
-            .map(|&fp| -(fp * (1.0 - 0.5 * fp)).max(0.0) / self.kt)
-            .collect();
-        let fpp: Vec<f64> = f
-            .iter()
-            .zip(&fp)
-            .map(|(&fq, &fpq)| -fpq * (1.0 - fq) / self.kt)
-            .collect();
-        let mut f1 = Matrix::zeros(n, n);
-        let mut fp1 = Matrix::zeros(n, n);
-        for p in 0..n {
-            for q in 0..n {
-                let d = eps[p] - eps[q];
-                if d.abs() > DK_CONFLUENT_EPS {
-                    f1[(p, q)] = (f[p] - f[q]) / d;
-                    fp1[(p, q)] = (fp[p] - fp[q]) / d;
-                } else {
-                    f1[(p, q)] = fp[p];
-                    fp1[(p, q)] = fpp[p];
-                }
-            }
-        }
-        DkTables {
-            eps,
-            f,
-            fp,
-            fpp,
-            f1,
-            fp1,
-        }
+    fn dk_tables(&self) -> &DkTables {
+        self.dk_tables_cache.get_or_init(|| self.build_dk_tables())
+    }
+
+    fn build_dk_tables(&self) -> DkTables {
+        DkTables::new(&self.orbital_energies, &self.occupations, self.kt)
     }
 
     /// Second-order MO-representation response of the matrix function
@@ -620,8 +787,7 @@ impl ChargeSpaceContext {
     /// object (`∂_μ z^L f(z−μ) = −z^L f′`). Returns the `μ^{xy}`-independent
     /// part; the caller adds the diagonal `μ^{xy}` term.
     #[allow(clippy::too_many_arguments)]
-    fn dk_second_order_mo(
-        &self,
+    pub(crate) fn dk_second_order_mo(
         t: &DkTables,
         level: usize,
         a_x: &Matrix,
@@ -667,8 +833,7 @@ impl ChargeSpaceContext {
         for p in 0..n {
             for q in 0..n {
                 // Second-order skeleton term: w^{[1]}_L A^{xy} − w^{[1]}_{L+1} S^{xy}.
-                let mut acc =
-                    w1(level, p, q) * a_xy[(p, q)] - w1(level + 1, p, q) * s_xy[(p, q)];
+                let mut acc = w1(level, p, q) * a_xy[(p, q)] - w1(level + 1, p, q) * s_xy[(p, q)];
                 // Bilinear resolvent term, both orderings.
                 for r in 0..n {
                     let f2 = w2(level, p, r, q);
@@ -698,8 +863,7 @@ impl ChargeSpaceContext {
     /// First-order MO-representation response of `z^L f(z)` — the same
     /// resolvent form one order down, used for the particle-number condition
     /// that fixes `μ^{xy}` and as the first-order consistency check.
-    fn dk_first_order_mo(
-        &self,
+    pub(crate) fn dk_first_order_mo(
         t: &DkTables,
         level: usize,
         a_x: &Matrix,
@@ -720,8 +884,7 @@ impl ChargeSpaceContext {
         let mut out = Matrix::zeros(n, n);
         for p in 0..n {
             for q in 0..n {
-                out[(p, q)] =
-                    w1(level, p, q) * a_x[(p, q)] - w1(level + 1, p, q) * s_x[(p, q)];
+                out[(p, q)] = w1(level, p, q) * a_x[(p, q)] - w1(level + 1, p, q) * s_x[(p, q)];
             }
             out[(p, p)] += mu_x * (-pow(e[p], level) * t.fp[p]);
         }
@@ -897,8 +1060,7 @@ impl ChargeSpaceContext {
             c[(i, i)] = if energy_weighted {
                 // D_y[f_i ε^{(x)}_i + ε_i f^{(x)}_i − f_i ε_i s̃^{(x)}_ii] minus the
                 // base formula on the derivative inputs.
-                occ_y[i] * (hx[(i, i)] - 2.0 * e[i] * sx[(i, i)])
-                    + ey[i] * occ_x[i]
+                occ_y[i] * (hx[(i, i)] - 2.0 * e[i] * sx[(i, i)]) + ey[i] * occ_x[i]
                     - 2.0 * f[i] * ey[i] * sx[(i, i)]
             } else {
                 -occ_y[i] * sx[(i, i)]
@@ -912,15 +1074,16 @@ impl ChargeSpaceContext {
                     if energy_weighted {
                         let w_i = f[i] * e[i];
                         let w_j = f[j] * e[j];
-                        let base = (w_i - w_j) * h_ij / gap - (w_i * e[i] - w_j * e[j]) * s_ij / gap;
+                        let base =
+                            (w_i - w_j) * h_ij / gap - (w_i * e[i] - w_j * e[j]) * s_ij / gap;
                         let wy_i = occ_y[i] * e[i] + f[i] * ey[i];
                         let wy_j = occ_y[j] * e[j] + f[j] * ey[j];
                         let dwe_i = occ_y[i] * e[i] * e[i] + 2.0 * f[i] * e[i] * ey[i];
                         let dwe_j = occ_y[j] * e[j] * e[j] + 2.0 * f[j] * e[j] * ey[j];
                         ((wy_i - wy_j) * h_ij - (dwe_i - dwe_j) * s_ij) / gap - base * dgap / gap
                     } else {
-                        let base = (f[i] - f[j]) * h_ij / gap
-                            - (f[i] * e[i] - f[j] * e[j]) * s_ij / gap;
+                        let base =
+                            (f[i] - f[j]) * h_ij / gap - (f[i] * e[i] - f[j] * e[j]) * s_ij / gap;
                         ((occ_y[i] - occ_y[j]) * h_ij
                             - (occ_y[i] * e[i] + f[i] * ey[i] - occ_y[j] * e[j] - f[j] * ey[j])
                                 * s_ij)
@@ -934,8 +1097,7 @@ impl ChargeSpaceContext {
                     let slope_f = -0.5 * (w[i] + w[j]);
                     let fbar_y = 0.5 * (occ_y[i] + occ_y[j]);
                     let ebar_y = 0.5 * (ey[i] + ey[j]);
-                    let slope_f_y =
-                        0.5 * (d2f[i] * (ey[i] - mu_y) + d2f[j] * (ey[j] - mu_y));
+                    let slope_f_y = 0.5 * (d2f[i] * (ey[i] - mu_y) + d2f[j] * (ey[j] - mu_y));
                     if energy_weighted {
                         let slope_w_y = fbar_y + ebar_y * slope_f + ebar * slope_f_y;
                         let slope_eps_w_y = 2.0 * (ebar_y * fbar + ebar * fbar_y)
@@ -943,8 +1105,7 @@ impl ChargeSpaceContext {
                             + ebar * ebar * slope_f_y;
                         slope_w_y * h_ij - slope_eps_w_y * s_ij
                     } else {
-                        slope_f_y * h_ij
-                            - (fbar_y + ebar_y * slope_f + ebar * slope_f_y) * s_ij
+                        slope_f_y * h_ij - (fbar_y + ebar_y * slope_f + ebar * slope_f_y) * s_ij
                     }
                 };
                 c[(i, j)] = value;
@@ -1463,14 +1624,7 @@ impl ChargeSpaceContext {
         dgamma_x_qy: &[f64],
     ) -> Result<SecondOrderBundle> {
         Ok(self
-            .second_order_field(
-                x,
-                y,
-                fock_skeleton_xy,
-                overlap_xy,
-                dgamma_y_qx,
-                dgamma_x_qy,
-            )?
+            .second_order_field(x, y, fock_skeleton_xy, overlap_xy, dgamma_y_qx, dgamma_x_qy)?
             .bundle)
     }
 
@@ -1604,7 +1758,7 @@ impl ChargeSpaceContext {
         // reference spectrum, exactly degenerate orbitals are the confluent
         // limits of the same expressions — no in-block special case. Gated
         // against the frame path on non-degenerate finite-T systems.
-        let dk_tables = if self.finite_t {
+        let dk_tables = if self.finite_t || self.dk_second {
             Some(self.dk_tables())
         } else {
             None
@@ -1613,12 +1767,20 @@ impl ChargeSpaceContext {
             let w: Vec<f64> = t.fp.iter().map(|&v| -v).collect();
             let ws: f64 = w.iter().sum();
             let mx = if ws > 0.0 {
-                w.iter().zip(&x.eps_response).map(|(&a, &b)| a * b).sum::<f64>() / ws
+                w.iter()
+                    .zip(&x.eps_response)
+                    .map(|(&a, &b)| a * b)
+                    .sum::<f64>()
+                    / ws
             } else {
                 0.0
             };
             let my = if ws > 0.0 {
-                w.iter().zip(&y.eps_response).map(|(&a, &b)| a * b).sum::<f64>() / ws
+                w.iter()
+                    .zip(&y.eps_response)
+                    .map(|(&a, &b)| a * b)
+                    .sum::<f64>()
+                    / ws
             } else {
                 0.0
             };
@@ -1628,7 +1790,7 @@ impl ChargeSpaceContext {
         };
         let dk_response = |a_xy: &Matrix| -> (Matrix, Matrix) {
             let t = dk_tables.as_ref().expect("DK tables");
-            let mut p_mo = self.dk_second_order_mo(
+            let mut p_mo = Self::dk_second_order_mo(
                 t,
                 0,
                 &x.h_tilde,
@@ -1640,7 +1802,7 @@ impl ChargeSpaceContext {
                 mu_x,
                 mu_y,
             );
-            let mut w_mo = self.dk_second_order_mo(
+            let mut w_mo = Self::dk_second_order_mo(
                 t,
                 1,
                 &x.h_tilde,
@@ -1653,8 +1815,8 @@ impl ChargeSpaceContext {
                 mu_y,
             );
             // Particle number: d²Tr[SP] = 0 fixes μ^{xy}.
-            let p1x = self.dk_first_order_mo(t, 0, &x.h_tilde, &x.s_tilde, mu_x);
-            let p1y = self.dk_first_order_mo(t, 0, &y.h_tilde, &y.s_tilde, mu_y);
+            let p1x = Self::dk_first_order_mo(t, 0, &x.h_tilde, &x.s_tilde, mu_x);
+            let p1y = Self::dk_first_order_mo(t, 0, &y.h_tilde, &y.s_tilde, mu_y);
             let mut target = 0.0;
             for p in 0..norb {
                 target -= self.occupations[p] * s_dot_fixed[(p, p)];
@@ -1757,7 +1919,7 @@ impl ChargeSpaceContext {
         for s in 0..nshell {
             q_tilde[s] += cross_xy[s] + cross_yx[s];
         }
-        let q_xy = self.dielectric.solve_vec(&q_tilde)?;
+        let q_xy = self.solve_screened_charges(&q_tilde)?;
 
         // ---- final evaluation with the full dv (including K q^{xy}) ----
         let kq_xy = matrix_vector_product(&self.kernel, &q_xy)?;
@@ -1865,8 +2027,8 @@ impl ChargeSpaceContext {
                     let num = h_dot[(p, q)]
                         - eps_first[q] * x.s_tilde[(p, q)]
                         - self.orbital_energies[q] * s_dot[(p, q)];
-                    u_second[(p, q)] = num / gap
-                        - x.u_rotation[(p, q)] * (eps_first[q] - eps_first[p]) / gap;
+                    u_second[(p, q)] =
+                        num / gap - x.u_rotation[(p, q)] * (eps_first[q] - eps_first[p]) / gap;
                 }
             }
         }
@@ -1923,35 +2085,7 @@ impl ChargeSpaceContext {
         dgamma_v_qvv: &[f64],
         d2gamma_vv_qv: &[f64],
     ) -> Result<ThirdOrderBundle> {
-        // The resolvent (Daleckii–Krein) rewrite that made the SECOND order
-        // basis-independent inside exactly degenerate fractionally occupied
-        // blocks stops here: this assembly is still frame-based
-        // (`frame_rotate`, `u_second`, the U-transported coefficient chains),
-        // and a frame is not well defined when an intra-block rotation leaves
-        // the reference invariant. Measured on T_d Ni(CO)₄ at 3000 K the
-        // third-order FD gate lands at 3.5e3. Refuse rather than return it.
-        if self.finite_t {
-            let e = &self.orbital_energies;
-            for p in 0..e.len() {
-                let wp = (self.occupations[p] * (1.0 - 0.5 * self.occupations[p])).max(0.0);
-                if wp < 1.0e-8 * self.kt {
-                    continue;
-                }
-                for q in (p + 1)..e.len() {
-                    if (e[p] - e[q]).abs() < 1.0e-10 {
-                        return Err(Gfn1Error::InvalidInput(format!(
-                            "third-order finite-temperature response: orbitals {p} and {q} are \
-                             exactly degenerate (gap {:.1e}) with fractional occupation — the \
-                             third-order assembly is still frame-based and the frame is not \
-                             defined inside such a block (the second order takes the \
-                             frame-free resolvent form instead); break the symmetry or use a \
-                             seminumerical path",
-                            (e[p] - e[q]).abs()
-                        )));
-                    }
-                }
-            }
-        }
+        let use_spectral = self.finite_t && self.dk_second;
         let n = self.basis.len();
         let nshell = self.basis.shells.len();
         let norb = self.occupations.len();
@@ -1985,9 +2119,7 @@ impl ChargeSpaceContext {
 
         // ---- external (q^{vvv}-independent) screening pieces ----
         let dv_ext: Vec<f64> = (0..nshell)
-            .map(|s| {
-                3.0 * dgamma_v_qvv[s] + 3.0 * d2gamma_vv_qv[s] + 3.0 * chain3[s] + chain4[s]
-            })
+            .map(|s| 3.0 * dgamma_v_qvv[s] + 3.0 * d2gamma_vv_qv[s] + 3.0 * chain3[s] + chain4[s])
             .collect();
         let rf_dv_ext = scalar_response_fock_matrix(&self.basis, &self.overlap, &dv_ext)?;
         // Mirror metric terms: 3 RF_{S^v}(V^{vv}_resp) + 3 RF_{S^{vv}}(K q^v).
@@ -2018,13 +2150,22 @@ impl ChargeSpaceContext {
             *dst += a + 3.0 * b + 3.0 * c + d;
         }
 
+        if use_spectral {
+            return self.solve_third_order_spectral(
+                v_field,
+                vv_field,
+                &df_ext,
+                overlap_vv,
+                overlap_vvv,
+            );
+        }
+
         // ---- third-order MO representations (recursion) ----
         let u1 = &v_field.u_rotation;
         let u2 = &vv_field.u_second;
         let add3 = |m: &mut Matrix, a: &Matrix, b: &Matrix, c: &Matrix| {
             for idx in 0..m.as_slice().len() {
-                m.as_mut_slice()[idx] +=
-                    a.as_slice()[idx] + b.as_slice()[idx] + c.as_slice()[idx];
+                m.as_mut_slice()[idx] += a.as_slice()[idx] + b.as_slice()[idx] + c.as_slice()[idx];
             }
         };
         let s_ddot = {
@@ -2101,9 +2242,7 @@ impl ChargeSpaceContext {
             let mu3 = (w.iter().zip(eps3).map(|(&wp, &d)| wp * d).sum::<f64>()
                 - pre.iter().sum::<f64>())
                 / wsum;
-            (0..norb)
-                .map(|p| pre[p] - w[p] * (eps3[p] - mu3))
-                .collect()
+            (0..norb).map(|p| pre[p] - w[p] * (eps3[p] - mu3)).collect()
         };
 
         // ---- coefficient pieces (shared by ext and final passes) ----
@@ -2123,34 +2262,32 @@ impl ChargeSpaceContext {
             Ok((c1, cdot))
         };
         // c̈ from a given ḧ: base + 2Δ𝒞(dotted) + Δ𝒞(ref'') + Δ²𝒞_quad.
-        let build_cddot = |h_ddot: &Matrix,
-                           occ3: &[f64],
-                           energy_weighted: bool|
-         -> Result<Matrix> {
-            let mut m = self.dot_coeff(h_ddot, &s_ddot, occ3, energy_weighted)?;
-            let d1 = self.deriv_correction_lin(
-                &vv_field.h_dot,
-                &vv_field.s_dot,
-                &vv_field.bundle.occupation_response,
-                &v_field.eps_response,
-                &v_field.bundle.occupation_response,
-                energy_weighted,
-            );
-            let d2 = self.deriv_correction_lin(
-                &v_field.h_tilde,
-                &v_field.s_tilde,
-                &v_field.bundle.occupation_response,
-                &vv_field.eps_second,
-                &vv_field.bundle.occupation_response,
-                energy_weighted,
-            );
-            let dq = self.coeff_second_reference_quadratic(v_field, energy_weighted);
-            for idx in 0..m.as_slice().len() {
-                m.as_mut_slice()[idx] +=
-                    2.0 * d1.as_slice()[idx] + d2.as_slice()[idx] + dq.as_slice()[idx];
-            }
-            Ok(m)
-        };
+        let build_cddot =
+            |h_ddot: &Matrix, occ3: &[f64], energy_weighted: bool| -> Result<Matrix> {
+                let mut m = self.dot_coeff(h_ddot, &s_ddot, occ3, energy_weighted)?;
+                let d1 = self.deriv_correction_lin(
+                    &vv_field.h_dot,
+                    &vv_field.s_dot,
+                    &vv_field.bundle.occupation_response,
+                    &v_field.eps_response,
+                    &v_field.bundle.occupation_response,
+                    energy_weighted,
+                );
+                let d2 = self.deriv_correction_lin(
+                    &v_field.h_tilde,
+                    &v_field.s_tilde,
+                    &v_field.bundle.occupation_response,
+                    &vv_field.eps_second,
+                    &vv_field.bundle.occupation_response,
+                    energy_weighted,
+                );
+                let dq = self.coeff_second_reference_quadratic(v_field, energy_weighted);
+                for idx in 0..m.as_slice().len() {
+                    m.as_mut_slice()[idx] +=
+                        2.0 * d1.as_slice()[idx] + d2.as_slice()[idx] + dq.as_slice()[idx];
+                }
+                Ok(m)
+            };
         // I₃ = U I₂ + I₂ Uᵀ + U̇c₁ + c₁U̇ᵀ + Uċ + ċUᵀ + c̈.
         let build_inner3 = |c1: &Matrix, cdot: &Matrix, cddot: &Matrix| -> Result<Matrix> {
             let mut i2 = u1.matmul(c1)?;
@@ -2212,7 +2349,7 @@ impl ChargeSpaceContext {
         for s in 0..nshell {
             q_tilde[s] += 3.0 * cross_vv_v[s] + 3.0 * cross_v_vv[s];
         }
-        let q_vvv = self.dielectric.solve_vec(&q_tilde)?;
+        let q_vvv = self.solve_screened_charges(&q_tilde)?;
 
         // ---- final pass with the full screening ----
         let kq3 = matrix_vector_product(&self.kernel, &q_vvv)?;
@@ -2368,14 +2505,10 @@ pub fn directional_third_order_inputs(
         let cn_cache = {
             let mut el_cnv = electronic.clone();
             el_cnv.coordination_numbers = cn_v_resp;
-            let a = crate::hessian::directional_h0_bare_second_matrix(
-                system, params, &el_cnv, v,
-            )?;
+            let a = crate::hessian::directional_h0_bare_second_matrix(system, params, &el_cnv, v)?;
             let mut el_cn0 = electronic.clone();
             el_cn0.coordination_numbers = vec![0.0; system.atoms.len()];
-            let b = crate::hessian::directional_h0_bare_second_matrix(
-                system, params, &el_cn0, v,
-            )?;
+            let b = crate::hessian::directional_h0_bare_second_matrix(system, params, &el_cn0, v)?;
             let mut m = a;
             for k in 0..n * n {
                 m.as_mut_slice()[k] -= b.as_slice()[k];
@@ -2606,19 +2739,16 @@ fn finite_t_reference_correction_dual(
                 if energy_weighted {
                     let w_i = f[i] * e[i];
                     let w_j = f[j] * e[j];
-                    let base =
-                        ((w_i - w_j) * h_ij - (w_i * e[i] - w_j * e[j]) * s_ij) / gap;
+                    let base = ((w_i - w_j) * h_ij - (w_i * e[i] - w_j * e[j]) * s_ij) / gap;
                     let wy_i = Dual::c(occ_y[i]) * e[i] + f[i] * Dual::c(eps_y[i]);
                     let wy_j = Dual::c(occ_y[j]) * e[j] + f[j] * Dual::c(eps_y[j]);
-                    let dwe_i = Dual::c(occ_y[i]) * e[i] * e[i]
-                        + two * f[i] * e[i] * Dual::c(eps_y[i]);
-                    let dwe_j = Dual::c(occ_y[j]) * e[j] * e[j]
-                        + two * f[j] * e[j] * Dual::c(eps_y[j]);
+                    let dwe_i =
+                        Dual::c(occ_y[i]) * e[i] * e[i] + two * f[i] * e[i] * Dual::c(eps_y[i]);
+                    let dwe_j =
+                        Dual::c(occ_y[j]) * e[j] * e[j] + two * f[j] * e[j] * Dual::c(eps_y[j]);
                     ((wy_i - wy_j) * h_ij - (dwe_i - dwe_j) * s_ij) / gap - base * dgap / gap
                 } else {
-                    let base = ((f[i] - f[j]) * h_ij
-                        - (f[i] * e[i] - f[j] * e[j]) * s_ij)
-                        / gap;
+                    let base = ((f[i] - f[j]) * h_ij - (f[i] * e[i] - f[j] * e[j]) * s_ij) / gap;
                     ((Dual::c(occ_y[i] - occ_y[j])) * h_ij
                         - (Dual::c(occ_y[i]) * e[i] + f[i] * Dual::c(eps_y[i])
                             - Dual::c(occ_y[j]) * e[j]
@@ -2634,8 +2764,7 @@ fn finite_t_reference_correction_dual(
                 let fbar_y = Dual::c(0.5 * (occ_y[i] + occ_y[j]));
                 let ebar_y = Dual::c(0.5 * (eps_y[i] + eps_y[j]));
                 let slope_f_y = half
-                    * (d2f[i] * (Dual::c(eps_y[i]) - mu_y)
-                        + d2f[j] * (Dual::c(eps_y[j]) - mu_y));
+                    * (d2f[i] * (Dual::c(eps_y[i]) - mu_y) + d2f[j] * (Dual::c(eps_y[j]) - mu_y));
                 if energy_weighted {
                     let slope_w_y = fbar_y + ebar_y * slope_f + ebar * slope_f_y;
                     let slope_eps_w_y = two * (ebar_y * fbar + ebar * fbar_y)
@@ -2682,12 +2811,8 @@ impl ResponseHelper<'_> {
         overlap_deriv: &Matrix,
         response_fock: &Matrix,
     ) -> Result<(Matrix, Vec<f64>)> {
-        let (h_mo, s_mo) = finite_temperature_mo_derivatives(
-            self.mos,
-            fock_deriv,
-            overlap_deriv,
-            response_fock,
-        )?;
+        let (h_mo, s_mo) =
+            finite_temperature_mo_derivatives(self.mos, fock_deriv, overlap_deriv, response_fock)?;
         let eps_resp = orbital_energy_response_from_mo(self.orbital_energies, &h_mo, &s_mo)?;
         let occ_resp = if self.finite_t {
             fermi_occupation_response(self.occupations, &eps_resp, self.kt)?
@@ -2713,12 +2838,8 @@ impl ResponseHelper<'_> {
         response_fock: &Matrix,
         occupation_response: &[f64],
     ) -> Result<Matrix> {
-        let (h_mo, s_mo) = finite_temperature_mo_derivatives(
-            self.mos,
-            fock_deriv,
-            overlap_deriv,
-            response_fock,
-        )?;
+        let (h_mo, s_mo) =
+            finite_temperature_mo_derivatives(self.mos, fock_deriv, overlap_deriv, response_fock)?;
         let coeff = finite_temperature_response_coefficients_from_mo(
             self.occupations,
             self.orbital_energies,
@@ -2961,8 +3082,7 @@ mod tests {
             let plus = displace(1.0);
             let minus = displace(-1.0);
             for i in 0..second.density.as_slice().len() {
-                let fd =
-                    (plus.density.as_slice()[i] - minus.density.as_slice()[i]) / (2.0 * h);
+                let fd = (plus.density.as_slice()[i] - minus.density.as_slice()[i]) / (2.0 * h);
                 worst_p = worst_p.max((second.density.as_slice()[i] - fd).abs());
                 let fdw = (plus.energy_weighted.as_slice()[i]
                     - minus.energy_weighted.as_slice()[i])
@@ -3150,8 +3270,7 @@ mod tests {
     fn second_order_field_matches_first_order_field_finite_difference() {
         let params = Gfn1Parameters::builtin().unwrap();
         let (system, options, v) = directional_gate_fixture();
-        let (electronic, ctx, field) =
-            directional_first_order_at(&system, &params, &options, &v);
+        let (electronic, ctx, field) = directional_first_order_at(&system, &params, &options, &v);
         let second =
             directional_second_order_at(&system, &params, &options, &electronic, &ctx, &field, &v);
 
@@ -3166,13 +3285,11 @@ mod tests {
             let mut u_fd = Matrix::zeros(norb, norb);
             for &sign in &[1.0_f64, -1.0] {
                 let sys = displaced_along(&system, &v, sign * h);
-                let (_el, ctx_d, field_d) =
-                    directional_first_order_at(&sys, &params, &options, &v);
+                let (_el, ctx_d, field_d) = directional_first_order_at(&sys, &params, &options, &v);
                 // Sign pattern of the displaced MOs relative to the reference.
                 let sigma: Vec<f64> = (0..norb)
                     .map(|p| {
-                        let dot: f64 =
-                            (0..n).map(|mu| ctx.mos[(mu, p)] * ctx_d.mos[(mu, p)]).sum();
+                        let dot: f64 = (0..n).map(|mu| ctx.mos[(mu, p)] * ctx_d.mos[(mu, p)]).sum();
                         assert!(
                             dot.abs() > 0.5,
                             "MO {p} lost its identity under the h={h:.1e} displacement \
@@ -3190,8 +3307,7 @@ mod tests {
                 for p in 0..norb {
                     eps_fd[p] += w * field_d.eps_response[p];
                     for q in 0..norb {
-                        u_fd[(p, q)] +=
-                            w * sigma[p] * sigma[q] * field_d.u_rotation[(p, q)];
+                        u_fd[(p, q)] += w * sigma[p] * sigma[q] * field_d.u_rotation[(p, q)];
                     }
                 }
             }
@@ -3280,8 +3396,7 @@ mod tests {
     fn second_order_rotation_satisfies_orthonormality_identity() {
         let params = Gfn1Parameters::builtin().unwrap();
         let (system, options, v) = directional_gate_fixture();
-        let (electronic, ctx, field) =
-            directional_first_order_at(&system, &params, &options, &v);
+        let (electronic, ctx, field) = directional_first_order_at(&system, &params, &options, &v);
         let second =
             directional_second_order_at(&system, &params, &options, &electronic, &ctx, &field, &v);
         let norb = ctx.occupations.len();
@@ -3290,9 +3405,7 @@ mod tests {
         let mut worst_first = 0.0_f64;
         for p in 0..norb {
             for q in 0..norb {
-                let r = field.u_rotation[(p, q)]
-                    + field.u_rotation[(q, p)]
-                    + field.s_tilde[(p, q)];
+                let r = field.u_rotation[(p, q)] + field.u_rotation[(q, p)] + field.s_tilde[(p, q)];
                 worst_first = worst_first.max(r.abs());
             }
         }
@@ -3300,9 +3413,7 @@ mod tests {
         let mut worst_second = 0.0_f64;
         for p in 0..norb {
             for q in 0..norb {
-                let r = second.u_second[(p, q)]
-                    + second.u_second[(q, p)]
-                    + second.s_dot[(p, q)];
+                let r = second.u_second[(p, q)] + second.u_second[(q, p)] + second.s_dot[(p, q)];
                 worst_second = worst_second.max(r.abs());
             }
         }
@@ -3339,8 +3450,7 @@ mod tests {
     fn solve_second_order_is_bit_identical_to_second_order_field() {
         let params = Gfn1Parameters::builtin().unwrap();
         let (system, options, v) = directional_gate_fixture();
-        let (electronic, ctx, field) =
-            directional_first_order_at(&system, &params, &options, &v);
+        let (electronic, ctx, field) = directional_first_order_at(&system, &params, &options, &v);
         let full =
             directional_second_order_at(&system, &params, &options, &electronic, &ctx, &field, &v);
 
@@ -3424,10 +3534,7 @@ mod tests {
             full.bundle.energy_weighted.as_slice()
         );
         assert_eq!(legacy.shell_charges, full.bundle.shell_charges);
-        assert_eq!(
-            legacy.occupation_response,
-            full.bundle.occupation_response
-        );
+        assert_eq!(legacy.occupation_response, full.bundle.occupation_response);
     }
 
     /// Finite temperature: the ground truth is the SCC itself. Compare BOTH
@@ -3516,8 +3623,7 @@ mod tests {
             for s in 0..qp.len() {
                 let fd = (qp[s] - qm[s]) / (2.0 * h);
                 worst_mine = worst_mine.max((bundle.shell_charges[s] - fd).abs());
-                worst_theirs =
-                    worst_theirs.max((cpxtb.shell_charge_responses[col][s] - fd).abs());
+                worst_theirs = worst_theirs.max((cpxtb.shell_charge_responses[col][s] - fd).abs());
             }
         }
         eprintln!(
@@ -3687,13 +3793,7 @@ mod tests {
             let second = ctx
                 .solve_second_order(&fx, &fy, &f_xy, &s_xy, &dgamma_y_qx, &dgamma_x_qy)
                 .unwrap();
-            worst_fsum = worst_fsum.max(
-                second
-                    .occupation_response
-                    .iter()
-                    .sum::<f64>()
-                    .abs(),
-            );
+            worst_fsum = worst_fsum.max(second.occupation_response.iter().sum::<f64>().abs());
 
             let displace = |sign: f64| -> FirstOrderBundle {
                 let mut sys = system.clone();
@@ -3797,7 +3897,8 @@ mod tests {
         let mut s_dir = Matrix::zeros(n, n);
         for (c, &vc) in v.iter().enumerate() {
             for k in 0..n * n {
-                f_skel.as_mut_slice()[k] += vc * cpxtb.derivative_matrices[c].h0_deriv.as_slice()[k];
+                f_skel.as_mut_slice()[k] +=
+                    vc * cpxtb.derivative_matrices[c].h0_deriv.as_slice()[k];
                 s_dir.as_mut_slice()[k] +=
                     vc * cpxtb.derivative_matrices[c].overlap_deriv.as_slice()[k];
             }
@@ -3815,26 +3916,33 @@ mod tests {
             .map(|s| (0..ndof).map(|d| v[d] * dvdr_q[(s, d)]).sum())
             .collect();
         let zeros = vec![0.0_f64; nshell];
-        let mut f_vv = crate::hessian::directional_h0_bare_second_matrix(
-            system, params, &electronic, v,
-        )
-        .unwrap();
+        let mut f_vv =
+            crate::hessian::directional_h0_bare_second_matrix(system, params, &electronic, v)
+                .unwrap();
         {
             let cn = crate::hessian::directional_h0_cn_block_second_matrix(
-                system, params, &electronic, cutoff, v,
+                system,
+                params,
+                &electronic,
+                cutoff,
+                v,
             )
             .unwrap();
             let scc = crate::hessian::directional_h0_scc_scalar_second_matrix(
-                system, params, &electronic, v, &v_geo, &zeros,
+                system,
+                params,
+                &electronic,
+                v,
+                &v_geo,
+                &zeros,
             )
             .unwrap();
             for k in 0..n * n {
                 f_vv.as_mut_slice()[k] += cn.as_slice()[k] + scc.as_slice()[k];
             }
         }
-        let s_vv =
-            crate::hessian::directional_overlap_second_matrix(system, &electronic.basis, v)
-                .unwrap();
+        let s_vv = crate::hessian::directional_overlap_second_matrix(system, &electronic.basis, v)
+            .unwrap();
         let dgamma_qv = crate::hessian::shell_scalar_potential_first_derivatives(
             system,
             &electronic.basis,
@@ -3870,8 +3978,7 @@ mod tests {
             .map(|k| 0.23 - 0.11 * ((k % 4) as f64) + 0.05 * ((k * 7 % 5) as f64))
             .collect();
 
-        let (electronic, ctx, field, second) =
-            third_order_setup(&system, &params, &options, &v);
+        let (electronic, ctx, field, second) = third_order_setup(&system, &params, &options, &v);
         let nshell = electronic.basis.shells.len();
         let n = electronic.basis.len();
         let cutoff = options.hamiltonian.coordination_cutoff;
@@ -3906,17 +4013,27 @@ mod tests {
             })
             .collect();
         let zeros = vec![0.0_f64; nshell];
-        let mut f3 = crate::hessian::directional_h0_bare_third_matrix(
-            &system, &params, &electronic, &v,
-        )
-        .unwrap();
+        let mut f3 =
+            crate::hessian::directional_h0_bare_third_matrix(&system, &params, &electronic, &v)
+                .unwrap();
         {
             let cn = crate::hessian::directional_h0_cn_block_third_matrix(
-                &system, &params, &electronic, cutoff, &v,
+                &system,
+                &params,
+                &electronic,
+                cutoff,
+                &v,
             )
             .unwrap();
             let scc = crate::hessian::directional_h0_scc_scalar_third_matrix(
-                &system, &params, &electronic, &v, &v_geo, &v_geo2, &zeros, &zeros,
+                &system,
+                &params,
+                &electronic,
+                &v,
+                &v_geo,
+                &v_geo2,
+                &zeros,
+                &zeros,
             )
             .unwrap();
             // CN cache motion of h0_bare²: the affine self-energy trick — the
@@ -3924,8 +4041,7 @@ mod tests {
             // missing third `c₁·P₂` copy (the cn-block third emits only two).
             let cn_v_resp = {
                 let nat = system.atoms.len();
-                let cn_grad =
-                    crate::hessian::cn_gradient_matrix(&system, cutoff).unwrap();
+                let cn_grad = crate::hessian::cn_gradient_matrix(&system, cutoff).unwrap();
                 (0..nat)
                     .map(|at| (0..ndof).map(|c| v[c] * cn_grad[at][c]).sum::<f64>())
                     .collect::<Vec<f64>>()
@@ -3954,15 +4070,10 @@ mod tests {
                     cn.as_slice()[k] + scc.as_slice()[k] + cn_cache.as_slice()[k];
             }
         }
-        let s3 = crate::hessian::directional_overlap_third_matrix(
-            &system,
-            &electronic.basis,
-            &v,
-        )
-        .unwrap();
-        let s2m =
-            crate::hessian::directional_overlap_second_matrix(&system, &electronic.basis, &v)
-                .unwrap();
+        let s3 = crate::hessian::directional_overlap_third_matrix(&system, &electronic.basis, &v)
+            .unwrap();
+        let s2m = crate::hessian::directional_overlap_second_matrix(&system, &electronic.basis, &v)
+            .unwrap();
         let dgamma_qv = crate::hessian::shell_scalar_potential_first_derivatives(
             &system,
             &electronic.basis,
@@ -4103,54 +4214,16 @@ mod tests {
         run_finite_t_second_order_gate(xyz, "Td Ni(CO)4 exact-degenerate");
     }
 
-    /// The THIRD order is still frame-based, so it must refuse an exactly
-    /// degenerate fractional reference rather than return a number (measured
-    /// 3.5e3 against the FD gate if forced). Pins the guard that replaced the
-    /// second-order one when the resolvent form landed.
     #[test]
-    fn third_order_finite_t_exact_degenerate_is_rejected() {
+    fn third_order_finite_t_exact_degenerate_matches_fd() {
         let xyz = "9\nNi(CO)4\nNi 0.000000 0.000000 0.000000\nC 1.820000 1.820000 1.820000\nO 2.480000 2.480000 2.480000\nC -1.820000 -1.820000 1.820000\nO -2.480000 -2.480000 2.480000\nC -1.820000 1.820000 -1.820000\nO -2.480000 2.480000 -2.480000\nC 1.820000 -1.820000 -1.820000\nO 2.480000 -2.480000 -2.480000\n";
+        let system = PeriodicSystem::from_xyz_str(xyz, 0., false).unwrap();
         let mut options = ElectronicOptions::default();
         options.enable_dispersion = false;
-        options.electronic_temperature = 3000.0;
-        let params = Gfn1Parameters::builtin().unwrap();
-        let system = PeriodicSystem::from_xyz_str(xyz, 0.0, false).unwrap();
-        let electronic = run_electronic(&system, &params, options.clone()).unwrap();
-        let ctx = ChargeSpaceContext::build(&system, &params, &electronic).unwrap();
-        assert!(!ctx.fractional_degenerate_blocks().is_empty());
-        let n = electronic.basis.len();
-        let nshell = electronic.basis.shells.len();
-        let zero = Matrix::zeros(n, n);
-        let fx = ctx.first_order_field(zero.clone(), zero.clone()).unwrap();
-        // The second order must SUCCEED (resolvent path) …
-        let second = ctx
-            .second_order_field(
-                &fx,
-                &fx,
-                &zero,
-                &zero,
-                &vec![0.0; nshell],
-                &vec![0.0; nshell],
-            )
-            .expect("second order takes the frame-free resolvent path");
-        // … and the third must refuse.
-        let err = ctx
-            .solve_third_order_directional(
-                &fx,
-                &second,
-                &zero,
-                &zero,
-                &zero,
-                &vec![0.0; nshell],
-                &vec![0.0; nshell],
-                &vec![0.0; nshell],
-                &vec![0.0; nshell],
-            )
-            .unwrap_err();
-        assert!(
-            format!("{err}").contains("exactly degenerate"),
-            "expected the third-order degeneracy guard, got: {err}"
-        );
+        options.electronic_temperature = 3000.;
+        options.energy_tolerance = 1e-14;
+        options.charge_tolerance = 1e-12;
+        run_third_order_gate(system, options, "exact-degenerate Ni(CO)4", 4e-3, 1e-6);
     }
 
     /// The reference state must actually carry exactly degenerate fractional
@@ -4238,11 +4311,20 @@ mod tests {
             )
             .unwrap();
             let mut f_xy = crate::hessian::h0_bare_second_derivative_matrix(
-                &system, &params, &electronic, dof_x, dof_y,
+                &system,
+                &params,
+                &electronic,
+                dof_x,
+                dof_y,
             )
             .unwrap();
             let cn_block = crate::hessian::h0_cn_block_second_derivative_matrix(
-                &system, &params, &electronic, cutoff, dof_x, dof_y,
+                &system,
+                &params,
+                &electronic,
+                cutoff,
+                dof_x,
+                dof_y,
             )
             .unwrap();
             let v_geo_y: Vec<f64> = (0..nshell).map(|s| dvdr_q[(s, dof_y)]).collect();
@@ -4370,11 +4452,20 @@ mod tests {
         )
         .unwrap();
         let mut f_xy = crate::hessian::h0_bare_second_derivative_matrix(
-            &system, &params, &electronic, dof, dof,
+            &system,
+            &params,
+            &electronic,
+            dof,
+            dof,
         )
         .unwrap();
         let cn_block = crate::hessian::h0_cn_block_second_derivative_matrix(
-            &system, &params, &electronic, cutoff, dof, dof,
+            &system,
+            &params,
+            &electronic,
+            cutoff,
+            dof,
+            dof,
         )
         .unwrap();
         let v_geo: Vec<f64> = (0..nshell).map(|s| dvdr_q[(s, dof)]).collect();
@@ -4413,7 +4504,15 @@ mod tests {
             (0..nshell).map(|s| m[(s, dof)]).collect::<Vec<f64>>()
         };
         let second = ctx
-            .second_order_field_with_blocks(&fx, &fx, &f_xy, &s_xy, &dgamma, &dgamma, blocks.clone())
+            .second_order_field_with_blocks(
+                &fx,
+                &fx,
+                &f_xy,
+                &s_xy,
+                &dgamma,
+                &dgamma,
+                blocks.clone(),
+            )
             .unwrap();
 
         // FD of the reconverged first-order bundle along the same dof.
@@ -4423,7 +4522,11 @@ mod tests {
             sys.atoms[dof / 3].position.x += sign * h;
             let el = run_electronic(&sys, &params, options.clone()).unwrap();
             let cp = solve_nonpbc_cpxtb_hessian_response(
-                &sys, &params, &el, ao_opts, CpxtbOptions::default(),
+                &sys,
+                &params,
+                &el,
+                ao_opts,
+                CpxtbOptions::default(),
             )
             .unwrap();
             let c2 = ChargeSpaceContext::build(&sys, &params, &el).unwrap();
@@ -4494,7 +4597,9 @@ mod tests {
         let p0_at = |sign: f64| -> Matrix {
             let mut sys = system.clone();
             sys.atoms[dof / 3].position.x += sign * h;
-            run_electronic(&sys, &params, options.clone()).unwrap().density
+            run_electronic(&sys, &params, options.clone())
+                .unwrap()
+                .density
         };
         let (p0p, p0m) = (p0_at(1.0), p0_at(-1.0));
         let mut dp1 = Matrix::zeros(n, n);

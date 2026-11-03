@@ -5,7 +5,6 @@ audit `src/d4_reference.rs`.
 
 - Upstream repository: https://github.com/dftd4/dftd4
 - Upstream commit: `3f40e365c856b75a2c82adf8fa2f5459e6b8aa44`
-- Commit date: 2026-06-18T08:01:55Z
 - License: LGPL-3.0-or-later; see `COPYING` and `COPYING.LESSER`
 
 Copied files:
@@ -35,7 +34,6 @@ in the xtb repository:
 - Upstream repository: https://github.com/grimme-lab/xtb
 - Path: `param_gfn1-xtb.txt`
 - Upstream commit checked for provenance: `2b5cd4829290775e575807daee21560f851ff7e1`
-- Commit date: 2026-05-16T16:57:44Z
 
 GFN2-derived default used for the experimental D4 ATM scale:
 

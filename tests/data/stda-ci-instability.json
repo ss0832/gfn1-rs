@@ -1,0 +1,46 @@
+{
+  "schema": "gfn1-rs-stda-ci-instability-input-v1",
+  "provenance": "Ethylene trajectory point displaced 0.00001 angstrom maximum atomic norm along negative analytic excitation gradient; test for hidden nonpositive CI-root filtering, not a chemical accuracy reference",
+  "numbers": [
+    6,
+    6,
+    1,
+    1,
+    1,
+    1
+  ],
+  "positions_angstrom": [
+    [
+      -0.6562678984989009,
+      -0.0014392834104157983,
+      0.0002804711104571315
+    ],
+    [
+      0.6561481829532916,
+      0.0008378891202768449,
+      0.0007598348542524162
+    ],
+    [
+      -1.211535849396679,
+      -0.7338895610829022,
+      0.604070358050827
+    ],
+    [
+      -1.2089618975850485,
+      0.7309046571241733,
+      -0.604481937370669
+    ],
+    [
+      1.2095505766407042,
+      -0.7298076210089173,
+      -0.6047302862293262
+    ],
+    [
+      1.2110668858866256,
+      0.7333939192577806,
+      0.6041015595844622
+    ]
+  ],
+  "electronic_temperature_kelvin": 300,
+  "energy_window_ev": 20
+}

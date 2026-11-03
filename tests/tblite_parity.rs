@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -57,10 +58,16 @@ struct TbliteReference {
 }
 
 #[test]
+#[ignore = "external oracle: set GFN1_TBLITE_BIN and GFN1_TBLITE_REVISION, run with --ignored"]
 fn requested_molecules_match_tblite_reference() {
-    let Ok(tblite_bin) = std::env::var("GFN1_TBLITE_BIN") else {
-        return;
-    };
+    let tblite_bin = std::env::var("GFN1_TBLITE_BIN")
+        .expect("MISSING oracle: GFN1_TBLITE_BIN must be set for the oracle gate");
+    let reference_revision = std::env::var("GFN1_TBLITE_REVISION")
+        .expect("MISSING oracle provenance: set GFN1_TBLITE_REVISION to the pinned build commit");
+    assert!(
+        !reference_revision.trim().is_empty(),
+        "empty oracle revision"
+    );
 
     let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -68,13 +75,17 @@ fn requested_molecules_match_tblite_reference() {
     fs::create_dir_all(&run_root).unwrap();
 
     let mut failures = Vec::new();
+    let mut records = Vec::new();
+    let mut executed_cases = 0;
     for molecule in TEST_MOLECULES {
+        let failure_start = failures.len();
         let workdir = run_root.join(sanitize_name(molecule.name));
         fs::create_dir_all(&workdir).unwrap();
         let xyz_path = workdir.join("input.xyz");
         fs::write(&xyz_path, molecule.xyz).unwrap();
 
         let reference = run_tblite(&tblite_bin, &root, &workdir, &xyz_path);
+        executed_cases += 1;
         let system = PeriodicSystem::from_xyz_str(molecule.xyz, 0.0, false).unwrap();
         let electronic = run_electronic(&system, &params, ElectronicOptions::default())
             .unwrap_or_else(|err| panic!("{} Rust singlepoint failed: {err}", molecule.name));
@@ -124,6 +135,16 @@ fn requested_molecules_match_tblite_reference() {
             1.0e-6,
         );
 
+        assert_eq!(
+            reference.gradient.len(),
+            system.atoms.len(),
+            "oracle gradient atom count"
+        );
+        assert!(
+            electronic.converged && gradient.electronic_result.converged,
+            "{} Rust SCF did not converge",
+            molecule.name
+        );
         for (iat, (actual, expected)) in gradient
             .gradient
             .iter()
@@ -155,7 +176,33 @@ fn requested_molecules_match_tblite_reference() {
                 1.0e-6,
             );
         }
+        records.push(serde_json::json!({
+            "validation_id": format!("tblite-gfn1-{}", sanitize_name(molecule.name)),
+            "input_sha256": format!("{:x}", Sha256::digest(molecule.xyz.as_bytes())),
+            "parameter_sha256": format!("{:x}", Sha256::digest(params.to_param_string().as_bytes())),
+            "reference_revision": reference_revision,
+            "implementation_revision": std::env::var("GFN1_IMPLEMENTATION_REVISION").ok(),
+            "electronic_temperature_K": electronic.electronic_temperature,
+            "charge": 0, "spin": "restricted", "energy_units": "hartree",
+            "gradient_units": "hartree/bohr", "absolute_threshold": 1e-6,
+            "status": if failures.len() == failure_start { "pass" } else { "fail" },
+            "errors": &failures[failure_start..],
+            "energy_error": electronic.total_internal - reference.energy,
+        }));
     }
+
+    fs::write(
+        run_root.join("validation.json"),
+        serde_json::to_string_pretty(
+            &serde_json::json!({"executed_cases": executed_cases, "cases": records}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        executed_cases > 0,
+        "oracle gate executed zero reference cases"
+    );
 
     assert!(
         failures.is_empty(),
@@ -165,6 +212,12 @@ fn requested_molecules_match_tblite_reference() {
 }
 
 fn run_tblite(tblite_bin: &str, root: &Path, workdir: &Path, xyz_path: &Path) -> TbliteReference {
+    for name in ["tblite.json", "tblite.grad"] {
+        let path = workdir.join(name);
+        if path.exists() {
+            fs::remove_file(path).unwrap();
+        }
+    }
     let output = Command::new(tblite_bin)
         .current_dir(workdir)
         .env("PATH", tblite_path(root))
@@ -193,9 +246,13 @@ fn run_tblite(tblite_bin: &str, root: &Path, workdir: &Path, xyz_path: &Path) ->
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let json = fs::read_to_string(workdir.join("tblite.json")).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(workdir.join("tblite.json")).unwrap())
+            .expect("invalid oracle JSON");
     TbliteReference {
-        energy: json_scalar(&json, "energy"),
+        energy: json["energy"]
+            .as_f64()
+            .expect("missing numeric oracle energy"),
         gradient: json_gradient(&json),
         terms: parse_terms(&stdout),
     }
@@ -243,48 +300,18 @@ fn parse_first_float(line: &str) -> f64 {
         .unwrap_or_else(|| panic!("no float in tblite line `{line}`"))
 }
 
-fn json_scalar(json: &str, key: &str) -> f64 {
-    let label = format!("\"{key}\"");
-    let start = json
-        .find(&label)
-        .unwrap_or_else(|| panic!("missing key {key}"));
-    let rest = &json[start + label.len()..];
-    let colon = rest.find(':').unwrap();
-    parse_leading_float(&rest[colon + 1..])
-}
-
-fn json_gradient(json: &str) -> Vec<[f64; 3]> {
-    let label = "\"gradient\"";
-    let start = json
-        .find(label)
-        .unwrap_or_else(|| panic!("missing key gradient"));
-    let rest = &json[start + label.len()..];
-    let open = rest.find('[').unwrap();
-    let close = rest[open + 1..].find(']').unwrap() + open + 1;
-    let values = rest[open + 1..close]
-        .split(',')
-        .filter_map(|part| {
-            let trimmed = part.trim();
-            (!trimmed.is_empty()).then(|| trimmed.parse::<f64>().unwrap())
-        })
-        .collect::<Vec<_>>();
+fn json_gradient(json: &serde_json::Value) -> Vec<[f64; 3]> {
+    let values: Vec<f64> = json["gradient"]
+        .as_array()
+        .expect("missing oracle gradient")
+        .iter()
+        .map(|v| v.as_f64().expect("invalid oracle gradient component"))
+        .collect();
     assert_eq!(values.len() % 3, 0);
     values
         .chunks_exact(3)
         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
         .collect()
-}
-
-fn parse_leading_float(input: &str) -> f64 {
-    let mut end = 0;
-    for (idx, ch) in input.char_indices() {
-        if ch.is_ascii_digit() || matches!(ch, '+' | '-' | '.' | 'e' | 'E') {
-            end = idx + ch.len_utf8();
-        } else if end > 0 {
-            break;
-        }
-    }
-    input[..end].trim().parse::<f64>().unwrap()
 }
 
 fn check_delta(
@@ -296,7 +323,7 @@ fn check_delta(
     tolerance: f64,
 ) {
     let delta = actual - expected;
-    if delta.abs() > tolerance {
+    if !actual.is_finite() || !expected.is_finite() || delta.abs() > tolerance {
         failures.push(format!(
             "{molecule} {term}: rust={actual:.12e} tblite={expected:.12e} delta={delta:.3e}"
         ));

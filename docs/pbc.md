@@ -19,16 +19,130 @@ ladder**, including everything new in v0.5.0.
 | SCC energy | `run_pbc_scc`, `run_electronic_pbc`, `pbc_electronic_result` | Γ and Monkhorst-Pack k-points |
 | Gradient / forces | `pbc_analytic_gradient` | analytic, FD-gated |
 | Stress | `pbc_stress` | component stress, analytic |
-| Hessian | `pbc_gamma_hessian`, `pbc_kpoint_hessian` | analytic; k-point CPXTB via preconditioned CG |
+| Hessian | `pbc_gamma_hessian`, `pbc_kpoint_hessian` | analytic; restricted native-complex charge-space LU shared across nuclear RHSs |
 | **Third derivative (Γ), seminumerical** | `pbc_third_derivative_seminumerical_dense` / `_vector` | v0.5.0; supports smearing and every option the Hessian does |
-| **Third derivative (Γ), analytic** | `pbc_gamma_third_analytic_dense` / `_block` / `_vector`, `GammaThirdReference` | **v0.5.0, §2c** — no finite differences; Γ only, integer occupations, `~1e-7` residual |
+| **Third derivative (Γ), analytic** | `pbc_gamma_third_analytic_dense` / `_block` / `_vector`, `GammaThirdReference` | **§2c** — no finite differences; canonical free-energy FC3 with integer or Fermi-smeared occupations, including exact degeneracy |
 | **Third derivative (k-point), seminumerical** | `pbc_kpoint_third_derivative_seminumerical_dense` / `_vector` | v0.5.0, §2b; supports smearing |
-| **Third derivative (k-point), analytic** | `pbc_kpoint_third_analytic_dense` / `_block` / `_vector`, `KpointThirdReference` | **v0.5.0, §2d** — no finite differences; **any Monkhorst–Pack mesh**, integer occupations |
+| **Third derivative (k-point), analytic** | `pbc_kpoint_third_analytic_dense` / `_block` / `_vector`, `KpointThirdReference` | **§2d** — canonical free-energy FC3 on any Monkhorst–Pack mesh; integer or Fermi-smeared occupations, including exact degeneracy |
 | **Strain-mixed `dH/dlnV`** | `pbc_strain_hessian_derivative`, `pbc_kpoint_strain_hessian_derivative` | v0.5.0 |
 | **Grüneisen parameters** | `pbc_gruneisen` | v0.5.0, `q = 0`, frozen-ion; Γ or k-point Hessian |
 | **Second-order Grüneisen** | `pbc_gruneisen` + `GruneisenOptions::second_order` | v0.5.0, same call; own step `delta_second` (2 extra Hessians) |
 | Cell scaling helper | `scale_lattice_isotropic` | v0.5.0 |
 | **Bulk polarization** | `pbc_berry_polarization` | v0.5.0, Berry phase (KSV k-strings + Resta single point) |
+
+The development revalidation found and repaired a separate integer-degeneracy
+FC3 defect. The real response now selects the spectral resolvent within
+degenerate occupied/empty blocks, and complex physical bands are diagonalized
+directly instead of selected from alternating real-embedding columns. The full
+Cartesian Γ and k-point regression and its step ladders are recorded in
+`tests/data/nuclear-derivatives-report.json`. The separate CN/SCC-potential
+cache-motion defects in periodic FC3 are also repaired: §2c/§2d record the
+finite-temperature component audits and renewed zero-temperature step ladders.
+The charge-slot optimization avoids a cloned SCC and full AO skeleton build
+for geometric potential motion; paired partial timings and their memory scope
+are in `tests/data/periodic-response-optimization.json`.
+
+### Structural ML: periodic energy, forces, stress and nuclear DFPT
+
+`ElectronicOptions.ml_model` is connected to scalar periodic SCC at Gamma or
+general k meshes. Local level shifts are applied before the Bloch builder,
+and the reference-cell correction energy enters both internal and Mermin free
+energy. Results preserve the model SHA, correction term and selected citations
+through `pbc_electronic_result`, CLI, Python and ASE projections.
+
+The descriptor includes periodic neighbor images, including self-images.
+Analytic forces and stress use the stationary sensitivity to local levels
+from the **full ordered image-pair Bloch sum**, with physical k-point weights.
+Cartesian self-image derivatives cancel; their strain derivatives are retained.
+`PbcStressResult.ml_stress` separates the structural/correction chain from the
+ordinary band, Pulay, electrostatic and classical contributions. The same
+immutable view is reused for a fixed geometry; global parameters are untouched.
+
+`tests/pbc_ml.rs` verifies exact zero-head restoration, complex k meshes,
+finite-temperature free-energy force/stress differences, self-image and
+lattice-wrapping invariance, level-weight derivatives, and a periodic cell with
+the independently trained water example. These are derivative-consistency
+tests, not periodic-water accuracy validation of a molecular training set.
+
+Periodic **ML nuclear DFPT/Hessians** include `H_theta theta_y` in every Gamma
+or complex-k Fock skeleton; the native charge kernel is unchanged because the
+heads depend on geometry, not density. Their Hessians include the complete
+frozen structural/correction second derivative, both mixed geometric/parameter
+terms, and the head-gradient contraction with the total CP-SCC density
+response. The tanh second-derivative outer product is retained. Mixed AO
+derivatives include zero-overlap/nonzero-derivative pairs. Tests compare the
+full H2 and water Hessians with force differences at two steps, Gamma/k meshes
+and zero/finite temperature, as well as raw acoustic contractions.
+`PbcHessianResult.raw_max_asymmetry` audits the matrix before numerical
+symmetrization.
+
+`AnalyticSupercellPhonons` also accepts ML for commensurate q. Its Hessian is
+analytic CP-SCC; reciprocal projection is zone-folded supercell response. The
+ML finite-q gate checks q/-q conjugacy, Hermiticity and a force-wave difference
+at two displacements. The original raw Hessian asymmetry is exposed separately
+from projected dynamical-matrix Hermiticity. This does not implement arbitrary-q
+primitive-cell Sternheimer. Directional scalar/ML Gamma LO–TO corrections
+are available separately in [electromechanical.md](electromechanical.md).
+Periodic **analytic ML FC3**
+and ML TDA excited-state gradients still reject unsupported chains.
+
+### Physical-spinor SOC and shared response
+
+`pbc::soc::{run_pbc_soc_scc,pbc_soc_analytic_gradient,pbc_soc_stress,
+pbc_soc_hessian}` accept explicit `SocParameters` in the same zeta L.S Hartree
+convention as molecular SOC. Native-complex overlap orthogonalization operates
+on the physical **2*nAO** matrix, without real-embedding eigenvalue copies.
+All k points share one electron-count constraint and Fermi level, with
+occupation limit one. Zero-temperature partially filled degenerate groups are
+equal-occupation ensembles; zero-temperature nuclear response requires gapped
+integer filling.
+
+The Hamiltonian contains `{S(k),O}/2`. Its exact overlap derivative enters
+forces/stress through `W_eff = spin_trace(W - (O P + P O)/2)`. SOC DFPT
+differentiates nonorthogonal density/weighted-density matrix functions using
+divided differences of f, epsilon*f and epsilon^2*f. A global chemical-potential
+response fixes electron number. The shell-space susceptibility and charge
+kernel are factored once for all nuclear RHSs; frozen geometry/classical
+Hessian terms are shared with the scalar implementation.
+
+The restricted scalar Hessian shares that engine using physical nAO bands,
+occupation limit two and the corresponding Fermi slopes. The older Gamma/k
+CP APIs remain independent regression references; explicit fixed-spin
+constraints retain their existing solver. The standard full Hessian no longer
+forms the dense occupied/virtual-pair response operator. Water densities and
+Hessians agree with the independent legacy route at zero and strongly finite
+temperature.
+
+`AnalyticSupercellPhonons::build_soc` supplies commensurate SOC modes from the
+analytic spinor supercell Hessian. It retains raw Hessian asymmetry and maximum
+normalized CP-SCC residual. Tests cover physical state counts, zero-SOC limits,
+Gamma Kramers pairs, folded/unfolded time reversal, joint cell/molecule rotation,
+finite-temperature force/stress/Hessian differences, and finite-q force waves.
+
+Explicit provenance-tagged p/d couplings remain required; no original-author
+coefficient table is bundled. Noncollinear W, SOC+ML/solvent/magnetic combinations,
+periodic analytic SOC FC3 and macroscopic SOC electric/LO-TO response are not
+established by this nuclear-response implementation.
+
+### AO image sums and validation domains
+
+`PbcOptions.ao_cutoff` is in bohr. High-level Rust/CLI/Python/ASE paths accept
+`ElectronicOptions.pbc_ao_cutoff`, `--pbc-ao-cutoff`, or constructor
+`pbc_ao_cutoff`; explicit low-level/per-call PBC controls take precedence.
+The default is 30 bohr. Converge the sum for diffuse elements. The declared
+SrTiO3 prototype has a minimum overlap eigenvalue -0.0970 at k=(0.5,0,0) with
+an intentionally short 24-bohr sum. At 80 and 90 bohr the minimum eigenvalues
+agree to about 1e-14 and are positive (Gamma 0.00238569, k=(0.5,0,0) 0.00816784).
+The crystal gate records an explicit 80-bohr sum for this case.
+`tests/validation/periodic_overlap_spectrum.rs` reproduces the scan without SCC.
+
+Nuclear derivatives are local to a fixed smooth cutoff neighborhood.
+`smoothness::NuclearNeighborhood` compares canonical atom/image identities for
+AO, coordination, repulsion, D3 and Ewald real-space cutoffs at fixed cell and
+species. The crystal force-wave gate records cutoff-crossing trial steps and
+halves both displacements until all four signed geometries remain on the
+reference branch. It checks the real-wave Rayleigh quotient against the
+analytic eigenvalue before using that wave as a force-difference reference.
 
 All the v0.5.0 names above — plus `SecondOrderStencil`,
 `pbc_gamma_third_with_reference`, `GammaThirdReference`,
@@ -78,8 +192,8 @@ strain derivative needs exactly 2.
 > **A closed-form Γ-point third derivative also exists** — see §2c. It carries
 > the periodic CPXTB response chain one derivative further through the
 > Ewald/Klopman–Ohno partitioning, needs no finite differences, and is gated
-> against *this* route. Prefer it at Γ with integer occupations; stay here for
-> Fermi smearing, or when you need better than `~1e-7` absolute. For a k-mesh
+> against *this* route. It supports integer and Fermi-smeared occupations,
+> including exactly degenerate fractional blocks. For a k-mesh
 > there is now a closed form too — §2d, `pbc_kpoint_third_analytic_*`, gated
 > against §2b. The CLI rejects `--third-derivative`
 > on any lattice-bearing input with
@@ -134,14 +248,12 @@ coordinates**, so it scales with the reciprocal lattice and both strained cells
 are sampled at the same fractional `k`. That is what makes the central difference
 well defined at fixed `pbc.kmesh`.
 
-> **Gated at `T = 0`, integer occupations, gapped.** Every k-point gate below
-> pins `electronic_temperature = 0.0` explicitly, rather than relying on a gapped
-> system's 300 K occupations rounding to integers. The periodic
-> finite-temperature response (`kpoint_finite_temperature_response_dof` and its Γ
-> analogue) is a direct dielectric solve as of v0.5.0 — see §5 — so a smeared
-> k-point run is not *unsound*; it is simply not gated here. Differencing a
-> reconverged metallic Hessian needs a far tighter SCC than the defaults, and
-> that is the finite-temperature workstream's ground, not this one's.
+> **Historical `T = 0` gates.** The original k-point gates below
+> pin `electronic_temperature = 0.0` explicitly, rather than relying on a gapped
+> system's 300 K occupations rounding to integers. The new canonical thermal
+> FC3 component audits in §2d use independently reconverged k-point Hessians at
+> two displacement steps, with genuinely fractional and exactly degenerate
+> bands. Tight SCC tolerances are required for those references.
 
 ### Why this exists: the verification base for the analytic k-point FC3
 
@@ -149,13 +261,13 @@ These entry points differentiate an already FD-gated analytic k-point Hessian, s
 they isolate exactly the one derivative the **analytic** k-point FC3 has to add.
 That analytic path landed in v0.5.0 (§2d) and is gated against these — the same
 relationship the molecular analytic FC3 has to `third_derivative_seminumerical`.
-The seminumerical route remains the supported one for Fermi-smeared cells and for
-option sets the term registry caps below analytic order 3.
+The seminumerical route also supports Fermi-smeared cells and option sets the
+term registry caps below analytic order 3.
 
-### Gates (`tests/pbc_third_derivative.rs`, 6 tests, 275 s total)
+### Historical gates (`tests/pbc_third_derivative.rs`, 6 tests, 275 s total)
 
-Primitive diamond with **one carbon nudged 0.03 Å along x** (see the caveat
-below for why), `T = 0`, lean cutoffs (AO 12 / Ewald real 18 / sr 8 Bohr),
+Primitive diamond with **one carbon nudged 0.03 Å along x**, retained as a
+nonsymmetric regression, `T = 0`, lean cutoffs (AO 12 / Ewald real 18 / sr 8 Bohr),
 FD step `h = 10⁻³` Bohr, strain `δ = 5·10⁻³`.
 
 | Gate | Result |
@@ -167,51 +279,32 @@ FD step `h = 10⁻³` Bohr, strain `δ = 5·10⁻³`.
 | `dH/dlnV`: Γ-only vs Γ path | `6.2e-13` on a `2.164` Eh/Bohr² scale (rel `2.9e-13`) |
 | `dH/dlnV`: `[1,1,1]` vs `[2,2,2]` | `1.400` (rel `0.647`) — the mesh reaches the strain derivative |
 
-The Γ-only collapse is **not** bit-for-bit, and should not be expected to be: the
-k-point path back-transforms real-space image densities and solves the *complex*
-CPXTB by preconditioned CG, where the Γ path uses the real density and a direct
-real solve. `kpoint_hessian_reduces_to_gamma_at_gamma_only` gates the Hessians
-themselves at `1e-8`; dividing that by `2h = 2·10⁻³` would permit a `1e-5` slab
-difference, and what is measured is seven orders tighter.
+The historical Γ-only comparison was not bit-for-bit. The current closed-shell
+Hessians share the native complex spectral response, while the real-space image
+transforms can still differ in floating-point accumulation order.
+`kpoint_hessian_reduces_to_gamma_at_gamma_only` checks the Hessians themselves;
+the renewed finite-temperature component audits are recorded in §2c/§2d.
 
-### ⚠ Caveat: `pbc_kpoint_hessian` is wrong on exactly degenerate frontier orbitals
+### Degenerate frontier orbitals and the native spectral response
 
-This is a **pre-existing bug in `src/pbc/hessian.rs`**, not in the FD layer, but
-it decides which cells the k-point derivatives above can be run on.
+The closed-shell scalar Gamma and k-point Hessians now use
+`soc_response::scalar_nuclear_responses`, sharing the native complex spectral
+matrix-function response with the physical-spinor driver. Equal-energy
+same-occupation blocks use confluent divided differences instead of arbitrary
+real-embedding representatives. Open-shell legacy response is a separate path.
 
-Perfect diamond has a triply degenerate `t2` HOMO *and* LUMO at Γ. Inside an
-exactly degenerate block the complex generalized eigensolver returns an arbitrary
-unitary basis, and the k-point CPXTB is **not invariant** under that choice. At a
-Γ-only mesh the correct answer is exactly `pbc_gamma_hessian` (itself verified
-against the analytic-gradient FD to `2.3e-9`); measured
-`max |H_Γ − H_kpoint|` on undistorted diamond, scale `1.2 – 1.5` Eh/Bohr²:
+The previous implementation could give order-one errors on perfect diamond;
+those historical figures do not describe the new closed-shell backend. The
+old test that required this defect to persist has been replaced by
+`kpoint_hessian_is_consistent_at_degenerate_diamond_frontiers`: Gamma/k-point
+agreement at three AO cutoffs, plus independent gradient finite differences on
+undistorted diamond at Gamma and on a `[2,2,2]` electronic mesh. The distorted
+fixture remains a separate nonsymmetric regression.
 
-| `a` (Å) \ `ao_cutoff` (Bohr) | 10 | 12 | 14 | 16 | 20 |
-| --- | --- | --- | --- | --- | --- |
-| 3.567 | 2e-15 | **1.90** | **3.71e-1** | 5e-15 | **7.91e-1** |
-| 3.500 | **4.15e-1** | **7.58e-1** | **1.26** | 3e-15 | 8e-15 |
-| 3.400 | **2.07e-1** | 3e-15 | 3e-15 | 5e-15 | 1e-15 |
-| 3.567004 | **7.88e-1** | 1e-15 | **5.79e-1** | **1.50e-1** | 2e-15 |
-
-i.e. up to a **100% error**, appearing and vanishing with a `4·10⁻⁶ Å` change in
-the lattice constant. With the 0.03 Å distortion **all twenty** configurations
-collapse to `4e-16 … 3e-14`.
-
-Consequences, and they are not symmetric across the entry points:
-
-- The **FC3** entry points are only exposed through evaluations at the
-  reference geometry, which a central difference over atomic displacements never
-  makes — a displaced high-symmetry cell has its degeneracy lifted.
-- The **strain derivative** and **Grüneisen** paths evaluate isotropically scaled
-  cells, which preserve the point group *exactly*. They hit the bug head-on on a
-  perfect crystal.
-
-So until the degenerate-block handling in the k-point CPXTB is fixed, run the
-k-point derivatives on cells whose frontier orbitals are non-degenerate at every
-sampled `k`. `kpoint_hessian_degenerate_frontier_orbital_bug_is_confined` pins
-both halves of this as a negative gate: the distorted fixture must stay clean
-(`< 1e-12` relative) and the perfect cell must stay broken (`> 1e-3`), so the day
-the bug is fixed the test fails loudly instead of silently.
+The finite-temperature FC3 audit in §2d adds an axial B₂ cell with an explicitly
+checked exactly degenerate fractional pair. Degeneracy is handled through
+confluent spectral divided differences; it does not require an artificial
+distortion or rejecting fractional occupations.
 
 ---
 
@@ -264,11 +357,12 @@ e³[v] = frozen third                        band/Pulay + CN + SCC2(real) + SCC2
       + density path   ∂frozen²/∂X⁰ · X¹    the frozen Hessian's own motion with the reference
       + g(X²)·v                             the periodic response gradient at the 2nd-order slots
       + B6(X¹)[v,v]                         geometric motion of the response gradient
-      + 2·bg4(X¹, X¹)·v                     the bilinear self-term, differentiated into BOTH slots
+      + background_complete                reference motion and geometric SCC-kernel motion
 ```
 
-Three of these are worth spelling out, because they are exactly what a naive
-mirror of the molecular assembly gets wrong.
+The reference and potential caches must move along with the geometry. Their
+contributions are retained explicitly rather than absorbed into a uniform
+background multiplier.
 
 **The density path is not optional, and it is not in the response gradient.**
 The periodic `response_gradient` has a *narrower* scope than its molecular
@@ -280,140 +374,102 @@ convention, twice the SCC2 charge-path bilinear `(q₀, q¹)`, and the
 `V(q₀)`-cache motion. That last one is evaluated by a Δ-trick rather than a new
 builder: re-evaluate the band/Pulay block on an SCC record whose shell potential
 is shifted by `K·q¹` and whose potential legs are shifted by `∂γ_v·q¹` and
-`∂²γ_vv·q¹`, then subtract the unshifted evaluation. Omitting the density path
-was the single largest error in the first working assembly — `1.29e-4`, i.e.
-**1500x** the current residual.
+`∂²γ_vv·q¹`, then subtract the unshifted evaluation.
 
-**`bg4` enters with a factor 2.** The response gradient's bilinear self-terms
-differentiate into both slots (`d/dλ[−P¹(Kq¹)∇S]` feeds the mixed `(X², X¹)`
-pairs from either side) while `g(X²)` supplies only the diagonal; the two mixed
-completions are precisely the `bg4` families.
+**The background families have different multiplicities.** With traces over
+real-space AO images and the anticommutator implied for shell potentials, the
+complete background is
 
-**The frozen thirds use a V-fixed convention.** Per AO image pair,
-`t = C·S₃ + 2P·S·H₃ + P(6H₁−V₁)·S₂ + P(6H₂−V₂)·S₁`, with the whole `dV/dR`
-routed through the density path exactly as in the molecular assembly. The three
-classical terms (repulsion, halogen, D3) needed no new code at all: their
-existing third derivatives are image-summed already.
+```text
+−Tr[P¹ (γ'_v q⁰) S'_v] − 2 Tr[P¹ (K q¹) S'_v]
+−Tr[P⁰ V_qq[q¹,q¹] S'_v] + q¹ γ'_v q¹
+−Tr[P⁰ (γ'_v q¹) S'_v].
+```
 
-### Gates
+Here `K` is the SCC charge kernel and `V_qq` is the onsite potential's second
+charge derivative. The historical `bg4` sum is retained only as a diagnostic;
+doubling that entire sum omits a geometric screening term and gives incorrect
+multiplicities for other terms.
 
-Fixtures are two **distorted** 2-atom cells — skewed diamond and skewed
-zincblende BN — for the degeneracy reason of §2b, plus BN to exercise the
-heteronuclear charge path. Lean cutoffs (AO 12, Ewald sr 8 Bohr), `T = 0`.
+**The frozen third includes geometric cache motion at fixed density.** The
+band/Pulay contribution includes `−P⁰(γ'_v q⁰)S''_vv` from motion of the cached
+SCC potential. The CN contribution includes all three permutations of
+`se'(CN) CN'_v f''_vv` for `H₀ = se(CN) f(R)`; the response-gradient CN cross
+term likewise has its full product-rule factor. Classical repulsion, halogen
+and D3 third derivatives are image-summed directly.
 
-| Gate | diamond-skew | BN-skew | Where |
-| --- | --- | --- | --- |
-| **Total** vs Richardson-extrapolated seminumerical, `\|Δ\|` | `8.53e-8` | `8.03e-8` | `gamma_analytic_third_matches_seminumerical` |
-| Acoustic sum rule, worst of 4 rigid translations | `1.0e-15` | `4.2e-16` | `..._obeys_the_acoustic_sum_rule` |
-| Block (4 DOF) `contract_vvv` vs directional, rel | `9.6e-16` | `4.1e-15` | `..._block_matches_directional` |
-| Dense `contract_vvv` vs directional, 3 independent `v`, worst rel | `2.9e-16` | `1.6e-15` | `..._dense_matches_directional` |
-| `q^vv` vs 2nd central FD of reconverged SCC charges | `2.7e-9` | `4.9e-9` | `gamma_second_order_charges_match_reconverged_fd` |
-| 1st-order field: dielectric route vs occ-virt PCG (`dP`/`dW`/`dq`) | `1.7e-15` / `5.3e-16` / `2.3e-16` | `4.8e-14` / `3.6e-14` / `4.5e-15` | `gamma_context_first_order_matches_pcg_route` |
+### Validation of canonical finite-temperature FC3
 
-Rows 2–4 land at **machine precision**, not merely inside tolerance. That is the
-expected outcome and it is worth saying why each is still informative:
+All Γ entry points use the canonical response at the requested electronic
+temperature and fixed electron number. First- and second-order density and
+energy-weighted density responses include the chemical-potential response.
+Matrix-function divided differences supply the confluent limits within exactly
+degenerate fractional blocks; there is no occupation freezing, temperature
+substitution or finite difference in the production FC3.
 
-- The **acoustic sum rule** is an exact invariance of the assembled tensor, and
-  the `~1e-15` result says every block — including the Ewald reciprocal sums and
-  the CN chain — is translation-covariant to the last bit. It is the one gate
-  that would catch a sign or image-offset error in a block that happens to be
-  small on these fixtures. (The `1e-10` tolerance in the test is deliberate
-  slack for other cells, not a description of what is measured.)
-- The **polarization identities** confirm the dense/block drivers recover the
-  directional evaluator exactly. They reach the same contraction through 7
-  signed evaluations per canonical triple at *integer*-weighted directions,
-  recombined — so agreement at `1e-15` with a single fractional-weight direction
-  also certifies that the directional evaluator is exactly cubic-homogeneous
-  in `v`, with no quadratic or quartic contamination.
+The v0.7.0 development regression
+`gamma_thermal_fc3_all_components_match_independent_hessian_differences` in
+`tests/pbc_gamma_third_analytic.rs` compares **all 216 Cartesian components**
+for each two-atom periodic fixture against independent Hessian differences at
+`h = 1e-3` and `5e-4` bohr, followed by Richardson extrapolation:
 
-The last two rows are the load-bearing intermediate gates. The first-order one is
-an **equivalence** gate — two independently implemented solvers of the same fixed
-point (a charge-space dielectric factorization vs occupied-virtual preconditioned
-CG) agreeing to machine precision — which is a far stronger statement than any
-finite difference.
+| Periodic fixture | Electronic temperature / filling | Maximum FC3 error (Hartree/bohr³) |
+| --- | --- | --- |
+| H₂, cubic cell | 30000 K, fractional | `7.68e-11` |
+| H₂, cubic cell | 0 K, integer | `8.48e-11` |
+| HF, cubic cell | 30000 K, fractional, heteronuclear charge response | `6.02e-12` |
+| B₂, axial geometry in a cubic cell | 3000 K, exactly degenerate fractional bands | `2.69e-12` |
 
-### ⚠ The `~1e-7` residual is real
+The high temperatures deliberately expose occupation derivatives in the gapped
+H₂/HF fixtures. They are validation conditions, not required temperatures or
+changes to the user's requested electronic temperature. The B₂ test asserts
+both an energy separation below `1e-9` Hartree and fractional occupations for
+the degenerate pair before evaluating derivatives. Positions, cells and cutoffs
+are specified in the test. SCC tolerances are `1e-13` Hartree in energy and
+`1e-11` in charge; no D3 correction is enabled in these fixtures.
 
-The total gate's `8.5e-8` / `8.0e-8` is **not** finite-difference truncation. The
-`h`-ladder ratio is `0.99` / `1.10` (a truncation error would show `~4`), so the
-seminumerical reference is converged and the assembly is genuinely missing a term
-of that size. On a `~10⁻³` Eh/Bohr³ scale that is a `~1e-4` relative error.
+For each fixture the same test checks dense/vector contractions along two
+independent directions, block/dense equality and the rigid-translation acoustic
+sum rule. The four-fixture run took 257.09 s with two Rayon threads and one
+matrix-library thread. This is a validation runtime, not an isolated FC3 timing.
 
-What is already excluded, block by block, by the standing diagnostics:
-
-- **CN closes exactly** (`1e-13`, two-sided convention).
-- **SCC2 real-space + Ewald close together**: the bilinear plus `3.79e-7` matches
-  the sum of both blocks' charge motion.
-- The remainder is **entirely band/Pulay**: `+1.06e-7` (diamond), `+1.45e-8`
-  (BN). It appears on diamond, where the `dV`-cache term is ≈ 0, so it is
-  *charge-independent* — a geometric, not electrostatic, omission.
-
-Leading hypothesis: the `se(CN)` self-energy cache motion crossed with `X¹`. The
-`bp(X¹)` block freezes `se₀`, but the true `D_v` includes `se(CN(λ))` moving
-against the `P¹` term — a cross between the CN builder's `dse/dCN` and the band
-geometry's own motion. A per-block FD of the reconverged `scf(λ)` cannot settle
-it directly, because `se(λ)` contaminates the band/Pulay and CN attributions of
-each other.
-
-Four `#[ignore]`d diagnostics stand permanently in `src/pbc/gamma_response.rs`
-for this: `gamma_response_split_diagnostic` (FD of the true `D_v[r₂]` vs the
-assembly's response side, and by subtraction the frozen side),
-`gamma_frozen_block_split_diagnostic` (per-block `D_v` at the reconverged
-`scf(λ)`, pinning the density-path inventory block by block),
-`gamma_second_order_charges_match_reconverged_fd`, and the total gate itself.
-`GFN1_G3_DEBUG=1` prints the five-group breakdown plus the `b6` blocks, the
-`bg4` families and the individual frozen thirds.
-
-**Practical consequence — and be clear-eyed about it: the analytic route is
-currently the *less* accurate of the two.** The gate prints both the raw
-`h = 10⁻³` difference and the Richardson extrapolation, and they differ by only
-`6.2e-10` (diamond) / `1.1e-8` (BN). So the seminumerical FD is already
-converged to `~10⁻⁹`, an order of magnitude *inside* the analytic assembly's
-`8e-8` residual. Accuracy is not the reason to reach for this path.
-
-The reasons that do hold:
-
-- **Vector mode is dramatically cheaper.** `pbc_gamma_third_analytic_vector`
-  costs one SCC and one assembly; `pbc_third_derivative_seminumerical_vector`
-  costs `2·nnz(v)` full periodic Hessians. For a directional anharmonicity along
-  one normal mode that is a large constant-factor win, and it grows with the
-  number of moving atoms. (Dense mode is *not* a win at small `N` — see Cost.)
-- **No step size to choose.** No `h` to tune, no cancellation floor, and nothing
-  that silently degrades when the SCC tolerance is loosened.
-- **It composes.** Being a closed form, it can be differentiated further and
-  reused as a building block; a finite difference cannot.
-
-If you need better than `~1e-7` absolute on periodic cubic force constants
-today, use `pbc_third_derivative_seminumerical_*`. For phonon anharmonicity and
-Grüneisen work, where the FC3 scale is `10⁻³` and the physics tolerance is
-percent-level, `8e-8` is far below anything that matters and the vector-mode
-cost advantage decides it.
+The former `~1e-7` Γ assembly residual on distorted diamond/BN was a real
+implementation defect. The geometric self-energy and SCC-potential cache
+motion and response-background terms described above have now been corrected.
+The repeated directional regression on distorted diamond and BN agrees with
+two-step Hessian differences to `2.95e-14` and `2.19e-13` Hartree/bohr³,
+respectively; both step-ladder ratios are 4.00. Complete fixed-density frozen
+bundle checks give `1.55e-13` and `1.26e-13`, and the response-gradient geometric
+motion gives `3.89e-12` and `4.07e-12` with `h = 2e-4`/`1e-4` bohr.
+The full-component tests include both thermal and zero-temperature references.
+The split diagnostics in `src/pbc/gamma_response.rs` and
+`src/pbc/gamma_third.rs` remain available to inspect first/second responses,
+frozen block conventions and individual background families.
+`GFN1_G3_DEBUG=1` prints the complete five-group assembly and its term split.
 
 ### Cost
 
-One directional evaluation costs a periodic SCC, **two** image-summed skeleton
-builds, one charge-space factorization, and the frozen/response/density-path
+One directional evaluation costs a periodic SCC, an image-summed skeleton
+build, one charge-space factorization, geometric charge-kernel contractions,
+and the frozen/response/density-path
 assemblies. `GammaThirdReference` hoists everything that depends only on the
 reference geometry — the SCC, the Γ MOs, the primary skeleton, the charge-space
 factorization, the real-space ground densities, the response band-pair table, the
 screening kernel and the coordination derivatives — so a dense sweep pays those
 once.
 
-What genuinely *cannot* be hoisted is the second skeleton build: `dγ_v·q¹` needs
-the geometric kernel motion evaluated **at the response charges**, and the only
-way to reach it is a full `gamma_skeleton_derivatives` call on an SCC record
-doctored to carry `q¹` — which depends on the direction. That is why a
-direction still costs ~2x a single skeleton, and it is the obvious target if
-this path ever needs to get faster (a charge-slot-generic skeleton entry point
-would remove it).
+The geometric kernel motion `dγ_v·q¹` depends on the direction's response
+charges. It uses a charge-slot-specific potential derivative helper without
+rebuilding AO Fock/overlap skeletons. Second directional geometric kernels and
+the complete frozen/reference terms are then contracted for that direction.
 
 Dense mode needs `~C(3N+2, 3)` distinct directions after deduplicating the
 polarization subsets — 56 for a 2-atom cell, 816 for 8 atoms — evaluated in
 parallel with `rayon`. The direction count alone is `N³`, on top of a
 per-direction cost that itself grows with `N`.
 
-**Dense mode is therefore not a cost win at small `N`, and the measured numbers
-say so.** On the 2-atom fixtures (lean cutoffs, `rayon` across all cores): a
+**Dense mode is therefore not a cost win at small `N`.** Historical v0.5.0
+measurements on the 2-atom fixtures (lean cutoffs, `rayon` across all cores): a
 4-DOF `_block` sweep runs `142 – 158 s`, and the full 6-DOF `_dense` sweep runs
 `302 s` (BN) / `333 s` (diamond). `pbc_third_derivative_seminumerical_dense`
 produces the same-shaped tensor from only `2·3N = 12` periodic Hessians, in a
@@ -431,8 +487,6 @@ specifically want the closed form rather than the cheapest route to the tensor.
   the analytic k-point path `pbc_kpoint_third_analytic_*` (§2d), which has no
   mesh restriction, or the seminumerical
   `pbc_kpoint_third_derivative_seminumerical_*` (§2b).
-- **Fermi smearing.** Fractional occupations are rejected. The seminumerical
-  routes support them.
 - **Order-1 model options.** multipole, long-range exchange, DFT+U, spin
   polarization, external field and experimental D4 are rejected by
   `terms::require_order(_, _, 3, _)` — the first PBC entry point to consult the
@@ -470,9 +524,11 @@ pub fn pbc_kpoint_third_with_reference(
 ) -> Result<f64>
 ```
 
-**No finite differences anywhere, and no mesh restriction.** `pbc.kmesh` is taken
-as given: `KMesh::gamma()` collapses onto the Γ path (to `~1e-17` relative, see
-the gates), any `KMesh::monkhorst_pack([n1,n2,n3])` samples the zone. Python:
+**No finite differences in the analytic route, and no mesh restriction.**
+`pbc.kmesh` is taken as given: `KMesh::gamma()` collapses onto the Γ path and any
+`KMesh::monkhorst_pack([n1,n2,n3])` samples the zone. Integer and Fermi-smeared
+occupations, including exactly degenerate fractional blocks, use the same
+canonical free-energy response at the requested electronic temperature. Python:
 `third_derivative_periodic_kpoint_analytic` and
 `third_derivative_periodic_kpoint_analytic_vector` (atomic units, `kgrid`
 argument).
@@ -484,7 +540,8 @@ these are the `q = 0` cubic force constants; what the mesh converges is the
 ### What is assembled, and why it is the §2c assembly verbatim
 
 ```text
-e³[v] = frozen third + density path + g(X²)·v + B6(X¹)[v,v] + 2·bg4(X¹, X¹)·v
+d³F/dλ³ = complete frozen third + density path + g(X²)·v + B6(X¹)[v,v]
+           + background_complete(X¹, X¹)·v
 ```
 
 Term for term, the same five groups as §2c, evaluated by the same builders. That
@@ -495,7 +552,7 @@ objects — real-space density images `P(T)`, `W(T)`, and real shell charges `q`
 Both are Brillouin-zone invariants. The inverse Bloch transform
 `M(T) = Σ_k w_k Re[M(k) e^{−ik·T}]` is a real matrix per image, and Mulliken
 charges are real by construction, so the frozen blocks, `response_gradient` and
-the `B6`/`bg4` paths cannot tell a k-mesh from Γ. Concretely:
+the `B6`/complete-background paths cannot tell a k-mesh from Γ. Concretely:
 
 - every classical block (repulsion / halogen / D3) sees only geometry;
 - `gamma_realspace_densities` was already a general `Σ_k` transform, not a Γ
@@ -503,6 +560,12 @@ the `B6`/`bg4` paths cannot tell a k-mesh from Γ. Concretely:
 - `shell_potential_second_directional` reads only `scf.shell_charges` and the
   lattice — the scalar SCC potential is a property of the converged density, not
   of the Bloch phase.
+
+The complete frozen terms include the geometry motion of the CN-dependent
+self-energy and frozen-charge SCC-potential reference values. The complete
+background includes geometric screening and the derivative of the on-site
+charge kernel. The former `2·bg4` expression omitted these chains; §2c gives
+the corrected decomposition shared by both meshes.
 
 So the k-dependence is confined to the **two response solves** that produce those
 images, and they are what `src/pbc/kpoint_third.rs` adds:
@@ -535,81 +598,77 @@ stating because getting either backwards is the likely transcription error:
   `(I − χ⁰K) q^vv = q̃^vv` the Γ path solves, with `χ⁰` accumulated over the mesh.
   For a gapped reference every Fermi weight vanishes and `μ` drops out entirely.
 
+The Fermi derivatives and their confluent divided differences carry the
+occupation and entropy response in `P¹`, `W¹`, `P²`, and `W²`; the assembled
+quantity is the Mermin free energy at fixed total electron number. Occupations
+are not frozen and neither the reference temperature nor the requested mesh is
+changed.
+
 Hermiticity of `P^vv(k)` / `W^vv(k)` is **structural**, not imposed: divided
 differences are symmetric in their nodes and every bilinear term is written in
 both orderings, so nothing symmetrises and the gate measures the consequence.
 
-### Gates
+### Finite-temperature component gates
 
-Fixtures are the same two **distorted** 2-atom cells as §2c — skewed diamond and
-skewed zincblende BN — for the degeneracy reason of §2b.
+`tests/pbc_kpoint_third_analytic.rs` compares **all 216 ordered Cartesian
+components per fixture**, 648 in total, against reconverged analytic k-point
+Hessians at `h = 0.001` and `0.0005` Bohr and their Richardson extrapolant.
+The SCC tolerances are `1e-13` Hartree / `1e-11` charge, AO cutoff 20 Bohr,
+short-range cutoff 12 Bohr, with dispersion disabled in both routes.
 
-The pair is not redundant, and the reason is mesh-dependent in a way worth being
-precise about. On a **Γ-only** mesh the homonuclear diamond cell has an
-essentially vanishing charge response — measured `max|q¹| = 9.05e-16`,
-`max|q^vv| = 1.60e-14` — so the electrostatic channel and the dielectric solve are
-silent there, and **BN is what makes the Γ-limit gate load-bearing**. Over the
-`2 x 2 x 2` mesh the other gates use, diamond's charge response is *not* small
-(`max|q¹| = 1.15e-2`, against BN's `2.35e-2`), so both fixtures drive the charge
-path. Every gate reports the scale of what it compares and asserts it is non-zero,
-so neither statement is relied on silently.
+| Fixture | Electronic temperature / mesh | Fractional bands / exact fractional pairs | Maximum FC3 error (Hartree/Bohr³) |
+| --- | --- | --- | --- |
+| H₂, 6 Å cubic cell | 30000 K / `[1,1,2]` | 4 / 0 | `7.15e-12` |
+| HF, 6 × 6 × 2.8 Å cell | 30000 K / `[1,1,3]` | 12 / 0 | `2.93e-12` |
+| B₂, axial geometry in a 6 Å cubic cell | 3000 K / `[1,1,2]` | 4 / 1 | `4.15e-12` |
 
-Integration gates, `tests/pbc_kpoint_third_analytic.rs`, `T = 0`, AO cutoff 12,
-Ewald `sr` 8 Bohr, `2 x 2 x 2` Monkhorst–Pack unless stated:
+The deliberately high temperatures produce measurable fractional occupations;
+they are identical in the analytic and numerical calculations. The HF mesh
+contains distinct irreducible k-points and tests a single global Fermi level
+with heteronuclear charge response: its per-k occupation sums are `7.9372295871`
+and `8.1255408258`, with weights `2/3` and `1/3`, giving 8 electrons in total.
+The individual k-point electron counts are therefore not fixed separately.
+The B₂ test asserts an energy separation
+below `1e-10` Hartree and fractional occupations before evaluating its exact
+degenerate pair. These are input checks, not inferred from a small derivative.
+Dense/vector differences are at most `4.49e-17` and the four-DOF block agrees
+entry-by-entry with dense output. Cartesian acoustic sums are below `7.44e-15`.
+The thermal Γ reduction and the gapped 0 → 300 K limit also pass.
 
-| Gate | diamond-skew | BN-skew |
-| --- | --- | --- |
-| **Total** vs Richardson-extrapolated seminumerical k-point FC3, `\|Δ\|` | `1.43e-7` | `2.32e-8` |
-| **Γ-limit**: `[1,1,1]` mesh vs `pbc_gamma_third_analytic_vector`, rel | `9.4e-18` | `2.9e-17` |
-| Acoustic sum rule, worst of 4 rigid translations | `2.5e-16` | `7.2e-17` |
-| Block (4 DOF) `contract_vvv` vs directional, rel | `8.1e-16` | `8.9e-16` |
+A separate unit audit differentiates the **reconverged first-order response**
+at both steps, comparing every complex `P²(k)` / `W²(k)` entry and every shell
+charge response for H₂ and multik HF. Maximum errors are `2.17e-12`, `6.56e-13`,
+and `8.36e-13`, respectively. This isolates the generalized metric and global
+`μ¹`/`μ²` response from the energy assembly.
 
-Scale for the total row: `e³[v] = +2.363e-4` (diamond) / `+2.148e-4` (BN) over the
-`2 x 2 x 2` mesh, so `1.43e-7` is `6e-4` relative. The **ladder ratio is `1.00`
-on both fixtures** — the `h = 10⁻³` and `h = 5·10⁻⁴` references differ from the
-analytic value by the same amount — which says the seminumerical reference is
-converged and the discrepancy is `h`-independent, i.e. a genuinely missing term
-rather than FD truncation. That is the §2c residual, inherited (see below).
+Reproduce the expensive audits explicitly:
 
-Timings from the same run (2-atom cells, `2 x 2 x 2` mesh, lean cutoffs): the
-analytic directional evaluation takes `35 – 38 s` against `79 – 85 s` for the two
-seminumerical references it is checked against, and the 4-DOF block sweep takes
-`144 – 161 s`.
+```sh
+cargo test --profile reltest --test pbc_kpoint_third_analytic thermal_kpoint -- --include-ignored --nocapture
+cargo test --profile reltest --lib kpoint_thermal_density_second_matches -- --nocapture
+```
 
-Unit gates alongside the builders in `src/pbc/kpoint_third.rs` (13 tests) pin the
-pieces individually: `V₁` against the production k-point skeleton at every `k`
-and against a frozen-charge FD; the frozen bundle and each of its components
-against their own `h`-ladders; `q¹` against a reconverged-SCC FD; `(F^vv, S^vv)`
-against the Γ builder element-for-element at `k = 0` (`0.0e0`), against a
-refreshed skeleton FD at a live `k`, and for Hermiticity; the divided-difference
-table against its confluent limits and the classical symmetric form; `X²` against
-the Γ charge-space path (`3.1e-15`) and against a reconverged second central
-difference (`q^vv`, `9.2e-9`).
+The component test writes the geometries, spectra, occupations, both raw FD
+arrays, the Richardson values, analytic tensors and diagnostics under
+`target/validation/v070/pbc-kpoint-thermal-fc3/`. Set
+`GFN1_KPOINT_THERMAL_AUDIT_DIR` to choose another output directory.
 
-**The Γ-limit row is the sharpest gate in the file, and the cheapest.** On a
-Γ-only mesh the two paths share the frozen half but reach `X¹` and `X²` through
-completely different algebra — complex k-point CPXTB plus the complex resolvent
-form, versus the real molecular charge-space solver with its
-coefficient-and-frame second-order machinery. Agreement at `~1e-17` relative is a
-statement about the derivation, not about shared code, and it is what to run
-first when anything moves.
+### Zero-temperature regression and the repaired cache-motion terms
 
-### ⚠ Same `~1e-7` residual as §2c, for the same reason
+The retained skewed diamond and BN fixtures use a `[2,2,2]` mesh, AO cutoff 12
+Bohr and short-range cutoff 8 Bohr. After completing the CN self-energy and
+SCC-potential geometry chains, renewed directional tests give:
 
-The k-point path reuses the §2c assembly, so it inherits the §2c open residual
-exactly — see "The `~1e-7` residual is real" there for the block-by-block
-attribution (band/Pulay; CN and both SCC2 blocks close exactly) and the leading
-`se(CN)`-cache hypothesis. The total-gate tolerance here is set from that, not
-from anything k-specific. `GFN1_K3_DEBUG=1` prints the five-group breakdown.
+| Fixture | Analytic FC3 (Hartree/Bohr³) | Richardson error | FD error ratio, `h` / `h/2` |
+| --- | --- | --- | --- |
+| diamond-skew | `+2.3619021007e-4` | `9.87e-16` | `4.00` |
+| BN-skew | `+2.1485214447e-4` | `5.49e-16` | `4.00` |
 
-Two observations support the "inherited, not k-specific" reading rather than
-merely asserting it. First, the **Γ-limit row is `1e-17`**: on a Γ-only mesh the
-k-point assembly reproduces the Γ number bit-for-bit in practice, so the k-point
-machinery adds nothing of its own at the one mesh where the two are comparable.
-Second, the residual **does not grow with sampling** — `1.43e-7` / `2.32e-8` over
-`2 x 2 x 2` sits either side of the Γ values `8.53e-8` / `8.03e-8`, i.e. it moves
-the way a fixed missing term does when the quantity it is missing from changes,
-not the way a per-k error accumulating over the zone would.
+The former step-independent `~1e-7` tail is removed on these fixtures. The new
+gate tolerance detects its reintroduction. `GFN1_K3_DEBUG=1` prints the complete
+five-group decomposition. The component builders also retain their frozen
+geometry step ladders, matrix Hermiticity, spectral confluent-limit,
+Γ-reduction, acoustic-sum and block-polarization tests.
 
 ### Cost
 
@@ -632,16 +691,9 @@ contraction, the whole second-order response (`nk` second-order skeleton pairs,
 `nk` MO transforms, the `nsh`-column susceptibility, the dielectric solve), the
 response gradient and both paths.
 
-One thing is *cheaper* than at Γ. The Γ assembly needs a second full
-`gamma_skeleton_derivatives` build per direction to reach `dγ_v·q¹` (the
-geometric kernel motion at the response charges) because that is the only entry
-point exposing it. The k-point path reaches the same object through
-`kpoint_shell_potential_first_directional`, a pure charge/lattice call — so there
-is no second skeleton build per direction here.
-
-Measured on the 2-atom fixtures (lean cutoffs, `rayon` across all cores,
-`2 x 2 x 2` mesh): the shared reference plus 4 rigid directional evaluations run
-`132 – 140 s` per fixture.
+The geometric kernel motion at the response charges is obtained by a pure
+charge/lattice call rather than rebuilding an AO skeleton. Both the Γ and
+k-point assemblies use that optimization.
 
 Dense mode needs `~C(3N+2, 3)` distinct directions after deduplication — 56 for a
 2-atom cell, 816 for 8 atoms — on top of a per-direction cost that is itself
@@ -653,15 +705,11 @@ the closed form rather than the cheapest route to the tensor.
 
 ### Not covered
 
-- **Fermi smearing.** Fractional occupations at *any* k-point are rejected; use
-  `pbc_kpoint_third_derivative_seminumerical_*` (§2b).
 - **Order-1 model options.** Same `terms::require_order(_, _, 3, _)` guard as
   §2c: multipole, long-range exchange, DFT+U, spin polarization, external field
   and experimental D4 are rejected.
-- **The degenerate-frontier caveat of §2b still applies**, since the first-order
-  response comes from the same k-point CPXTB. Run on cells whose frontier
-  orbitals are non-degenerate at every sampled `k` — which is why every fixture
-  here is distorted.
+- **Finite phonon wave vector.** This is a `q = 0` nuclear response. Increasing
+  the electronic k-mesh does not produce a nonzero-q third-order phonon tensor.
 
 ---
 
@@ -835,9 +883,8 @@ relative on γ and `1e-4` cm⁻¹ on ω) and the real mesh moves the optical fre
 by ~875 cm⁻¹ — another reading of how Γ-only a primitive-cell Γ-only calculation
 really is.
 
-> Read the ⚠ caveat in §2b before using this on a high-symmetry crystal: the
-> strained cells preserve the point group exactly, so `kpoint: true` on perfect
-> diamond hits the degenerate-frontier-orbital bug in `pbc_kpoint_hessian`.
+The closed-shell native complex response handles degenerate frontier blocks
+without distorting the cell; see the independent Hessian gates in §2b.
 
 ### Options and result
 
@@ -1243,7 +1290,9 @@ wrap-around link and the degenerate single-string average.
   (`charge_order`, external electric field, dispersion) works.
 - **Charged cells are rejected** — their polarization depends on the coordinate
   origin.
-- Only `P` is implemented (level 1). Born-charge tensors are *derivable* from it
-  by finite differences (as the NaCl gate does by hand) but there is no analytic
-  `dP/dR` entry point, and no finite-field Berry enthalpy.
-- No Python or CLI binding: Rust-library API only.
+- Analytic Born charges, proper piezoelectricity and the dielectric derivative
+  of the discrete Berry electric enthalpy are now available, including
+  structural ML. They require a matching complete insulating reference mesh;
+  see [electromechanical.md](electromechanical.md) for the boundaries.
+- Rust, native Python and ASE expose polarization and these response APIs.
+  There is no general nonlinear Berry finite-field SCC CLI.

@@ -96,7 +96,9 @@ use crate::data_tables::{atomic_radius_bohr, covalent_radius_d3_bohr};
 use crate::electronic::ElectronicOptions;
 use crate::error::Result;
 use crate::hamiltonian::hscale;
-use crate::integrals::{contracted_pair_with_second_derivatives, contracted_pair_with_third_derivatives};
+use crate::integrals::{
+    contracted_pair_with_second_derivatives, contracted_pair_with_third_derivatives,
+};
 use crate::lattice::Lattice;
 use crate::linalg::Matrix;
 use crate::math::{erfc, Vec3};
@@ -539,7 +541,8 @@ pub(crate) fn pbc_dispersion_third_directional(
     reference_path: Option<&str>,
     v: &[f64],
 ) -> Result<DirectionalDerivs> {
-    let hess = crate::dispersion::dispersion_energy_gradient_hessian(system, params, reference_path)?;
+    let hess =
+        crate::dispersion::dispersion_energy_gradient_hessian(system, params, reference_path)?;
     let third = crate::dispersion::dispersion_third_derivative(system, params, reference_path)?;
     Ok(DirectionalDerivs {
         second: contract_matrix_vv(&hess.hessian, v),
@@ -660,8 +663,7 @@ pub(crate) fn shell_potential_second_directional(
                 let aj = basis.shells[j].atom_index;
                 let eta = harmonic_average(model.hardness[i], model.hardness[j]);
                 let tau = g.dot(pair_direction(v, ai, aj));
-                out[i] +=
-                    -coeff * q[j] / (eta * eta) * tau * tau * (phases[i] - phases[j]).cos();
+                out[i] += -coeff * q[j] / (eta * eta) * tau * tau * (phases[i] - phases[j]).cos();
             }
         }
     }
@@ -844,6 +846,54 @@ pub(crate) fn pbc_cn_third_directional(
     density: &HashMap<[i32; 3], Matrix>,
     v: &[f64],
 ) -> Result<DirectionalDerivs> {
+    pbc_cn_third_directional_impl(
+        system,
+        params,
+        scf,
+        pbc,
+        coordination_cutoff,
+        density,
+        v,
+        false,
+    )
+}
+
+/// Complete CN contribution to the frozen cubic: in addition to differentiating
+/// the CN Hessian block, move the self-energy value cached in the band block.
+/// For `H0 = se(CN) f(R)` the latter supplies `se' f''`; omitting it leaves only
+/// two of the three `se' f''` product-rule terms in the third derivative.
+pub(crate) fn pbc_cn_complete_third_directional(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    scf: &PbcSccResult,
+    pbc: &PbcOptions,
+    coordination_cutoff: f64,
+    density: &HashMap<[i32; 3], Matrix>,
+    v: &[f64],
+) -> Result<DirectionalDerivs> {
+    pbc_cn_third_directional_impl(
+        system,
+        params,
+        scf,
+        pbc,
+        coordination_cutoff,
+        density,
+        v,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pbc_cn_third_directional_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    scf: &PbcSccResult,
+    pbc: &PbcOptions,
+    coordination_cutoff: f64,
+    density: &HashMap<[i32; 3], Matrix>,
+    v: &[f64],
+    include_band_motion: bool,
+) -> Result<DirectionalDerivs> {
     let nat = system.atoms.len();
     let (d_edcn, e1, e2) = band_cn_potential_directional(system, params, scf, pbc, density, v)?;
 
@@ -899,7 +949,7 @@ pub(crate) fn pbc_cn_third_directional(
     for k in 0..nat {
         out.accumulate(
             2.0 * cn1[k] * e1[k],
-            2.0 * (cn2[k] * e1[k] + cn1[k] * e2[k]),
+            2.0 * cn2[k] * e1[k] + (if include_band_motion { 3.0 } else { 2.0 }) * cn1[k] * e2[k],
         );
     }
     Ok(out)
@@ -930,11 +980,10 @@ pub(crate) fn pbc_cn_third_directional(
 /// converged `scf.shell_scc_potential` *value*, so `Ċ = 2P·H₁` — there is no `−P·V₁` in it. Only
 /// the three-centre term `−P S₁ σ₁` carries geometry-dependent potential, contributing
 /// `−P(S₂ V₁ + S₁ V₂)`. That asymmetry is not an accident: it is the same convention the
-/// molecular `L_abc` block uses, where the frozen third holds `V` fixed and the full `dV/dR`
-/// instead flows through the separate density-path channel (`frozen_hessian_density_path`), so
-/// that the caller can feed the *total* potential motion, geometric plus charge response, in one
-/// place. Carrying `V₁` in `C` as well double-counts it; the finite-difference gate detects that
-/// immediately as a **flat** h-ladder (ratio 1.00 instead of 4.00, ~0.35 % of the block).
+/// molecular `L_abc` block uses. This strict block helper retains the fixed-potential-value
+/// diagnostic convention; the physical fixed-density geometric derivative uses
+/// [`pbc_band_pulay_complete_third_directional`] to restore the cached potential's geometric
+/// motion. Charge-induced potential motion is supplied separately by the density path.
 ///
 /// where `S₁..S₃` are directional overlap derivatives from
 /// [`contracted_pair_with_third_derivatives`] (bra displaced by `v_a`, ket by `v_b`, the lattice
@@ -952,6 +1001,38 @@ pub(crate) fn pbc_band_pulay_third_directional(
     v1: &[f64],
     v2: &[f64],
     v: &[f64],
+) -> Result<DirectionalDerivs> {
+    pbc_band_pulay_third_directional_impl(system, params, scf, pbc, dens, v1, v2, v, false)
+}
+
+/// Frozen-density cubic including the geometric motion of the cached SCC
+/// potential value. The strict band-block diagnostic freezes that value; a
+/// physical geometry derivative at fixed charges must include it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pbc_band_pulay_complete_third_directional(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    scf: &PbcSccResult,
+    pbc: &PbcOptions,
+    dens: &FrozenDensityImages,
+    v1: &[f64],
+    v2: &[f64],
+    v: &[f64],
+) -> Result<DirectionalDerivs> {
+    pbc_band_pulay_third_directional_impl(system, params, scf, pbc, dens, v1, v2, v, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pbc_band_pulay_third_directional_impl(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    scf: &PbcSccResult,
+    pbc: &PbcOptions,
+    dens: &FrozenDensityImages,
+    v1: &[f64],
+    v2: &[f64],
+    v: &[f64],
+    move_potential_value: bool,
 ) -> Result<DirectionalDerivs> {
     let lattice = system.lattice.as_ref().copied().unwrap();
     let basis = &scf.basis;
@@ -1045,7 +1126,13 @@ pub(crate) fn pbc_band_pulay_third_directional(
                         // channel. See this function's docs.
                         let third = c * s3
                             + 2.0 * p * overlap * h3
-                            + p * (6.0 * h1 - sigma1) * s2
+                            + p * (6.0 * h1
+                                - if move_potential_value {
+                                    2.0 * sigma1
+                                } else {
+                                    sigma1
+                                })
+                                * s2
                             + p * (6.0 * h2 - sigma2) * s1;
                         out.accumulate(second, third);
                     }
@@ -1274,11 +1361,11 @@ fn scc2_ewald_pieces(
 }
 
 // ---------------------------------------------------------------------------------------------
-// First-order response leg (Gamma, integer occupations)
+// First-order response leg (Gamma, canonical integer or fractional occupations)
 // ---------------------------------------------------------------------------------------------
 
 /// **Directional first-order response** `X¹ = (P¹, W¹, q¹)` at the Gamma point: contract the
-/// per-DOF skeleton derivatives with `v` and run ONE integer-occupation CPXTB solve
+/// per-DOF skeleton derivatives with `v` and run ONE canonical CPXTB solve
 /// ([`crate::pbc::hessian::gamma_cpxtb_response_directional`]) instead of `3N`.
 ///
 /// Gates: bit-tight linearity against the per-DOF
@@ -1531,18 +1618,12 @@ pub(crate) fn gamma_directional_second_matrices(
                 let si_idx = basis.aos[mu].shell_index;
                 for &nu in &atom_aos[a] {
                     let sj_idx = basis.aos[nu].shell_index;
-                    let s0 = crate::integrals::contracted_pair(
-                        &basis.aos[mu],
-                        &basis.aos[nu],
-                        ra,
-                        ra,
-                    )
-                    .0;
+                    let s0 =
+                        crate::integrals::contracted_pair(&basis.aos[mu], &basis.aos[nu], ra, ra).0;
                     if s0 == 0.0 {
                         continue;
                     }
-                    fock[(mu, nu)] +=
-                        0.5 * (dsedcn[si_idx] + dsedcn[sj_idx]) * s0 * cn2[a];
+                    fock[(mu, nu)] += 0.5 * (dsedcn[si_idx] + dsedcn[sj_idx]) * s0 * cn2[a];
                 }
             }
         }
@@ -1729,8 +1810,7 @@ fn scc2_bilinear_pieces(
             for j in 0..nsh {
                 let aj = basis.shells[j].atom_index;
                 let eta = harmonic_average(model.hardness[i], model.hardness[j]);
-                let scale =
-                    0.25 * coeff * (qa[i] * qb[j] + qb[i] * qa[j]) / (eta * eta);
+                let scale = 0.25 * coeff * (qa[i] * qb[j] + qb[i] * qa[j]) / (eta * eta);
                 if scale == 0.0 {
                     continue;
                 }
@@ -1912,11 +1992,11 @@ pub(crate) fn uniform_density_images(
 /// The two halves of the Gamma response derivative that this module supplies to the caller's
 /// third-derivative assembly.
 ///
-/// * `b6` — the **density path**: `D_v` of the periodic response-gradient contraction at a
+/// * `b6` — `D_v` of the periodic response-gradient contraction at a
 ///   frozen response slot `X¹ = (P¹, W¹, q¹)`, i.e. the pure geometric motion of
 ///   [`crate::pbc::hessian::response_gradient`];
-/// * `bg4` — the **background motion**: the same contraction differentiated through its frozen
-///   *reference-state* coefficients instead (gradient level).
+/// * `background_complete` — geometric SCC-kernel motion plus reference-state
+///   motion, with the product-rule multiplicity of each family retained.
 ///
 /// `b6_blocks` and `bg4_families` carry the per-term breakdown in the documented order, for the
 /// same reason the molecular assembly keeps `quartic_dg_family_split` around: a discrepancy has
@@ -1925,22 +2005,26 @@ pub(crate) fn uniform_density_images(
 pub(crate) struct GammaResponsePath {
     /// `Σ b6_blocks`.
     pub b6: f64,
-    /// `Σ bg4_families`.
+    /// Unweighted diagnostic sum of the four historical background families.
+    /// Production uses `background_complete`, not twice this partial sum.
     pub bg4: f64,
+    /// Complete geometric/reference background, with multiplicities from
+    /// directly differentiating the production response gradient.
+    pub background_complete: f64,
     /// `[cn, band_pulay, scc2_charge_path, screening_pulay]`.
     pub b6_blocks: [f64; 4],
     /// `[scc_dp_pot, scc_p0, scc_chain, kernel_qq]`.
     pub bg4_families: [f64; 4],
 }
 
-/// **Gamma response density path (`B6`) and background motion (`bg4`)** for one direction.
+/// **Gamma response geometric motion (`B6`) and complete background** for one direction.
 ///
 /// # `B6` is exactly `D_v[ g(X¹; R)·v ]`, and that fixes the block list
 ///
 /// `g` here is [`crate::pbc::hessian::response_gradient`] — the object whose `ndof` columns are
 /// the entire CPXTB half of `pbc_gamma_hessian`. Holding the response slot `X¹ = (P¹, W¹, q¹)`,
-/// the kernel `K`, the reference charges/potential/self-energies frozen and moving **only** the
-/// geometry, its contraction with `v` is
+/// the reference charges frozen and moving the explicit geometry of the
+/// Hamiltonian, its contraction with `v` is
 ///
 /// ```text
 ///   g·v = Σ_pairs [ 2P¹·(hS)₁ − (σ₀ P¹ + 2W¹ + P₀ κ)·S₁ ]      (band / Pulay / screening)
@@ -1952,34 +2036,18 @@ pub(crate) struct GammaResponsePath {
 /// four blocks this function returns:
 ///
 /// ```text
-///   ① cn               = Σ_k ( E¹_k·CN¹_k + E_k·CN²_k )
+///   ① cn               = Σ_k ( 2 E¹_k·CN¹_k + E_k·CN²_k )
 ///   ② band_pulay       = pbc_band_pulay_third_directional(X¹, v1 = 0, v2 = 0).second
 ///   ③ scc2_charge_path = 2·pbc_scc2_bilinear_second_directional(q⁰, q¹)
 ///   ④ screening_pulay  = −Σ_pairs P₀·κ·S₂
 /// ```
 ///
-/// ## Two deliberate departures from the molecular six-block list
+/// Block ② holds the shell potential values fixed. Their geometric motion and that of the
+/// screening potential `K q¹` are restored in `background_complete` below. Block ① includes
+/// both the explicit CN gradient's derivative and the motion of the self-energy value in the
+/// band gradient; these give the two equal `E¹ CN¹` terms.
 ///
-/// The molecular mirror is `response_coefficient_motion_block_values`, whose six entries are
-/// `[cn_h0(P), cross(P), s2path(q₀,q), pulay(P,W), pulay-V(Kq), so_q(q)]`. Two of them collapse
-/// here, and both collapses are *forced* by the shape of the periodic response gradient — the
-/// finite-difference gate `response_path_b6_matches_response_gradient_fd` is what settled it:
-///
-/// * **no `∂V/∂R` anywhere in `B6`.** The periodic response column contains no shell-potential
-///   derivative at all: the only potential-like object in it is the *frozen* screening vector
-///   `K q¹`. So block ② must be evaluated with `v1 = v2 = 0` — feeding it the geometric `V₁`
-///   (which is what the frozen third's band/Pulay block does) adds a spurious `−P¹ S₁ V₁`. The
-///   geometric motion of `σ₀` is not missing, it simply belongs to the *background* half, where
-///   it appears as `bg4.scc_dp_pot`. For the same reason there is no separate `so_q(q¹)` block:
-///   the `q¹`-induced potential enters only through `κ`, and its geometric motion is
-///   `bg4.scc_p0`. Feeding `so_q` in as well double-counts against ④.
-/// * **the CN cross term carries a factor of one, not two.** `pbc_cn_third_directional`'s
-///   `second` is `Σ_k E_k·CN²_k + 2 Σ_k CN¹_k·E¹_k`, because the fixed-density CN *Hessian* block
-///   is `M + Mᵀ`. The response gradient's CN part is one-sided (`Σ_k E_k·∂CN_k/∂R` with `E` built
-///   from `P¹`), so its derivative has a single cross term. Block ① is therefore written out
-///   directly rather than reusing the Hessian-shaped builder.
-///
-/// # `bg4`: the reference-state motion, gradient level
+/// # Complete background at gradient level
 ///
 /// The four families are the periodic mirror of `cpxtb::ResponseGradientBackgroundMotion`, each
 /// one factor of `g` differentiated at frozen geometry-and-response:
@@ -1991,10 +2059,13 @@ pub(crate) struct GammaResponsePath {
 ///   kernel_qq  = 2·pbc_scc2_bilinear_first_directional(q¹, q¹)   (∇γ·q¹q¹)
 /// ```
 ///
-/// These are **not** gated against a finite difference here — each is one term of a product-rule
-/// split whose sum is only meaningful inside the caller's assembly, where the total is what a
-/// physical FD sees. `response_path_bg4_scaling_is_multilinear` pins their structural degrees
-/// (linear in `P¹`, linear/quadratic in `q¹`) so a mis-slotted argument cannot pass unnoticed.
+/// Their historical unweighted diagnostic sum is `bg4`. Production instead uses
+/// `scc_dp_pot + 2*scc_p0 + scc_chain + kernel_qq - Σ P₀·(γ'_v q¹)_pair·S₁`.
+/// The final term is the geometric motion of the screening potential, distinct from the
+/// reference potential's motion in `scc_dp_pot`. The complete assembly is checked against
+/// all-component Hessian differences at finite and zero temperature. The separate
+/// `response_path_bg4_scaling_is_multilinear` gate pins the diagnostic families' structural
+/// degrees (linear in `P¹`, linear/quadratic in `q¹`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gamma_response_path_directional(
     system: &PeriodicSystem,
@@ -2015,13 +2086,16 @@ pub(crate) fn gamma_response_path_directional(
     let kernel = crate::pbc::hessian::periodic_response_kernel(scf);
     let kq1 = crate::linalg::matrix_vector_product(&kernel, q1)?;
 
-    // ① CN response block (one-sided cross term; see the docs).
+    // ① Full geometric CN motion of the response gradient. Both the explicit
+    // CN gradient and the self-energy value in the band gradient move, giving
+    // the two equal CN1*E1(P1) cross terms.
     let cn_block = if enable_cn {
-        let (e0, e1, _) =
-            band_cn_potential_directional(system, params, scf, pbc, &dens1.p, v)?;
+        let (e0, e1, _) = band_cn_potential_directional(system, params, scf, pbc, &dens1.p, v)?;
         let (cn1, cn2) =
             cn_directional_derivatives(system, options.hamiltonian.coordination_cutoff, v)?;
-        (0..nat).map(|k| e1[k] * cn1[k] + e0[k] * cn2[k]).sum()
+        (0..nat)
+            .map(|k| 2.0 * e1[k] * cn1[k] + e0[k] * cn2[k])
+            .sum()
     } else {
         0.0
     };
@@ -2053,23 +2127,39 @@ pub(crate) fn gamma_response_path_directional(
         );
 
     // ④ screening Pulay `−Σ P₀·(K q¹)·S₂`.
-    let (_, screen_block) =
-        gamma_background_overlap_scalars(system, scf, pbc, &dens0.p, &kq1, v);
+    let (_, screen_block) = gamma_background_overlap_scalars(system, scf, pbc, &dens0.p, &kq1, v);
 
     // bg4: reference-state motion at gradient level.
     let (dp_pot, _) = gamma_background_overlap_scalars(system, scf, pbc, &dens1.p, v1_pot, v);
     let (p0_family, _) = gamma_background_overlap_scalars(system, scf, pbc, &dens1.p, &kq1, v);
     let chain = gamma_onsite_chain_potential(scf, q1, q1);
-    let (chain_family, _) =
-        gamma_background_overlap_scalars(system, scf, pbc, &dens0.p, &chain, v);
+    let (chain_family, _) = gamma_background_overlap_scalars(system, scf, pbc, &dens0.p, &chain, v);
     let kernel_qq =
         2.0 * pbc_scc2_bilinear_first_directional(system, &lattice, scf, pbc, q1, q1, v);
+
+    // The screening potential K(R,q0) q1 has a geometric Gamma' q1 leg.
+    // It is distinct from the reference potential's Gamma' q0 leg (dp_pot).
+    let aq1 = scf.shell_model.atomic_charges(&scf.basis, q1);
+    let derivatives = crate::pbc::hessian::shell_potential_derivatives_for_charges(
+        system, &lattice, scf, pbc, q1, &aq1,
+    )?;
+    let mut gamma_v_q1 = vec![0.; nsh];
+    for (coordinate, &weight) in v.iter().enumerate() {
+        for (shell, value) in gamma_v_q1.iter_mut().enumerate() {
+            *value += weight * derivatives[coordinate][shell];
+        }
+    }
+    let (geometric_screening, _) =
+        gamma_background_overlap_scalars(system, scf, pbc, &dens0.p, &gamma_v_q1, v);
+    let background_complete =
+        dp_pot + 2.0 * p0_family + chain_family + kernel_qq + geometric_screening;
 
     let b6_blocks = [cn_block, band_block, scc2_block, screen_block];
     let bg4_families = [dp_pot, p0_family, chain_family, kernel_qq];
     Ok(GammaResponsePath {
         b6: b6_blocks.iter().sum(),
         bg4: bg4_families.iter().sum(),
+        background_complete,
         b6_blocks,
         bg4_families,
     })
@@ -2189,7 +2279,7 @@ pub(crate) fn pbc_gamma_frozen_third_directional(
             DirectionalDerivs::default()
         },
         coordination: if enable_cn {
-            pbc_cn_third_directional(
+            pbc_cn_complete_third_directional(
                 system,
                 params,
                 scf,
@@ -2201,7 +2291,7 @@ pub(crate) fn pbc_gamma_frozen_third_directional(
         } else {
             DirectionalDerivs::default()
         },
-        band_pulay: pbc_band_pulay_third_directional(
+        band_pulay: pbc_band_pulay_complete_third_directional(
             system, params, scf, pbc, &dens, &v1, &v2, v,
         )?,
         scc2_realspace: pbc_scc2_realspace_third_directional(system, &lattice, scf, pbc, v),
@@ -2323,8 +2413,8 @@ H  0.950000 0.200000 5.100000\n";
     fn displaced(system: &PeriodicSystem, v: &[f64], lambda: f64) -> PeriodicSystem {
         let mut out = system.clone();
         for (a, atom) in out.atoms.iter_mut().enumerate() {
-            atom.position = atom.position
-                + Vec3::new(v[3 * a], v[3 * a + 1], v[3 * a + 2]) * lambda;
+            atom.position =
+                atom.position + Vec3::new(v[3 * a], v[3 * a + 1], v[3 * a + 2]) * lambda;
         }
         out
     }
@@ -2409,7 +2499,10 @@ H  0.950000 0.200000 5.100000\n";
                 scale = scale.max(analytic[(i, j)].abs());
             }
         }
-        assert!(scale > 1.0e-10, "{name}: the matrix is identically zero, the gate is vacuous");
+        assert!(
+            scale > 1.0e-10,
+            "{name}: the matrix is identically zero, the gate is vacuous"
+        );
         let mut worst = (0.0_f64, 0.0_f64, 0.0_f64, 0usize, 0usize);
         for i in 0..n {
             for j in 0..n {
@@ -2587,7 +2680,14 @@ H  0.950000 0.200000 5.100000\n";
             s,
             d2,
         );
-        assert_ladder("radial_pair_third_vv", &second_at, analytic, 1.0e-3, 1.0e-6, 1.0e-12);
+        assert_ladder(
+            "radial_pair_third_vv",
+            &second_at,
+            analytic,
+            1.0e-3,
+            1.0e-6,
+            1.0e-12,
+        );
     }
 
     // -- Classical periodic blocks ------------------------------------------------------------
@@ -2720,8 +2820,9 @@ H  0.950000 0.200000 5.100000\n";
         /// frozen-charge derivative the band/Pulay block consumes.
         fn v1_at(&self, lambda: f64) -> Vec<f64> {
             let sys = self.at(lambda);
-            let sk = gamma_skeleton_derivatives(&sys, &self.params, &self.scf, &self.opts, &self.pbc)
-                .expect("skeleton");
+            let sk =
+                gamma_skeleton_derivatives(&sys, &self.params, &self.scf, &self.opts, &self.pbc)
+                    .expect("skeleton");
             shell_potential_first_directional(&sk, &self.v)
         }
 
@@ -2740,7 +2841,14 @@ H  0.950000 0.200000 5.100000\n";
             let v1 = self.v1_at(lambda);
             let v2 = self.v2_at(lambda);
             pbc_band_pulay_third_directional(
-                &sys, &self.params, &self.scf, &self.pbc, &self.dens, &v1, &v2, &self.v,
+                &sys,
+                &self.params,
+                &self.scf,
+                &self.pbc,
+                &self.dens,
+                &v1,
+                &v2,
+                &self.v,
             )
             .expect("band/Pulay directional")
         }
@@ -2838,7 +2946,13 @@ H  0.950000 0.200000 5.100000\n";
         /// The Ewald-entangled SCC2 sums: frozen-charge energy piece, second and third, at a
         /// displaced geometry.
         fn scc2_ewald_at(&self, lambda: f64) -> (f64, f64, f64) {
-            scc2_ewald_pieces(&self.at(lambda), &self.lattice(), &self.scf, &self.pbc, &self.v)
+            scc2_ewald_pieces(
+                &self.at(lambda),
+                &self.lattice(),
+                &self.scf,
+                &self.pbc,
+                &self.v,
+            )
         }
     }
 
@@ -2851,13 +2965,8 @@ H  0.950000 0.200000 5.100000\n";
     fn shell_potential_second_matches_production_first_fd() {
         for (name, xyz) in SCF_FIXTURES {
             let f = Frozen::build(xyz, 11);
-            let analytic = shell_potential_second_directional(
-                &f.system,
-                &f.lattice(),
-                &f.scf,
-                &f.pbc,
-                &f.v,
-            );
+            let analytic =
+                shell_potential_second_directional(&f.system, &f.lattice(), &f.scf, &f.pbc, &f.v);
             let h = 2.0e-3;
             let (vp, vm) = (f.v1_at(h), f.v1_at(-h));
             let (vp2, vm2) = (f.v1_at(0.5 * h), f.v1_at(-0.5 * h));
@@ -2876,7 +2985,10 @@ H  0.950000 0.200000 5.100000\n";
                  err(h)={:.3e} err(h/2)={:.3e} ratio={ratio:.2}",
                 worst.2, worst.0, worst.1
             );
-            assert!(scale > 1.0e-10, "{name}: V2 is identically zero, gate is vacuous");
+            assert!(
+                scale > 1.0e-10,
+                "{name}: V2 is identically zero, gate is vacuous"
+            );
             assert!(
                 worst.1 <= 1.0e-4 * scale,
                 "{name}: worst shell V2 error {:.3e} exceeds 1e-4 x {scale:.3e}",
@@ -2975,9 +3087,8 @@ H  0.950000 0.200000 5.100000\n";
             let h = 2.0e-3;
             // value -> second: second central difference (f(+h) - 2 f(0) + f(-h)) / h².
             let value_at = |lam: f64| f.scc2_ewald_at(lam).0;
-            let second_fd = |hh: f64| {
-                (value_at(hh) - 2.0 * value_at(0.0) + value_at(-hh)) / (hh * hh)
-            };
+            let second_fd =
+                |hh: f64| (value_at(hh) - 2.0 * value_at(0.0) + value_at(-hh)) / (hh * hh);
             let (s1, s2) = (second_fd(h), second_fd(0.5 * h));
             let s_rich = (4.0 * s2 - s1) / 3.0;
             println!(
@@ -3013,9 +3124,8 @@ H  0.950000 0.200000 5.100000\n";
         for (name, xyz) in SCF_FIXTURES {
             let f = Frozen::build(xyz, 29);
             let mos = gamma_mos(&f.scf, f.scf.nelec).expect("gamma mos");
-            let sk =
-                gamma_skeleton_derivatives(&f.system, &f.params, &f.scf, &f.opts, &f.pbc)
-                    .expect("skeleton");
+            let sk = gamma_skeleton_derivatives(&f.system, &f.params, &f.scf, &f.opts, &f.pbc)
+                .expect("skeleton");
             let (pd, wd) = gamma_cpxtb_density_responses(&f.scf, &sk, &mos).expect("per-DOF");
             let (p1, w1, _q1) =
                 gamma_first_order_directional(&f.scf, &sk, &mos, &f.v).expect("directional");
@@ -3028,7 +3138,9 @@ H  0.950000 0.200000 5.100000\n";
                         ps += vy * pd[y][(i, j)];
                         ws += vy * wd[y][(i, j)];
                     }
-                    worst = worst.max((ps - p1[(i, j)]).abs()).max((ws - w1[(i, j)]).abs());
+                    worst = worst
+                        .max((ps - p1[(i, j)]).abs())
+                        .max((ws - w1[(i, j)]).abs());
                 }
             }
             println!("gamma_first_order/{name}: worst |directional - contraction| {worst:.3e}");
@@ -3081,19 +3193,21 @@ H  0.950000 0.200000 5.100000\n";
     /// The whole frozen bundle at once — now including the Ewald-entangled SCC2 sums — so a
     /// sign error that two components cancel between cannot hide. Deliberately **not** the
     /// complete periodic third derivative: the Gamma response is added by the caller.
+    /// Geometry-dependent cached self-energy and potential values move while density and
+    /// shell charges stay fixed.
     #[test]
     #[ignore = "periodic third-derivative gate: full frozen bundle, 5 sweeps per fixture"]
     fn frozen_bundle_third_matches_bundle_second_fd() {
         for (name, xyz) in SCF_FIXTURES {
             let f = Frozen::build(xyz, 23);
             let bundle_at = |lam: f64| {
-                let sys = f.at(lam);
-                let sk =
-                    gamma_skeleton_derivatives(&sys, &f.params, &f.scf, &f.opts, &f.pbc).unwrap();
+                let (sys, displaced) = f.refreshed_at(lam);
+                let sk = gamma_skeleton_derivatives(&sys, &f.params, &displaced, &f.opts, &f.pbc)
+                    .unwrap();
                 pbc_gamma_frozen_third_directional(
                     &sys,
                     &f.params,
-                    &f.scf,
+                    &displaced,
                     &sk,
                     &f.pbc,
                     f.opts.hamiltonian.coordination_cutoff,
@@ -3147,7 +3261,10 @@ H  0.950000 0.200000 5.100000\n";
             };
             let h = 1.0e-3;
             let scale = cn1.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
-            assert!(scale > 1.0e-6, "{name}: CN¹ is zero, the gate would be vacuous");
+            assert!(
+                scale > 1.0e-6,
+                "{name}: CN¹ is zero, the gate would be vacuous"
+            );
             for (k, (&a1, &a2)) in cn1.iter().zip(&cn2).enumerate() {
                 let f1 = |lam: f64| cn_at(lam)[k];
                 let f2 = |lam: f64| cn1_at(lam)[k];
@@ -3252,7 +3369,9 @@ H  0.950000 0.200000 5.100000\n";
             let quad = f.scc2_at(0.0).second + f.scc2_ewald_at(0.0).1;
             let bil = second(&q, &q);
             let rel = (bil - quad).abs() / quad.abs().max(1.0e-30);
-            println!("scc2_bilinear/{name}: quadratic {quad:+.12e} bilinear {bil:+.12e} rel {rel:.3e}");
+            println!(
+                "scc2_bilinear/{name}: quadratic {quad:+.12e} bilinear {bil:+.12e} rel {rel:.3e}"
+            );
             // Not bit-identical, and cannot be: the two reciprocal sums fold their charge weight
             // into the `G`-dependent prefactor in a different multiply ORDER
             // (`0.5·w_G·q_i·q_j` versus `0.25·w_G·(qa_i qb_j + qb_i qa_j)`), so each term differs
@@ -3281,11 +3400,7 @@ H  0.950000 0.200000 5.100000\n";
                     "{name}/{label}: bilinear is not symmetric ({ab:.12e} vs {ba:.12e})"
                 );
             }
-            let mixed: Vec<f64> = q
-                .iter()
-                .zip(&qc)
-                .map(|(a, b)| 2.0 * a + 3.0 * b)
-                .collect();
+            let mixed: Vec<f64> = q.iter().zip(&qc).map(|(a, b)| 2.0 * a + 3.0 * b).collect();
             for (label, lhs, rhs) in [
                 (
                     "second",
@@ -3332,9 +3447,9 @@ H  0.950000 0.200000 5.100000\n";
     /// **Gate T3** — the load-bearing one. `B6` must be the central difference of the
     /// **production** periodic response gradient
     /// ([`crate::pbc::hessian::response_gradient`]) contracted with `v`, evaluated at displaced
-    /// geometries with the response slot `X¹`, the kernel and the whole reference SCC frozen.
-    /// The band pairs and the coordination derivatives are rebuilt at each displaced geometry
-    /// because they are the geometry-carrying inputs of that column.
+    /// geometries with the response slot `X¹`, SCC potential and charge kernel frozen.
+    /// The self-energy values, band pairs and coordination derivatives move with geometry;
+    /// the SCC potential's geometric motion belongs to `background_complete` instead.
     #[test]
     #[ignore = "periodic response gate: 4 response-gradient sweeps plus one CPXTB solve per fixture"]
     fn response_path_b6_matches_response_gradient_fd() {
@@ -3359,9 +3474,10 @@ H  0.950000 0.200000 5.100000\n";
             let cutoff = f.opts.hamiltonian.coordination_cutoff;
             let enable_cn = f.opts.hamiltonian.enable_cn_hamiltonian;
             let g_at = |lam: f64| -> f64 {
-                let sys = f.at(lam);
+                let (sys, mut displaced) = f.refreshed_at(lam);
+                displaced.shell_scc_potential = f.scf.shell_scc_potential.clone();
                 let band_pairs =
-                    build_response_band_pairs(&sys, &f.params, &f.scf, &f.dens.p, &f.pbc)
+                    build_response_band_pairs(&sys, &f.params, &displaced, &f.dens.p, &f.pbc)
                         .expect("band pairs");
                 let cn = if enable_cn {
                     Some(
@@ -3380,7 +3496,7 @@ H  0.950000 0.200000 5.100000\n";
                 let grad = response_gradient(
                     &sys,
                     &f.params,
-                    &f.scf,
+                    &displaced,
                     &band_pairs,
                     DensityLookup::Uniform(&p1),
                     DensityLookup::Uniform(&w1),
@@ -3403,7 +3519,24 @@ H  0.950000 0.200000 5.100000\n";
                 path.b6_blocks.iter().all(|x| x.is_finite()),
                 "{name}: non-finite B6 block"
             );
-            assert_ladder(&format!("b6/{name}"), &g_at, path.b6, 2.0e-3, 1.0e-6, 1.0e-9);
+            for step in [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 1.0e-4] {
+                println!(
+                    "b6/{name} h={step:e} FD={:+.12e} analytic={:+.12e}",
+                    central(&g_at, step),
+                    path.b6
+                );
+            }
+            // With the CN-dependent cache moving, the diamond stencil at 2e-3
+            // is outside the common quadratic regime. The smaller pair below
+            // resolves the physical derivative and exhibits the h^2 ladder.
+            assert_ladder(
+                &format!("b6/{name}"),
+                &g_at,
+                path.b6,
+                2.0e-4,
+                1.0e-6,
+                1.0e-9,
+            );
         }
     }
 
@@ -3458,7 +3591,10 @@ H  0.950000 0.200000 5.100000\n";
             let check = |label: &str, got: [f64; 4], want: [f64; 4]| {
                 for k in 0..4 {
                     if base[k] == 0.0 {
-                        assert!(got[k] == 0.0, "{name}/{label}: bg4 family {k} grew from zero");
+                        assert!(
+                            got[k] == 0.0,
+                            "{name}/{label}: bg4 family {k} grew from zero"
+                        );
                         continue;
                     }
                     let rel = (got[k] - want[k] * base[k]).abs() / (want[k] * base[k]).abs();
@@ -3533,8 +3669,8 @@ H  0.950000 0.200000 5.100000\n";
             let v0_pot = f.scf.shell_scc_potential.clone();
             let dens_ref = gamma_realspace_densities(&f.scf, &lattice0, pbc.ao_cutoff);
             let v1_ref = {
-                let sk = gamma_skeleton_derivatives(&f.system, &f.params, &f.scf, &opts, &pbc)
-                    .unwrap();
+                let sk =
+                    gamma_skeleton_derivatives(&f.system, &f.params, &f.scf, &opts, &pbc).unwrap();
                 shell_potential_first_directional(&sk, &f.v)
             };
             let v2_ref =
@@ -3573,11 +3709,9 @@ H  0.950000 0.200000 5.100000\n";
                 } else {
                     (v1_ref.clone(), v2_ref.clone())
                 };
-                pbc_band_pulay_third_directional(
-                    &sys, &f.params, &scf, &pbc, &dens, &v1, &v2, &f.v,
-                )
-                .unwrap()
-                .second
+                pbc_band_pulay_third_directional(&sys, &f.params, &scf, &pbc, &dens, &v1, &v2, &f.v)
+                    .unwrap()
+                    .second
             };
             let h = 1.0e-3;
             let fd = |se: bool, vp: bool, de: bool, le: bool| -> f64 {

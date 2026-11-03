@@ -1,7 +1,7 @@
 # Provenance: GFN1-xTB parameter files
 
 Source repository: https://github.com/grimme-lab/xtb
-Commit: `2b5cd4829290775e575807daee21560f851ff7e1` (2026-05-16)
+Commit: `2b5cd4829290775e575807daee21560f851ff7e1`
 License: LGPL-3.0-or-later (see `COPYING` and `COPYING.LESSER` in this directory,
 copied verbatim from the same commit).
 

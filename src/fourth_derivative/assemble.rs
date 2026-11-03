@@ -26,7 +26,9 @@ use crate::error::{Gfn1Error, Result};
 use crate::hessian::AnalyticHessianOptions;
 use crate::linalg::Matrix;
 use crate::params::Gfn1Parameters;
-use crate::response::charge_space::{ChargeSpaceContext, FirstOrderField, SecondOrderBundle};
+use crate::response::charge_space::{
+    ChargeSpaceContext, FirstOrderField, SecondOrderBundle, SecondOrderField,
+};
 use crate::response::cpxtb::{
     solve_nonpbc_cpxtb_hessian_response, AoDerivativeOptions, CpxtbOptions,
 };
@@ -49,9 +51,31 @@ pub(crate) fn directional_first_order_legs(
     ctx: &ChargeSpaceContext,
     v: &[f64],
 ) -> Result<(FirstOrderField, Vec<f64>)> {
-    let n = electronic.basis.len();
+    let field = directional_first_order_field(electronic, cphf, ctx, v)?;
     let ndof = 3 * system.atoms.len();
     let nshell = electronic.basis.shells.len();
+    let dvdr_q = crate::hessian::shell_scalar_potential_first_derivatives(
+        system,
+        &electronic.basis,
+        &electronic.shell_charges,
+        params,
+    )?;
+    let v_pot: Vec<f64> = (0..nshell)
+        .map(|s| {
+            let geo: f64 = (0..ndof).map(|c| v[c] * dvdr_q[(s, c)]).sum();
+            geo + field.bundle.screened_potential[s]
+        })
+        .collect();
+    Ok((field, v_pot))
+}
+
+pub(crate) fn directional_first_order_field(
+    electronic: &crate::electronic::ElectronicResult,
+    cphf: &crate::response::cpxtb::GammaCartesianCpxtbResult,
+    ctx: &ChargeSpaceContext,
+    v: &[f64],
+) -> Result<FirstOrderField> {
+    let n = electronic.basis.len();
     let mut f_skel = Matrix::zeros(n, n);
     let mut s_dir = Matrix::zeros(n, n);
     for (c, &vc) in v.iter().enumerate() {
@@ -67,20 +91,7 @@ pub(crate) fn directional_first_order_legs(
             ss[k] += vc * ov[k];
         }
     }
-    let field = ctx.first_order_field(f_skel, s_dir)?;
-    let dvdr_q = crate::hessian::shell_scalar_potential_first_derivatives(
-        system,
-        &electronic.basis,
-        &electronic.shell_charges,
-        params,
-    )?;
-    let v_pot: Vec<f64> = (0..nshell)
-        .map(|s| {
-            let geo: f64 = (0..ndof).map(|c| v[c] * dvdr_q[(s, c)]).sum();
-            geo + field.bundle.screened_potential[s]
-        })
-        .collect();
-    Ok((field, v_pot))
+    ctx.first_order_field(f_skel, s_dir)
 }
 
 /// The screened directional second-order legs `(P^vv, W^vv, q^vv)` plus the
@@ -104,16 +115,70 @@ pub(crate) fn directional_second_order_legs(
     include_cn_h0: bool,
     v: &[f64],
 ) -> Result<(SecondOrderBundle, Vec<f64>)> {
+    let (field, potential) = directional_second_order_field_legs(
+        system,
+        params,
+        electronic,
+        ctx,
+        field,
+        coordination_cutoff,
+        include_cn_h0,
+        v,
+    )?;
+    Ok((field.bundle, potential))
+}
+
+/// Directional second response retaining the analytic MO-motion fields.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn directional_second_order_field_legs(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &crate::electronic::ElectronicResult,
+    ctx: &ChargeSpaceContext,
+    field: &FirstOrderField,
+    coordination_cutoff: f64,
+    include_cn_h0: bool,
+    v: &[f64],
+) -> Result<(SecondOrderField, Vec<f64>)> {
+    let dvdr_q = crate::hessian::shell_scalar_potential_first_derivatives(
+        system,
+        &electronic.basis,
+        &electronic.shell_charges,
+        params,
+    )?;
+    directional_second_order_field(
+        system,
+        params,
+        electronic,
+        ctx,
+        field,
+        coordination_cutoff,
+        include_cn_h0,
+        v,
+        &dvdr_q,
+        true,
+    )
+}
+
+/// The TD derivative uses the screened field without the separate FC4
+/// potential leg. The unperturbed geometric potential derivative is shared.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn directional_second_order_field(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    electronic: &crate::electronic::ElectronicResult,
+    ctx: &ChargeSpaceContext,
+    field: &FirstOrderField,
+    coordination_cutoff: f64,
+    include_cn_h0: bool,
+    v: &[f64],
+    dvdr_q: &Matrix,
+    need_potential: bool,
+) -> Result<(SecondOrderField, Vec<f64>)> {
     let basis = &electronic.basis;
     let n = basis.len();
     let nshell = basis.shells.len();
     let ndof = 3 * system.atoms.len();
-    let dvdr_q = crate::hessian::shell_scalar_potential_first_derivatives(
-        system,
-        basis,
-        &electronic.shell_charges,
-        params,
-    )?;
     let zeros = vec![0.0_f64; nshell];
     // The already-directional shell-potential leg the one-pass SCC-scalar
     // builder takes: `Σ_d v_d ∂V_s/∂R_d|_q` (the double loop handed it the d-th
@@ -154,7 +219,10 @@ pub(crate) fn directional_second_order_legs(
     let dgamma_v_qv: Vec<f64> = (0..nshell)
         .map(|s| (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum())
         .collect();
-    let second = ctx.solve_second_order(field, field, &f_vv, &s_vv, &dgamma_v_qv, &dgamma_v_qv)?;
+    let second = ctx.second_order_field(field, field, &f_vv, &s_vv, &dgamma_v_qv, &dgamma_v_qv)?;
+    if !need_potential {
+        return Ok((second, Vec::new()));
+    }
 
     let d2vdr_q = crate::hessian::shell_scalar_potential_second_derivatives(
         system,
@@ -177,7 +245,7 @@ pub(crate) fn directional_second_order_legs(
                 .sum();
             let cross: f64 = 2.0 * (0..ndof).map(|c| v[c] * dgamma_qv[(s, c)]).sum::<f64>();
             let kq: f64 = (0..nshell)
-                .map(|t| kernel[(s, t)] * second.shell_charges[t])
+                .map(|t| kernel[(s, t)] * second.bundle.shell_charges[t])
                 .sum();
             geo2 + cross + chain[s] + kq
         })
@@ -195,6 +263,11 @@ fn check_direction_len(system: &PeriodicSystem, v: &[f64], what: &str) -> Result
             ndof
         )));
     }
+    if v.iter().any(|x| !x.is_finite()) {
+        return Err(Gfn1Error::InvalidInput(format!(
+            "{what}: direction must be finite"
+        )));
+    }
     Ok(())
 }
 
@@ -207,10 +280,20 @@ fn check_direction_len(system: &PeriodicSystem, v: &[f64], what: &str) -> Result
 /// [`directional_fourth_with_reference`] — hundreds of SCF + CPXTB solves
 /// collapse to one.
 ///
-/// Both guards of the analytic quartic live here — the order-4 term registry
-/// check and the integer-occupation check — so every path that goes through a
-/// reference inherits them.
+/// The order-4 registry guard lives here. Positive-temperature references use
+/// the canonical spectral free-energy response, including fractional degeneracy.
 pub struct QuarticReference {
+    identity: [u8; 32],
+    backend: QuarticBackend,
+}
+
+enum QuarticBackend {
+    Variational(Box<crate::third_derivative::CubicReference>),
+    Integer(Box<IntegerQuarticReference>),
+    Thermal(Box<crate::third_derivative::finite_t::FiniteTThirdReference>),
+}
+
+struct IntegerQuarticReference {
     electronic: crate::electronic::ElectronicResult,
     cphf: crate::response::cpxtb::GammaCartesianCpxtbResult,
     ctx: ChargeSpaceContext,
@@ -222,36 +305,109 @@ pub struct QuarticReference {
     pulay_third_reference: Vec<Matrix>,
 }
 
+fn use_variational_quartic(
+    system: &PeriodicSystem,
+    options: &AnalyticHessianOptions,
+    cutoff: f64,
+) -> bool {
+    // Retain the validated staged gas-phase route outside the dense-size
+    // regime. Solvent derivatives share the variational backend at any size.
+    (options.electronic_options.solvation.is_some()
+        || 3 * system.atoms.len() <= crate::MAX_FOURTH_DERIVATIVE_NDOF)
+        && crate::variational_derivatives::supports_cartesian(options, cutoff)
+}
+
 impl QuarticReference {
     /// Converge the SCF, solve the CPXTB Hessian response and build the
-    /// charge-space context for `system`, after checking the analytic-order-4
-    /// and integer-occupation guards.
+    /// charge-space context for `system`, checking order 4 and selecting the
+    /// requested-temperature analytic backend without changing temperature.
     pub fn build(
         system: &PeriodicSystem,
         params: &Gfn1Parameters,
         options: &AnalyticHessianOptions,
         coordination_cutoff: f64,
     ) -> Result<Self> {
+        Self::build_with_budget(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            512 * 1024 * 1024,
+        )
+    }
+
+    pub fn build_with_budget(
+        system: &PeriodicSystem,
+        params: &Gfn1Parameters,
+        options: &AnalyticHessianOptions,
+        coordination_cutoff: f64,
+        memory_budget_bytes: usize,
+    ) -> Result<Self> {
+        let memory_budget_bytes = crate::resources::effective_memory_budget(memory_budget_bytes);
+        if system.lattice.is_some() {
+            return Err(Gfn1Error::InvalidInput(
+                "molecular FC4 reference does not support PBC".into(),
+            ));
+        }
         crate::terms::require_order(
             &options.electronic_options,
             params,
             4,
             "the analytic fourth derivative",
         )?;
+        if use_variational_quartic(system, options, coordination_cutoff) {
+            let reference = crate::third_derivative::CubicReference::build(
+                system,
+                params,
+                &options.electronic_options,
+                memory_budget_bytes,
+            )?;
+            return Ok(Self {
+                identity: reference_identity(system, params, options, coordination_cutoff)?,
+                backend: QuarticBackend::Variational(Box::new(reference)),
+            });
+        }
+        if options.electronic_options.electronic_temperature > 0.
+            || options.electronic_options.solvation.is_some()
+        {
+            let thermal =
+                crate::third_derivative::finite_t::FiniteTThirdReference::build_with_budget(
+                    system,
+                    params,
+                    options,
+                    coordination_cutoff,
+                    memory_budget_bytes,
+                )?;
+            return Ok(Self {
+                identity: reference_identity(system, params, options, coordination_cutoff)?,
+                backend: QuarticBackend::Thermal(Box::new(thermal)),
+            });
+        }
         let _profile = crate::profile::scope("fc4.reference.total");
+        let estimate =
+            crate::third_derivative::finite_t::FiniteTThirdReference::estimated_workspace_bytes(
+                system, params, options,
+            )?;
+        if estimate > memory_budget_bytes {
+            return Err(Gfn1Error::InvalidInput(format!("FC4 reference/workspace estimate {estimate} bytes exceeds budget {memory_budget_bytes}")));
+        }
         let electronic = {
             let _p = crate::profile::scope("fc4.reference.scf");
             crate::electronic::run_electronic(system, params, options.electronic_options.clone())?
         };
+        if !electronic.converged {
+            return Err(Gfn1Error::InvalidInput(
+                "FC4 requires a converged SCF reference".into(),
+            ));
+        }
         if electronic
             .occupations
             .iter()
             .any(|&f| f > 1.0e-8 && (f - 2.0).abs() > 1.0e-8)
         {
             return Err(Gfn1Error::InvalidInput(
-                "analytic fourth derivative with fractional (Fermi-smeared) occupations is not \
-                 yet supported; use directional_fourth_seminumerical until the finite-temperature \
-                 analytic path lands"
+                "zero-temperature analytic fourth derivative requires integer occupations; \
+                 choose a positive electronic temperature for a fractional ensemble"
                     .to_string(),
             ));
         }
@@ -278,16 +434,23 @@ impl QuarticReference {
             crate::hessian::fixed_density_pulay_third_derivative(system, params, &electronic)?
         };
         Ok(Self {
-            electronic,
-            cphf,
-            ctx,
-            pulay_third_reference,
+            identity: reference_identity(system, params, options, coordination_cutoff)?,
+            backend: QuarticBackend::Integer(Box::new(IntegerQuarticReference {
+                electronic,
+                cphf,
+                ctx,
+                pulay_third_reference,
+            })),
         })
     }
 
     /// The converged reference SCF state (shared by all directions).
     pub fn electronic(&self) -> &crate::electronic::ElectronicResult {
-        &self.electronic
+        match &self.backend {
+            QuarticBackend::Variational(reference) => reference.electronic(),
+            QuarticBackend::Integer(reference) => &reference.electronic,
+            QuarticBackend::Thermal(reference) => reference.electronic(),
+        }
     }
 }
 
@@ -295,10 +458,9 @@ impl QuarticReference {
 /// one CPXTB solve, one charge-space first-order solve and one second-order
 /// solve along `v`, then the five gated stages summed.
 ///
-/// Guards: the term registry must support analytic order 4 for every active
-/// term, and the converged occupations must be integers (the finite-temperature
-/// quartic response is not implemented yet — use
-/// [`directional_fourth_seminumerical`] for smeared systems).
+/// The term registry must support analytic order 4 for every active term.
+/// Positive temperature selects canonical analytic free-energy response;
+/// no nuclear finite differences or temperature substitution are used.
 pub fn directional_fourth_derivative(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
@@ -325,7 +487,102 @@ pub fn directional_fourth_with_reference(
     reference: &QuarticReference,
     v: &[f64],
 ) -> Result<f64> {
+    if reference.identity != reference_identity(system, params, options, coordination_cutoff)? {
+        return Err(Gfn1Error::InvalidInput(
+            "FC4 reference identity mismatch: geometry, parameters, options or D3 data changed"
+                .into(),
+        ));
+    }
+    directional_fourth_reference_unchecked(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        reference,
+        v,
+    )
+}
+
+fn reference_identity(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &AnalyticHessianOptions,
+    cutoff: f64,
+) -> Result<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(system.charge.to_bits().to_le_bytes());
+    for atom in &system.atoms {
+        hash.update([atom.z]);
+        for x in [atom.position.x, atom.position.y, atom.position.z] {
+            hash.update(x.to_bits().to_le_bytes());
+        }
+    }
+    let mut global: Vec<_> = params.globpar.iter().collect();
+    global.sort_by_key(|(key, _)| *key);
+    for (key, value) in global {
+        hash.update((key.len() as u64).to_le_bytes());
+        hash.update(key.as_bytes());
+        hash.update(value.to_bits().to_le_bytes());
+    }
+    let mut elements: Vec<_> = params.elements.iter().collect();
+    elements.sort_by_key(|(z, _)| **z);
+    for (&z, e) in elements {
+        hash.update([z]);
+        for x in [e.gam, e.gam3_raw, e.repa, e.repb] {
+            hash.update(x.to_bits().to_le_bytes());
+        }
+        hash.update(format!("{:?}", e.shells).as_bytes());
+        hash.update(e.ao_raw.as_bytes());
+        let mut raw: Vec<_> = e.raw.iter().collect();
+        raw.sort_by_key(|(k, _)| *k);
+        for (key, values) in raw {
+            hash.update((key.len() as u64).to_le_bytes());
+            hash.update(key.as_bytes());
+            for x in values {
+                hash.update(x.to_bits().to_le_bytes());
+            }
+        }
+    }
+    let mut pairs: Vec<_> = params.pairpar.iter().collect();
+    pairs.sort_by_key(|(key, _)| **key);
+    for (&(a, b), x) in pairs {
+        hash.update([a, b]);
+        hash.update(x.to_bits().to_le_bytes());
+    }
+    let mut physical_options = options.clone();
+    physical_options.electronic_options.logger = None;
+    hash.update(format!("{physical_options:?}").as_bytes());
+    hash.update(cutoff.to_bits().to_le_bytes());
+    if let Some(path) = &options.electronic_options.d3_reference_path {
+        hash.update(std::fs::read(path)?);
+    }
+    Ok(hash.finalize().into())
+}
+
+pub(crate) fn directional_fourth_reference_unchecked(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    reference: &QuarticReference,
+    v: &[f64],
+) -> Result<f64> {
     check_direction_len(system, v, "directional_fourth_with_reference")?;
+    let reference = match &reference.backend {
+        QuarticBackend::Variational(reference) => return reference.directional_fourth(v),
+        QuarticBackend::Thermal(thermal) => {
+            return crate::third_derivative::finite_t::directional_fourth_with_reference(
+                system,
+                params,
+                options,
+                coordination_cutoff,
+                thermal,
+                v,
+            )
+        }
+        QuarticBackend::Integer(integer) => integer,
+    };
     let electronic = &reference.electronic;
     let cphf = &reference.cphf;
     let ctx = &reference.ctx;
@@ -443,7 +700,9 @@ pub fn directional_fourth_with_reference(
 /// A polarization direction as the sorted `(dof, weight)` list of a non-empty
 /// sub-multiset of an index quadruple — the deduplication key of the
 /// mixed-index build. At most four entries, weights in `1..=4`.
-type DirectionKey = Vec<(usize, u8)>;
+// Sorted multiset, padded by a sentinel: no heap allocation for a direction key.
+#[cfg(test)]
+type DirectionKey = [usize; 4];
 
 /// The 15 non-empty-subset terms of the polarization identity for one index
 /// quadruple: `(sign, direction)` with
@@ -455,118 +714,183 @@ type DirectionKey = Vec<(usize, u8)>;
 /// and `x₁..x₄ = e_a, e_b, e_c, e_d`. Repeated indices are allowed — the
 /// identity holds for arbitrary (possibly equal) vectors; a repeat simply gives
 /// that DOF weight 2, 3 or 4 in some of the 15 directions.
-fn polarization_terms(quad: [usize; 4]) -> Vec<(f64, DirectionKey)> {
-    let mut terms = Vec::with_capacity(15);
+#[cfg(test)]
+fn polarization_terms(quad: [usize; 4]) -> [(f64, DirectionKey); 15] {
+    let mut terms = [(0.0, [usize::MAX; 4]); 15];
     for mask in 1u32..16 {
-        let mut key: DirectionKey = Vec::with_capacity(4);
-        let mut size = 0u32;
+        let mut key = [usize::MAX; 4];
+        let mut size = 0usize;
         for (slot, &dof) in quad.iter().enumerate() {
             if mask & (1 << slot) == 0 {
                 continue;
             }
+            key[size] = dof;
             size += 1;
-            match key.iter_mut().find(|(d, _)| *d == dof) {
-                Some(entry) => entry.1 += 1,
-                None => key.push((dof, 1)),
-            }
         }
         key.sort_unstable();
         let sign = if (4 - size) % 2 == 0 { 1.0 } else { -1.0 };
-        terms.push((sign, key));
+        terms[mask as usize - 1] = (sign, key);
     }
     terms
 }
 
-/// Assemble the analytic quartic over the canonical quadruples drawn from
-/// `dofs`, indexing the packed store by POSITION in `dofs`.
-///
-/// Two phases so the expensive half parallelises cleanly:
-///
-/// 1. deduplicate the polarization directions of every quadruple — the 15
-///    subsets are massively shared, so a build over `m` DOFs needs only the
-///    multisets of size `1..=4` drawn from them, `Σ_{k=1}^{4} C(m+k−1, k)`
-///    directions (714 for a water molecule, versus 495·15 = 7425 without the
-///    deduplication);
-/// 2. evaluate each distinct direction ONCE against the shared reference (in
-///    parallel — the evaluations are independent and read-only), then contract
-///    the cached values with the identity's signs.
-///
-/// The result is order-independent: every element is a fixed linear combination
-/// of cached direction values.
-fn assemble_polarized_quartic(
+/// Limits for the packed-output/batch assembly, excluding the chemistry driver's
+/// reference/workspace. `workspace_reserve_bytes` lets callers reserve those
+/// separately; the limit is not an OS peak-RSS guarantee. No full O(d^4) plan or
+/// global direction cache is retained. Parallel evaluation is capped by the
+/// worker limit, the active pool and the workspace budget.
+#[derive(Clone, Copy, Debug)]
+pub struct QuarticAssemblyOptions {
+    pub memory_budget_bytes: usize,
+    pub batch_quadruples: usize,
+    pub max_parallel_directions: usize,
+    pub workspace_reserve_bytes: usize,
+}
+
+impl Default for QuarticAssemblyOptions {
+    fn default() -> Self {
+        Self {
+            memory_budget_bytes: 512 * 1024 * 1024,
+            batch_quadruples: 2048,
+            max_parallel_directions: 4,
+            workspace_reserve_bytes: 0,
+        }
+    }
+}
+
+impl QuarticAssemblyOptions {
+    /// Conservative bounded-container estimate; checked before SCF or allocation.
+    pub fn estimated_bytes(&self, m: usize, ndof: usize) -> Result<usize> {
+        crate::derivative_assembly::estimated_bytes(
+            4,
+            m,
+            ndof,
+            self.max_parallel_directions,
+            self.batch_quadruples,
+            true,
+        )?
+        .checked_add(self.workspace_reserve_bytes)
+        .ok_or_else(|| Gfn1Error::InvalidInput("FC4 assembly size overflow".into()))
+    }
+
+    pub fn preflight(&self, m: usize, ndof: usize) -> Result<()> {
+        let bytes = self.estimated_bytes(m, ndof)?;
+        let budget = crate::resources::effective_memory_budget(self.memory_budget_bytes);
+        if bytes > budget {
+            return Err(Gfn1Error::InvalidInput(format!(
+                "FC4 assembly needs an estimated {bytes} bytes; budget is {}; use a smaller block or direct contractions",
+                budget)));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+fn assemble_with_evaluator(
+    dofs: &[usize],
+    ndof: usize,
+    limits: &QuarticAssemblyOptions,
+    evaluate: impl Fn(&[f64]) -> Result<f64> + Sync,
+) -> Result<SymmetricFourth> {
+    crate::derivative_assembly::CartesianAssembly::new(
+        4,
+        dofs,
+        ndof,
+        limits.memory_budget_bytes,
+        0,
+        limits.workspace_reserve_bytes,
+        limits.max_parallel_directions,
+        limits.batch_quadruples,
+    )?
+    .quartic(evaluate)
+}
+
+/// Share one reference and cache only the lower-order direction values.
+pub(crate) fn assemble_polarized_quartic(
     system: &PeriodicSystem,
     params: &Gfn1Parameters,
     options: &AnalyticHessianOptions,
     coordination_cutoff: f64,
     dofs: &[usize],
+    limits: &QuarticAssemblyOptions,
 ) -> Result<SymmetricFourth> {
-    use rayon::prelude::*;
-
-    let m = dofs.len();
-    let mut slot_of: std::collections::HashMap<DirectionKey, usize> =
-        std::collections::HashMap::new();
-    let mut directions: Vec<DirectionKey> = Vec::new();
-    // `plan[q]` holds the 15 `(sign, direction slot)` pairs of the q-th
-    // canonical quadruple, in the same order the assembly loop visits them.
-    let mut plan: Vec<Vec<(f64, usize)>> = Vec::new();
-    for di in 0..m {
-        for ci in 0..=di {
-            for bi in 0..=ci {
-                for ai in 0..=bi {
-                    let terms = polarization_terms([dofs[ai], dofs[bi], dofs[ci], dofs[di]]);
-                    let mut entry = Vec::with_capacity(terms.len());
-                    for (sign, key) in terms {
-                        let slot = *slot_of.entry(key.clone()).or_insert_with(|| {
-                            directions.push(key);
-                            directions.len() - 1
-                        });
-                        entry.push((sign, slot));
-                    }
-                    plan.push(entry);
-                }
-            }
-        }
-    }
-
-    let reference = QuarticReference::build(system, params, options, coordination_cutoff)?;
     let ndof = 3 * system.atoms.len();
-    let values: Vec<f64> = directions
-        .par_iter()
-        .map(|key| {
-            let mut v = vec![0.0_f64; ndof];
-            for &(dof, weight) in key {
-                v[dof] = f64::from(weight);
-            }
-            directional_fourth_with_reference(
-                system,
-                params,
-                options,
-                coordination_cutoff,
-                &reference,
-                &v,
-            )
-        })
-        .collect::<Result<Vec<f64>>>()?;
-
-    let mut store = SymmetricFourth::zeros(m);
-    let mut quad = 0usize;
-    for di in 0..m {
-        for ci in 0..=di {
-            for bi in 0..=ci {
-                for ai in 0..=bi {
-                    let acc: f64 = plan[quad]
-                        .iter()
-                        .map(|&(sign, slot)| sign * values[slot])
-                        .sum();
-                    quad += 1;
-                    // One write per unordered quadruple: `add` accumulates, and
-                    // the canonical loop visits each packed slot exactly once.
-                    store.add(ai, bi, ci, di, acc / 24.0);
-                }
-            }
-        }
+    // Reject impossible packed output before consulting parameter tables.
+    limits.preflight(dofs.len(), ndof)?;
+    if dofs.is_empty() {
+        return SymmetricFourth::try_zeros(0, limits.memory_budget_bytes);
     }
-    Ok(store)
+    let (plan, reference) = prepare_quartic(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        dofs,
+        limits,
+        true,
+    )?;
+    plan.quartic(|v| {
+        directional_fourth_reference_unchecked(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            &reference,
+            v,
+        )
+    })
+}
+
+pub(crate) fn prepare_quartic<'a>(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    dofs: &'a [usize],
+    limits: &QuarticAssemblyOptions,
+    packed_output: bool,
+) -> Result<(
+    crate::derivative_assembly::CartesianAssembly<'a>,
+    QuarticReference,
+)> {
+    let ndof = 3 * system.atoms.len();
+    crate::terms::require_order(
+        &options.electronic_options,
+        params,
+        4,
+        "the analytic fourth derivative",
+    )?;
+    let variational = use_variational_quartic(system, options, coordination_cutoff);
+    let workspace = if variational {
+        crate::third_derivative::CubicReference::estimate_workspace(
+            system,
+            params,
+            &options.electronic_options,
+        )?
+    } else {
+        crate::third_derivative::finite_t::FiniteTThirdReference::estimated_workspace_bytes(
+            system, params, options,
+        )?
+    };
+    let plan = crate::derivative_assembly::CartesianAssembly::new_with_output(
+        4,
+        dofs,
+        ndof,
+        limits.memory_budget_bytes,
+        workspace,
+        limits.workspace_reserve_bytes,
+        limits.max_parallel_directions,
+        limits.batch_quadruples,
+        packed_output,
+    )?;
+    let reference = QuarticReference::build_with_budget(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        limits.memory_budget_bytes,
+    )?;
+    Ok((plan, reference))
 }
 
 /// **The full mixed-index analytic quartic force constants** `Q_abcd`, packed
@@ -577,12 +901,11 @@ fn assemble_polarized_quartic(
 /// inherits the directional assembly's correctness by construction — no
 /// separate mixed-index derivation, no finite differences in the nuclear
 /// coordinates. One SCF / CPXTB / charge-space reference is shared by every
-/// direction, and identical directions across quadruples are evaluated once.
+/// direction. Lower-order directional values are cached in packed arrays.
 ///
-/// Cost: `Σ_{k=1}^{4} C(ndof+k−1, k)` directional evaluations — asymptotically
-/// `ndof⁴/24`, i.e. one per distinct tensor element — each cheap because its
-/// direction has at most four non-zero components and the per-direction
-/// skeleton loops skip zero components. Use
+/// Cost remains O(ndof^4), with one new directional evaluation for each
+/// general packed quadruple. Homogeneity reuses directions with uniformly
+/// repeated indices. Every direction has at most four non-zero components. Use
 /// [`fourth_derivative_analytic_block`] when only a few DOFs matter.
 ///
 /// Guards: identical to [`directional_fourth_derivative`] — they live in
@@ -594,7 +917,14 @@ pub fn fourth_derivative_analytic_dense(
     coordination_cutoff: f64,
 ) -> Result<SymmetricFourth> {
     let dofs: Vec<usize> = (0..3 * system.atoms.len()).collect();
-    assemble_polarized_quartic(system, params, options, coordination_cutoff, &dofs)
+    assemble_polarized_quartic(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        &dofs,
+        &QuarticAssemblyOptions::default(),
+    )
 }
 
 /// The `|dofs|⁴` **sub-block** of the analytic quartic, packed as a
@@ -621,7 +951,119 @@ pub fn fourth_derivative_analytic_block(
             )));
         }
     }
-    assemble_polarized_quartic(system, params, options, coordination_cutoff, dofs)
+    fourth_derivative_analytic_block_with_limits(
+        system,
+        params,
+        options,
+        coordination_cutoff,
+        dofs,
+        &QuarticAssemblyOptions::default(),
+    )
+}
+
+/// Budgeted block build. Preflight takes place before the expensive SCF reference.
+pub fn fourth_derivative_analytic_block_with_limits(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    dofs: &[usize],
+    limits: &QuarticAssemblyOptions,
+) -> Result<SymmetricFourth> {
+    let ndof = 3 * system.atoms.len();
+    if dofs.iter().any(|&d| d >= ndof) {
+        return Err(Gfn1Error::InvalidInput(
+            "FC4 selected DOF out of range".into(),
+        ));
+    }
+    assemble_polarized_quartic(system, params, options, coordination_cutoff, dofs, limits)
+}
+
+/// Direct semi-diagonal contractions `T4[u_i,u_i,u_j,u_j]` without a Cartesian
+/// tensor. Values of q(v) are FOURTH DERIVATIVES, not Taylor coefficients.
+/// The independent-polynomial tests check the 1/12 factor and repeated indices.
+pub fn semidiagonal_from_directional(
+    directions: &[Vec<f64>],
+    mut evaluate: impl FnMut(&[f64]) -> Result<f64>,
+) -> Result<Matrix> {
+    let n = directions.len();
+    let ndof = directions.first().map_or(0, Vec::len);
+    if directions
+        .iter()
+        .any(|v| v.len() != ndof || v.iter().any(|x| !x.is_finite()))
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "quartic contraction directions must have equal length and be finite".into(),
+        ));
+    }
+    if n.checked_mul(n)
+        .and_then(|x| x.checked_mul(8))
+        .is_none_or(|bytes| bytes > 512 * 1024 * 1024)
+    {
+        return Err(Gfn1Error::InvalidInput(
+            "quartic mode-pair output exceeds the 512 MiB budget".into(),
+        ));
+    }
+    let mut out = Matrix::zeros(n, n);
+    let mut diagonal = Vec::with_capacity(n);
+    for (i, v) in directions.iter().enumerate() {
+        let q = evaluate(v)?;
+        if !q.is_finite() {
+            return Err(Gfn1Error::InvalidInput(
+                "non-finite quartic contraction".into(),
+            ));
+        }
+        diagonal.push(q);
+        out[(i, i)] = q;
+    }
+    let mut sum = vec![0.0; ndof];
+    let mut difference = vec![0.0; ndof];
+    for j in 0..n {
+        for i in 0..j {
+            for k in 0..ndof {
+                sum[k] = directions[i][k] + directions[j][k];
+                difference[k] = directions[i][k] - directions[j][k];
+            }
+            let value =
+                (evaluate(&sum)? + evaluate(&difference)? - 2.0 * diagonal[i] - 2.0 * diagonal[j])
+                    / 12.0;
+            if !value.is_finite() {
+                return Err(Gfn1Error::InvalidInput(
+                    "non-finite quartic contraction".into(),
+                ));
+            }
+            out[(i, j)] = value;
+            out[(j, i)] = value;
+        }
+    }
+    Ok(out)
+}
+
+/// Analytic mode-pair FC4, sharing a single screened reference across all modes.
+pub fn fourth_derivative_analytic_semidiagonal(
+    system: &PeriodicSystem,
+    params: &Gfn1Parameters,
+    options: &AnalyticHessianOptions,
+    coordination_cutoff: f64,
+    directions: &[Vec<f64>],
+) -> Result<Matrix> {
+    for v in directions {
+        check_direction_len(system, v, "FC4 semidiagonal")?;
+    }
+    if directions.is_empty() {
+        return Ok(Matrix::zeros(0, 0));
+    }
+    let reference = QuarticReference::build(system, params, options, coordination_cutoff)?;
+    semidiagonal_from_directional(directions, |v| {
+        directional_fourth_reference_unchecked(
+            system,
+            params,
+            options,
+            coordination_cutoff,
+            &reference,
+            v,
+        )
+    })
 }
 
 /// **Seminumerical directional fourth derivative** — the central finite
@@ -632,8 +1074,8 @@ pub fn fourth_derivative_analytic_block(
 ///
 /// The FD'd reference is the occupation-agnostic
 /// [`crate::third_derivative::finite_t::directional_third_finite_t`], so this
-/// route ALSO serves **Fermi-smeared** systems, for which the analytic quartic
-/// ([`directional_fourth_derivative`]) still errs on fractional occupations.
+/// route ALSO serves **Fermi-smeared** systems. The analytic quartic
+/// ([`directional_fourth_derivative`]) supports those systems without this FD.
 /// At `T = 0` that reference is equality-gated against the adjoint-assembled
 /// [`crate::third_derivative::third_derivative_analytic_vector`] contracted
 /// `vvv`, so the integer-occupation numbers are unchanged by the routing.
@@ -685,6 +1127,64 @@ mod tests {
     use super::*;
     use crate::electronic::ElectronicOptions;
 
+    #[test]
+    fn streamed_batches_and_direct_pairs_match_independent_polynomial() {
+        // q(x,y) = 3 x^4 + 12 x^3 y + 30 x^2 y^2 - 8 x y^3 + 7 y^4
+        // Independent coefficients: T0000=3, T0001=3, T0011=5, T0111=-2, T1111=7.
+        let q = |v: &[f64]| -> Result<f64> {
+            let (x, y) = (v[0], v[1]);
+            Ok(
+                3.0 * x.powi(4) + 12.0 * x.powi(3) * y + 30.0 * x * x * y * y - 8.0 * x * y.powi(3)
+                    + 7.0 * y.powi(4),
+            )
+        };
+        for batch in [1, 3, 128] {
+            let limits = QuarticAssemblyOptions {
+                batch_quadruples: batch,
+                max_parallel_directions: 2,
+                ..Default::default()
+            };
+            let t = assemble_with_evaluator(&[0, 1], 2, &limits, q).unwrap();
+            assert!((t.get(0, 0, 0, 0) - 3.0).abs() < 1e-12);
+            assert!((t.get(0, 0, 0, 1) - 3.0).abs() < 1e-12);
+            assert!((t.get(0, 0, 1, 1) - 5.0).abs() < 1e-12);
+            assert!((t.get(0, 1, 1, 1) + 2.0).abs() < 1e-12);
+            assert!((t.get(1, 1, 1, 1) - 7.0).abs() < 1e-12);
+        }
+        let pair =
+            semidiagonal_from_directional(&[vec![1.0, 0.0], vec![0.0, 1.0], vec![2.0, 0.0]], q)
+                .unwrap();
+        assert_eq!(pair[(0, 1)], 5.0);
+        assert_eq!(pair[(0, 2)], 12.0);
+        assert_eq!(pair[(2, 2)], 48.0);
+    }
+
+    #[test]
+    fn size_overflow_and_budget_are_rejected_before_reference() {
+        assert_eq!(super::super::checked_packed_len(300).unwrap(), 344_291_325);
+        assert!(super::super::checked_packed_len(usize::MAX).is_err());
+        assert!(QuarticAssemblyOptions::default()
+            .preflight(300, 300)
+            .is_err());
+        assert!(SymmetricFourth::try_zeros(300, 1024).is_err());
+        let sys = PeriodicSystem::from_xyz_str("2\nh2\nH 0 0 0\nH 0.74 0 0\n", 0.0, false).unwrap();
+        let limits = QuarticAssemblyOptions {
+            memory_budget_bytes: 1,
+            ..Default::default()
+        };
+        // Invalid parameters would fail during SCF; the budget error must arrive first.
+        let err = fourth_derivative_analytic_block_with_limits(
+            &sys,
+            &Gfn1Parameters::default(),
+            &AnalyticHessianOptions::default(),
+            20.0,
+            &[0, 1],
+            &limits,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("budget"));
+    }
+
     /// The shared gate fixture: non-equilibrium water (all response channels
     /// active, no symmetry cancellations) + tight SCF + a fixed skew direction.
     fn gate_fixture(enable_dispersion: bool) -> (PeriodicSystem, AnalyticHessianOptions, Vec<f64>) {
@@ -718,10 +1218,7 @@ mod tests {
     fn run_integration_gate(enable_dispersion: bool) {
         let params = Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let (system, options, v) = gate_fixture(enable_dispersion);
-        let cutoff = options
-            .electronic_options
-            .hamiltonian
-            .coordination_cutoff;
+        let cutoff = options.electronic_options.hamiltonian.coordination_cutoff;
 
         let analytic =
             directional_fourth_derivative(&system, &params, &options, cutoff, &v).unwrap();
@@ -766,8 +1263,7 @@ mod tests {
             let mut t = [a, b, c, d];
             t.sort_unstable();
             let (a, b, c, d) = (t[0] as f64, t[1] as f64, t[2] as f64, t[3] as f64);
-            1.0 + a + 2.0 * b - 0.5 * c + a * b * c * d - 0.25 * (a * a + d * d)
-                + (a + b) * (c + d)
+            1.0 + a + 2.0 * b - 0.5 * c + a * b * c * d - 0.25 * (a * a + d * d) + (a + b) * (c + d)
         };
         let quartic = |v: &[f64]| -> f64 {
             let mut acc = 0.0;
@@ -789,8 +1285,8 @@ mod tests {
                         let mut acc = 0.0;
                         for (sign, key) in polarization_terms([a, b, c, d]) {
                             let mut v = vec![0.0_f64; n];
-                            for (dof, weight) in key {
-                                v[dof] = f64::from(weight);
+                            for dof in key.into_iter().take_while(|&d| d != usize::MAX) {
+                                v[dof] += 1.0;
                             }
                             acc += sign * quartic(&v);
                         }

@@ -359,6 +359,74 @@ pub(crate) fn contracted_pair(
     (s, dx, dy, dz, qxx, qxy, qyy, qxz, qyz, qzz)
 }
 
+/// Overlap and its directional derivatives along a relative AO displacement.
+/// Differentiate the Gaussian product directly to avoid building Cartesian
+/// tensors of overlap, dipole and quadrupole integrals for every direction.
+pub(crate) fn directional_overlap(
+    a: &AOBasisFunction,
+    b: &AOBasisFunction,
+    delta: Vec3,
+    velocity: Vec3,
+) -> crate::jets::Jet1 {
+    use crate::jets::Jet1;
+    let delta = delta.to_array();
+    let velocity = velocity.to_array();
+    let d: [Jet1; 3] = std::array::from_fn(|k| Jet1 {
+        value: delta[k],
+        d1: velocity[k],
+        ..Default::default()
+    });
+    let r2 = d.iter().fold(Jet1::default(), |sum, x| sum.add(&x.mul(x)));
+    let r = r2.value.sqrt();
+    let coeff_scale = component_abs_sum(a) * component_abs_sum(b);
+    let poly_order = (a.components.first().map(|c| c.power.total()).unwrap_or(0)
+        + b.components.first().map(|c| c.power.total()).unwrap_or(0) + 2) as i32;
+    let mut total = Jet1::default();
+    for pa in &a.primitives {
+        for pb in &b.primitives {
+            let alpha = pa.exponent;
+            let beta = pb.exponent;
+            let p = alpha + beta;
+            let prefactor = pa.coefficient * pb.coefficient;
+            if primitive_pair_bound(prefactor, coeff_scale, alpha, beta, r, r2.value, poly_order)
+                < PRIMITIVE_SCREEN_EPS
+            {
+                continue;
+            }
+            let gaussian = r2.scale(-alpha * beta / p).exp();
+            let mut moments = [(PI / p).sqrt(); 7];
+            for k in 1..moments.len() {
+                moments[k] = moments[k - 1] * (k as f64 - 0.5) / p;
+            }
+            for ca in &a.components {
+                for cb in &b.components {
+                    let mut value = gaussian;
+                    for (k, (la, lb)) in [(ca.power.x, cb.power.x), (ca.power.y, cb.power.y),
+                                           (ca.power.z, cb.power.z)].into_iter().enumerate() {
+                        let ac = d[k].scale(-beta / p);
+                        let bc = d[k].scale(alpha / p);
+                        let pow = |x: &Jet1, n: usize| {
+                            (0..n).fold(Jet1::constant(1.), |value, _| value.mul(x))
+                        };
+                        let mut integral = Jet1::default();
+                        for u in 0..=la {
+                            for v in 0..=lb {
+                                if (u + v) % 2 == 0 {
+                                    integral.add_scaled(&pow(&ac, la-u).mul(&pow(&bc, lb-v)),
+                                        binom(la, u) * binom(lb, v) * moments[(u + v) / 2]);
+                                }
+                            }
+                        }
+                        value = value.mul(&integral);
+                    }
+                    total.add_scaled(&value, prefactor * ca.coefficient * cb.coefficient);
+                }
+            }
+        }
+    }
+    total
+}
+
 /// 1D kinetic-energy contribution `<(x-a)^la | -1/2 d^2/dx^2 | (x-b)^lb>` (no
 /// `K_ab` factor), built from 1D overlap moments at shifted ket angular momenta:
 /// `-1/2 [ lb(lb-1) S(la,lb-2) - 2 beta (2 lb + 1) S(la,lb) + 4 beta^2 S(la,lb+2) ]`
@@ -1305,8 +1373,8 @@ mod tests {
 
     #[test]
     fn gfn1_basis_overlap_derivatives_match_matrix_finite_difference() {
-        let params = crate::params::Gfn1Parameters::resolve(None)
-            .expect("GFN1 parameter resolution failed");
+        let params =
+            crate::params::Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let xyz = "24
 caffeine
 N 0.000000 0.000000 0.000000
@@ -1383,8 +1451,8 @@ H 0.780000 5.330000 0.000000
 
     #[test]
     fn gfn1_h0_derivatives_match_matrix_finite_difference_without_cn() {
-        let params = crate::params::Gfn1Parameters::resolve(None)
-            .expect("GFN1 parameter resolution failed");
+        let params =
+            crate::params::Gfn1Parameters::resolve(None).expect("GFN1 parameter resolution failed");
         let xyz = "24
 caffeine
 N 0.000000 0.000000 0.000000

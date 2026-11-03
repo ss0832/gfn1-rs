@@ -540,6 +540,9 @@ where
         let fmo = to_mo_basis(&mo, &fock)?;
         let g = orbital_gradient(&fmo, &space);
         gnorm = norm2(&g);
+        if std::env::var_os("GFN1_TRAH_DEBUG").is_some() {
+            eprintln!("TRAH iter={it} energy={energy:.16e} gradient={gnorm:e} trust={trust:e}");
+        }
         if gnorm < options.grad_tol {
             converged = true;
             break;
@@ -565,7 +568,25 @@ where
                 -1.0
             }
         };
-        if rho > 0.1 && actual < 0.0 {
+        // Near a stationary point the predicted energy decrease is below
+        // floating-point resolution. Require a decreasing physical gradient
+        // to accept such a step; do not loosen the requested gradient tolerance.
+        let roundoff = 32.0 * f64::EPSILON * (1.0 + energy.abs());
+        let near_roundoff = actual.abs() <= roundoff && predicted.abs() <= roundoff;
+        let residual_improves = near_roundoff
+            && step.step_norm < 1e-4
+            && norm2(&orbital_gradient(
+                &to_mo_basis(&trial_mo, &trial_fock)?,
+                &space,
+            )) < 0.9 * gnorm;
+        if std::env::var_os("GFN1_TRAH_DEBUG").is_some() {
+            let tg = norm2(&orbital_gradient(
+                &to_mo_basis(&trial_mo, &trial_fock)?,
+                &space,
+            ));
+            eprintln!("TRAH trial actual={actual:e} predicted={predicted:e} step={} gradient={tg:e} roundoff_accept={residual_improves}", step.step_norm);
+        }
+        if (rho > 0.1 && actual < 0.0 && !near_roundoff) || residual_improves {
             // Accept the step.
             mo = trial_mo;
             density = trial_density;
@@ -822,6 +843,41 @@ mod tests {
             }
         }
         (Model { h, a }, c0, occ)
+    }
+
+    #[test]
+    fn strict_stationarity_survives_energy_roundoff_and_constant_offsets() {
+        let (model, solution, occ) = solvable_model(3, 1);
+        let space = OrbitalRotationSpace::from_occupations(&occ);
+        let initial = rotate_mos(&solution, &space, &vec![0.03; space.len()]).unwrap();
+        for offset in [0., 10000.] {
+            let result = run_trah_scf(
+                &initial,
+                &occ,
+                |p| (model.fock(p), model.energy(p) + offset),
+                |dp| model.response(dp),
+                &TrahOptions {
+                    grad_tol: 1e-12,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert!(
+                result.converged,
+                "offset={offset} residual={:e}",
+                result.gradient_norm
+            );
+            assert!(result.gradient_norm < 1e-12);
+            let expected = density_from_mos(&solution, &occ);
+            let error = result
+                .density
+                .as_slice()
+                .iter()
+                .zip(expected.as_slice())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0., f64::max);
+            assert!(error < 1e-10, "offset={offset} density error={error:e}");
+        }
     }
 
     /// **M4.4 gate** — starting from orbitals *perturbed* off a known SCF solution, repeated
